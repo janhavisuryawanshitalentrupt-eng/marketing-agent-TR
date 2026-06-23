@@ -37,8 +37,8 @@ CREAM_RGB = hex_to_rgb(CREAM)
 WHITE_RGB = hex_to_rgb(WHITE)
 
 LAYOUTS = {"metric", "statement", "steps", "comparison"}
-STYLES = {"photographic", "decorative", "infographic", "ui_mockup", "typographic"}
-RICH_STYLES = {"photographic", "decorative", "ui_mockup"}
+STYLES = {"photographic", "decorative", "infographic", "ui_mockup", "typographic", "editorial_collage"}
+RICH_STYLES = {"photographic", "decorative", "ui_mockup", "infographic", "editorial_collage"}
 
 
 def _wrap(draw, text, font, max_width):
@@ -66,9 +66,11 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             "navy/red/cream brand). Return ONLY JSON: {\"variations\": [...]} with EXACTLY "
             f"{count} variation(s). Each variation object:\n"
             '- "layout": one of "metric","statement","steps","comparison"\n'
-            '- "style": one of "photographic" (a real-world photo hero), "decorative" (graphic '
-            'shapes/illustration), "infographic" (icons/diagram), "ui_mockup" (an app/screen '
-            'mockup), "typographic" (bold type poster)\n'
+            '- "style": one of "photographic" (a cinematic real-world photo hero), '
+            '"editorial_collage" (a cut-out-subject magazine collage on textured cream paper), '
+            '"decorative" (flat-vector illustration with brand shapes), "infographic" (navy hero '
+            'silhouette + a stat-card row), "ui_mockup" (a browser/app screen holding stat cards), '
+            '"typographic" (atmospheric photo + elegant condensed type)\n'
             '- "composition": one of "full_bleed_photo","split_panel","centered_type","grid",'
             '"cards","collage" — the overall arrangement\n'
             '- "bg": "navy" or "cream"\n'
@@ -81,13 +83,41 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             '- "left"/"right": {"label","text"} for layout "comparison", else null\n'
             '- "cta": short call to action\n'
             "ART-DIRECTION RULES: Choose the style AND composition that genuinely best fit THIS "
-            "specific topic — be visually inventive. PREFER a striking real-world PHOTOGRAPHIC or "
-            "editorial hero for most topics (it reads the most premium and on-brand, like a magazine "
-            "spread); reserve 'infographic'/'typographic' for topics genuinely about data, steps, or a "
-            "bold one-line statement. Do NOT default to a 'hand holding a card/phone' image or a cream "
-            "card with a navy heading; vary scenes, framing, and layout. Match the topic; NEVER force "
-            "healthcare/recruiting metrics onto unrelated topics (holidays, culture); do NOT invent "
-            "statistics.\n"
+            "specific topic — be visually inventive and vary scenes, framing, and layout. Talentrupt's "
+            "quality bar is FIVE distinct archetypes; map the topic to the one that fits:\n"
+            "1. ATMOSPHERIC PHOTO HERO — for calm, premium, emotionally resonant topics (a value, a "
+            "relationship, a milestone, a holiday, a reflective statement): style 'photographic' with "
+            "composition 'full_bleed_photo'. A cinematic real-world photo, subtle navy/cream/coral "
+            "grade, wide calm negative space for the headline.\n"
+            "2. ATMOSPHERIC PHOTO + ELEGANT TYPE — for poetic/atmospheric one-line ideas: style "
+            "'typographic' with 'full_bleed_photo' or 'centered_type'. Full-bleed evocative scene + "
+            "ELEGANT THIN CONDENSED ALL-CAPS headline (one word oversized), NOT bold geometric sans.\n"
+            "3. CUT-OUT-SUBJECT COLLAGE — for people/editorial topics (recruiter truths, myths, "
+            "day-in-the-life, candidate experience, hiring tips, culture, 'things they don't tell "
+            "you'): style 'editorial_collage' with composition 'collage'. One cut-out person on "
+            "textured cream paper, ringed by floating topic objects/icons, coral arc/squiggle/"
+            "dotted-grid accents, NAVY headline carrying exactly ONE coral word + a navy subtext pill.\n"
+            "4. STAT-CARD INFOGRAPHIC — for data/proof topics: style 'infographic' with 'cards' (or "
+            "'grid'). A big navy flat-vector silhouette hero + a row of 2-3 navy/coral STAT CARDS (big "
+            "number + short label) on white/cream, optional slim coral proof banner.\n"
+            "5. ILLUSTRATION + BROWSER-MOCKUP DATA — for product/process/pipeline data: style "
+            "'ui_mockup' with 'split_panel' or 'cards'. A realistic browser-window or app screen "
+            "holding that same row of stat cards.\n"
+            "Use 'decorative' for object- or concept-led illustrated collages with NO single human "
+            "subject. Keep accent motifs SPARSE (corners and behind the subject) — they are accents, "
+            "never a full-color background wash. PREFER a striking photographic, atmospheric, or "
+            "editorial hero for most topics (they read most premium and on-brand). METRIC GATING: use "
+            "the 'infographic'/'ui_mockup' stat-card archetypes (and ANY metric) ONLY for topics "
+            "genuinely about Talentrupt's data/proof/performance; the metric MUST be copied VERBATIM "
+            "from Talentrupt's supplied proof points — NEVER an industry, market, or topical statistic "
+            "(e.g. a sector's projected growth %), and NEVER a number you estimate. For culture, "
+            "holiday, wellness, values, seasonal, or motivational topics, choose 'photographic', "
+            "'typographic', or 'editorial_collage' and set metric/metric_label to null — do NOT attach "
+            "any statistic. If no real Talentrupt number genuinely fits, set metric/metric_label to "
+            "null and render any screen/cards with believable but NON-numeric UI instead. NEVER invent "
+            "or estimate a statistic to fill a card. Do NOT default to a 'hand holding a card/phone' "
+            "image or a plain cream card with a navy heading. Match the topic; NEVER force healthcare/"
+            "recruiting metrics onto unrelated topics (holidays, culture); do NOT invent statistics.\n"
             + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if proof else "")
             + (f"\n{context}\n" if context else "")
         )
@@ -110,17 +140,58 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
     ]
 
 
+def _metric_is_real(metric, brand: Brand | None) -> bool:
+    """Anti-fabrication backstop: a rendered statistic must echo a REAL Talentrupt proof point.
+    The planner is instructed to only use real numbers, but this guarantees it deterministically —
+    any number not present in the brand's proof points (e.g. an industry/market stat) is rejected."""
+    nums = re.findall(r"\d[\d,.]*", str(metric or ""))
+    if not nums:
+        return False
+    proof = " ".join(brand.proof_points) if brand and brand.proof_points else ""
+    return bool(proof) and any(n in proof for n in nums)
+
+
+_NONCOMMERCIAL_RE = re.compile(
+    r"\b(yoga|diwali|deepavali|holi|navratri|dussehra|dasara|raksha|rakhi|eid|ramadan|ramzan|"
+    r"christmas|xmas|hanukkah|kwanzaa|new year|thanksgiving|halloween|valentine|women'?s day|"
+    r"men'?s day|mother'?s day|father'?s day|independence day|republic day|labou?r day|"
+    r"veterans? day|earth day|pride month|festival|holiday|season'?s greetings|wellness|"
+    r"mindfulness|meditation|gratitude|celebrat|anniversary|birthday|condolence|tribute)\b",
+    re.I,
+)
+
+
+def _is_noncommercial_topic(concept: str) -> bool:
+    """Culture/holiday/wellness/seasonal posts must never carry a recruiting stat — they take an
+    atmospheric/editorial treatment (like Talentrupt's real yoga/holiday posts), not a stat card."""
+    return bool(_NONCOMMERCIAL_RE.search(concept or ""))
+
+
 def _coerce(v: dict, concept: str, brand: Brand | None) -> dict:
     layout = v.get("layout") if v.get("layout") in LAYOUTS else "statement"
+    style = v.get("style") if v.get("style") in STYLES else "photographic"
+    metric = v.get("metric") if layout == "metric" else None
+    metric_label = v.get("metric_label") if layout == "metric" else None
+    # Never render a number that isn't a real Talentrupt proof point — drop it and fall back to a
+    # clean statement layout (mirrors the app-wide no-fabrication contract).
+    if metric and not _metric_is_real(metric, brand):
+        metric, metric_label, layout = None, None, "statement"
+    # Culture/holiday/wellness topics: never a stat card; route a data style to an atmospheric poster.
+    if _is_noncommercial_topic(concept):
+        metric = metric_label = None
+        if layout == "metric":
+            layout = "statement"
+        if style in ("infographic", "ui_mockup"):
+            style = "typographic"
     return {
         "layout": layout,
-        "style": v.get("style") if v.get("style") in STYLES else "photographic",
+        "style": style,
         "composition": v.get("composition", ""),
         "bg": "cream" if v.get("bg") == "cream" else "navy",
         "headline": (v.get("headline") or concept or "RPO Done Right").strip(),
         "subtext": (v.get("subtext") or (brand.tagline if brand else "RPO Done Right")).strip(),
-        "metric": v.get("metric") if layout == "metric" else None,
-        "metric_label": v.get("metric_label") if layout == "metric" else None,
+        "metric": metric,
+        "metric_label": metric_label,
         "points": (v.get("points") or [])[:4] if layout == "steps" else [],
         "left": v.get("left") if layout == "comparison" else None,
         "right": v.get("right") if layout == "comparison" else None,
@@ -251,23 +322,85 @@ _LAYOUT_DIRECTION = {
     "statement": "The headline is the hero; minimal supporting elements.",
 }
 _STYLE_DIRECTION = {
-    "photographic": "A bright, real-world PHOTOGRAPH as the hero — pick a scene that genuinely fits "
-    "the topic (e.g. a diverse team collaborating, a recruiter at a laptop, a candidate interview, "
-    "a confident professional, an abstract modern workplace). Do NOT use a hand holding a card/phone. "
-    "Integrate the headline tastefully over or beside the photo.",
-    "decorative": "A bold graphic/illustration composition using brand shapes — navy line/wave "
-    "motifs, a coral-red starburst, geometric blocks — arranged in a fresh, original way.",
-    "infographic": "A structured infographic — icons, a clear diagram or simple chart, strong hierarchy.",
-    "ui_mockup": "A sleek app/screen or dashboard mockup relevant to the topic as the focal element.",
-    "typographic": "A bold typographic poster — oversized expressive headline, minimal supporting elements.",
+    "photographic": "A full-bleed, magazine-grade PHOTOGRAPH as the hero — choose ONE quietly "
+    "cinematic real-world moment that genuinely fits the topic (e.g. two diverse hands meeting in a "
+    "warm handshake on a soft neutral studio backdrop; a candidate and recruiter mid-conversation; a "
+    "single confident professional by a sunlit window; a diverse team collaborating). Shoot it like an "
+    "editorial cover: shallow depth of field, soft directional natural light, and generous CALM "
+    "NEGATIVE SPACE on one side or the top for the headline. Apply a SUBTLE brand color grade — "
+    "deep-navy cool in the shadows, faint warm-cream highlights, with at most one small coral-red "
+    "accent occurring naturally in the scene (a lanyard, sticky note, sleeve) rather than a flat color "
+    "wash. Do NOT use a hand holding a card/phone. Integrate the headline tastefully over the calm "
+    "negative space, never crowding the subject; one small coral arc or squiggle accent in a corner is "
+    "optional, kept minimal so the photo leads.",
+    "editorial_collage": "A magazine-style EDITORIAL COLLAGE on a textured warm-cream (#EBE9DF) paper "
+    "background with subtle grain/fiber tooth. A single full-color CUT-OUT photo of one real, relatable "
+    "professional (clean cut-out edge with a faint paper drop-shadow; arms crossed, mid-laugh, or "
+    "gesturing) anchors the frame, RINGED by 6-10 neatly floating everyday work objects and app-style "
+    "icon tiles relevant to the topic (laptop, headphones, smartphone, notebook, coffee tumbler, "
+    "glasses, a document with a small coral check or red error badge), each at varied sizes/angles "
+    "casting a soft shadow like scattered stickers. BEHIND and around the subject, hand-drawn CORAL-RED "
+    "(#F6404C) accent motifs — concentric line arcs/half-circles, a loose squiggle, an 8-point "
+    "starburst, a small dotted grid — tucked into corners as sparse accents, never a full color wash. "
+    "Bold modern geometric NAVY (#0B3559) headline with exactly ONE word flipped to coral red, plus a "
+    "solid navy rounded subtext PILL holding a single white line. Confident negative space, crisp "
+    "focus, premium B2B finish.",
+    "decorative": "A bold flat-vector ILLUSTRATION composition on textured cream (or navy) 'paper' — a "
+    "navy/coral/cream scene that dramatizes the topic (people at desks, a spinning globe, flying "
+    "envelopes, oversized props) or a hero object built from clean vector shapes. Anchor it with the "
+    "signature accent motifs done large and confident: a coral-red 8-POINT STARBURST behind the focal "
+    "point, hand-drawn navy SQUIGGLES, concentric line ARCS/half-circles, geometric blocks, and a "
+    "DOTTED GRID drifting into a corner — scattered as ACCENTS, never a flat single-color wash. Use for "
+    "object- or concept-led compositions with no single human subject. Layered, editorial, asymmetric, "
+    "strong navy/coral/cream hierarchy with generous whitespace and a tactile finish.",
+    "infographic": "A clean structured infographic on CRISP WHITE (or warm cream) with magazine-strength "
+    "hierarchy. Build it around ONE flat-vector NAVY silhouette HERO illustration (a large object or "
+    "scene that literally embodies the topic) with tiny coral-red and cream accent figures or props "
+    "woven in. Below or beside the hero, place a single ROW OF 2-3 rounded STAT CARDS in deep navy and "
+    "coral red, each holding one BIG number (only if a real one is supplied) plus a short label. "
+    "Optional slim coral banner strip for a one-line proof statement. Scatter signature motifs sparingly "
+    "in the margins — a coral 8-point starburst, a squiggle, a dotted grid, a half-circle line arc. "
+    "Render ONLY numbers explicitly provided; invent NO statistics — if none fit, use non-numeric "
+    "labels. Strong grid, generous whitespace, every element tack-sharp.",
+    "ui_mockup": "A sleek, front-facing BROWSER-WINDOW or app mockup as the focal element on a textured "
+    "off-white/cream or soft navy backdrop. Draw realistic window chrome (rounded top bar, three "
+    "traffic-light dots, a simple address/tab bar) framing a clean recruiting-relevant dashboard. INSIDE "
+    "the window, when real numbers are supplied, show a tidy horizontal ROW of 2-3 rounded STAT CARDS in "
+    "navy + coral red, each a big number over a short label (e.g. candidates sourced, CVs delivered, in "
+    "pipeline). Keep it flat-on or tilt subtly in 3/4 perspective, casting a soft drop shadow so it "
+    "reads as a solid premium object. Surround it with light brand motifs — a coral starburst, a navy "
+    "squiggle, scattered dots. If NO real metric is provided, fill the screen with believable UI "
+    "(charts, lists, avatars) bearing NO fabricated numerals. Crisp, pixel-clean edges.",
+    "typographic": "An ATMOSPHERIC PHOTO + TYPE poster: a full-bleed evocative photograph or painterly "
+    "atmospheric scene that fits the topic (misty forest at dawn, a calm horizon, soft city light, a "
+    "quiet textured landscape) carrying the whole frame, with one elegant THIN CONDENSED ALL-CAPS "
+    "headline laid over it — one key word oversized as the focal type, the rest in a tight refined "
+    "hierarchy. Let a hero silhouette or single subject sit low in the frame with a gentle warm golden "
+    "glow; keep wide tranquil negative space (sky, mist, fog) above for the type and a short two-line "
+    "caption at the very bottom. Grade subtly toward navy shadows and cream-warm light with at most one "
+    "whisper of coral; no flat wash, no clutter. Tack-sharp, premium, contemplative.",
 }
 _COMPOSITION_DIRECTION = {
-    "full_bleed_photo": "full-bleed imagery with the text overlaid",
-    "split_panel": "a split layout (image on one side, text on the other)",
-    "centered_type": "centered, type-led with generous whitespace",
-    "grid": "a clean grid of elements",
-    "cards": "a small number of rounded cards",
-    "collage": "an editorial collage of a few elements",
+    "full_bleed_photo": "a full-bleed photographic/atmospheric hero filling the frame edge-to-edge, "
+    "with the headline set over a deliberately calm zone of negative space (open sky, soft wall, "
+    "blurred background); the subject sits off-center so the type never collides with it, and the "
+    "bottom-right corner stays empty",
+    "split_panel": "a split layout — a cut-out subject, photo, flat-vector illustration, or "
+    "browser-window mockup on one side; the headline and a solid navy subtext pill (plus stat cards if "
+    "real numbers exist) on the other — divided cleanly with optional coral accents along the seam",
+    "centered_type": "a type-led poster with an oversized elegant thin condensed all-caps headline "
+    "centered over generous tranquil whitespace or a quiet atmospheric photo backdrop; one word may "
+    "dominate as the focal point, a short caption anchored low, refined restrained hierarchy throughout",
+    "grid": "a clean grid of elements or icon tiles with strong alignment and even gutters; promote one "
+    "tile or stat as the visual anchor",
+    "cards": "a clean horizontal row of 2-3 solid, fully-opaque rounded navy/coral STAT CARDS, each a "
+    "big number above a short label, with generous spacing and aligned baselines, set off by one or two "
+    "coral accent motifs — populated ONLY with real supplied numbers",
+    "collage": "an editorial cut-out collage on textured cream paper — a single cut-out subject (a "
+    "person, or a hero object) ringed by a handful of neatly floating topic-relevant objects/icon tiles "
+    "at varied sizes and angles, each with a soft shadow, plus sparse coral arc/squiggle/starburst/"
+    "dotted-grid accents in the corners and behind the subject; navy headline with one coral word "
+    "beside a solid navy subtext pill, with deliberate negative space",
 }
 
 
@@ -276,9 +409,15 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
     extra = "Steps to show: " + "; ".join(plan["points"]) + "." if (plan["layout"] == "steps" and plan.get("points")) else ""
     comp = _COMPOSITION_DIRECTION.get(plan.get("composition", ""), _LAYOUT_DIRECTION.get(plan["layout"], _LAYOUT_DIRECTION["statement"]))
     ref_line = (
-        "Attached image(s) are Talentrupt's OWN past posts — use them ONLY to match the brand "
-        "palette, type treatment, and finish. Create an ORIGINAL composition that is clearly "
-        "DIFFERENT from them; do NOT copy their layout, scene, or text.\n"
+        "Attached image(s) are Talentrupt's OWN past posts. Study them closely to ABSORB the brand's "
+        "craft — its warm-cream paper texture, the subtle navy/cream/coral color grading, the "
+        "hand-drawn coral accent motifs (arcs, squiggles, starbursts, dotted grids), the elegant type "
+        "treatments (bold geometric navy with one coral word, or elegant thin condensed all-caps), the "
+        "cut-out-subject finish, and the overall compositional RICHNESS and polish (layered depth, "
+        "confident motif placement, calm negative space, magazine-grade hierarchy). MATCH that level of "
+        "craft and brand feel and quality bar. But create a fully ORIGINAL composition with a DIFFERENT "
+        "subject, scene, object set, layout, and text; do NOT copy, trace, or echo their arrangement, "
+        "framing, props, or wording. Reach their finish, invent your own picture.\n"
         if has_refs else ""
     )
     return (
@@ -288,6 +427,19 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
         + "BRAND SYSTEM — follow precisely:\n"
         "- Colors: deep navy #0B3559, coral red #F6404C (accent), warm cream #EBE9DF, white.\n"
         "- Typography: bold modern geometric sans-serif headings, strong hierarchy.\n"
+        "- BRAND MOTIFS: Where it suits the style, weave in Talentrupt's signature ACCENT MOTIFS in "
+        "coral red (and sometimes navy) — a hand-drawn 8-POINT STARBURST behind or beside the focal "
+        "element, loose hand-drawn SQUIGGLES, a faint DOTTED GRID, and CONCENTRIC LINE ARCS / "
+        "half-circles drifting into the corners — over a textured warm-cream 'paper' background for "
+        "collage, decorative, and infographic posts; for cut-out-subject collages give the single "
+        "cut-out person a clean edge with a faint paper drop-shadow, surround them with neatly floating "
+        "work objects/icon tiles at varied sizes each casting a soft shadow, and set the headline in "
+        "bold geometric navy with exactly ONE word in coral red beside a solid navy rounded subtext "
+        "pill. For data graphics, render stat figures as solid, fully-opaque rounded navy and coral-red "
+        "CARDS, each one big number above a short label, aligned in a clean row. These motifs are "
+        "SPARSE accents only (corners and behind the subject) and must NEVER become a flat full-color "
+        "wash; for full-bleed photographic and atmospheric posters keep them minimal or absent so the "
+        "photo and type stay clean.\n"
         "- CRITICAL: do NOT render the word 'Talentrupt', the tagline 'RPO Done Right', or ANY company "
         "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image — the official logo is "
         "overlaid afterward. Keep the BOTTOM-RIGHT corner empty and uncluttered for it. Premium B2B, "
