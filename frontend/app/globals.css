@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+/* Talentrupt — premium dark workspace (navy / red / cream). Dark is default. */
+:root {
+  --background: #080d16;
+  --surface: #0f1828;
+  --surface-2: #16223a;
+  --surface-3: #1d2c46;
+  --border: rgba(235, 233, 223, 0.10);
+  --border-strong: rgba(235, 233, 223, 0.18);
+  --foreground: #eceadf;
+  --muted: #94a3b8;
+
+  --brand-navy: #0b3559;
+  --brand-navy-2: #0e4373;
+  --brand-red: #f6404c;
+  --brand-coral: #ff7a52;
+  --brand-cream: #ebe9df;
+
+  --grad-red: linear-gradient(135deg, #f6404c 0%, #ff7a52 100%);
+  --grad-navy: linear-gradient(135deg, #0b3559 0%, #0e4373 100%);
+  --ring: rgba(246, 64, 76, 0.55);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
+  --radius: 16px;
+}
+
+/* Light mode — cream/white surfaces, navy text, same red/coral accents. */
+:root[data-theme="light"] {
+  --background: #f3f1ea;
+  --surface: #ffffff;
+  --surface-2: #f2efe7;
+  --surface-3: #e7e3d8;
+  --border: rgba(11, 53, 89, 0.12);
+  --border-strong: rgba(11, 53, 89, 0.22);
+  --foreground: #15233b;
+  --muted: #5d6e84;
+  --ring: rgba(246, 64, 76, 0.40);
+  --shadow-card: 0 1px 2px rgba(11, 53, 89, 0.06), 0 10px 24px rgba(11, 53, 89, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-navy: var(--brand-navy);
+  --color-red: var(--brand-red);
+  --color-coral: var(--brand-coral);
+  --color-cream: var(--brand-cream);
+
+  --font-heading: var(--font-poppins);
+  --font-body: var(--font-montserrat);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--foreground);
+  font-family: var(--font-montserrat), system-ui, sans-serif;
+  background:
+    radial-gradient(1100px 560px at 100% -8%, rgba(246, 64, 76, 0.07), transparent 60%),
+    radial-gradient(900px 520px at -10% 110%, rgba(14, 67, 115, 0.45), transparent 60%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 560px at 100% -8%, rgba(246, 64, 76, 0.06), transparent 60%),
+    radial-gradient(900px 520px at -10% 110%, rgba(14, 67, 115, 0.10), transparent 60%),
+    var(--background);
+}
+:root[data-theme="light"] * { scrollbar-color: rgba(11, 53, 89, 0.25) transparent; }
+:root[data-theme="light"] *::-webkit-scrollbar-thumb { background: rgba(11, 53, 89, 0.25); }
+:root[data-theme="light"] *::-webkit-scrollbar-thumb:hover { background: rgba(11, 53, 89, 0.4); }
+
+h1, h2, h3, .font-heading {
+  font-family: var(--font-poppins), system-ui, sans-serif;
+}
+
+/* --- Reusable component primitives ------------------------------------- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--grad-red);
+  color: #fff;
+  font-weight: 600;
+  border-radius: 12px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  box-shadow: 0 6px 18px rgba(246, 64, 76, 0.28);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(246, 64, 76, 0.36); }
+.btn-primary:disabled { opacity: 0.5; box-shadow: none; transform: none; cursor: default; }
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  background: transparent;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.btn-ghost:hover { border-color: var(--border-strong); color: var(--foreground); background: var(--surface-2); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+/* Subtle hover lift for interactive/stat cards and rows. */
+.lift { transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; }
+.lift:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26); }
+.hover-row { transition: background 0.12s ease, border-color 0.12s ease; }
+.hover-row:hover { background: var(--surface-2); border-color: var(--border-strong); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.field {
+  width: 100%;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.field:focus { border-color: var(--brand-red); box-shadow: 0 0 0 3px rgba(246, 64, 76, 0.15); }
+.field::placeholder { color: var(--muted); }
+
+/* --- Scrollbars -------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(235, 233, 223, 0.18) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: rgba(235, 233, 223, 0.18); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(235, 233, 223, 0.3); }

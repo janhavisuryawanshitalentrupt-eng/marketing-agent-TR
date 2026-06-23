@@ -1,0 +1,63 @@
+"""Database engine and session setup.
+
+Works on SQLite (dev) and PostgreSQL (prod) via the same SQLAlchemy models.
+JSON columns use the generic SQLAlchemy ``JSON`` type so both backends work.
+"""
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+from .config import settings
+
+connect_args = {}
+if settings.database_url.startswith("sqlite"):
+    # Needed because FastAPI may touch the session across threads.
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(settings.database_url, connect_args=connect_args, future=True)
+
+if settings.database_url.startswith("sqlite"):
+    # WAL allows the ingestion process to write while the API server reads.
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _rec):  # pragma: no cover
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db() -> Iterator[Session]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def init_db() -> None:
+    """Create all tables. Import models first so metadata is populated."""
+    from . import models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+    _migrate_sqlite()
+
+
+def _migrate_sqlite() -> None:
+    """Lightweight additive migrations for the dev SQLite DB (create_all won't ALTER
+    existing tables). Adds columns introduced after a table was first created."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(conversations)"))}
+        if "kind" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN kind VARCHAR DEFAULT 'chat'"))

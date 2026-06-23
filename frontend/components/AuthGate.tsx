@@ -1,0 +1,107 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { ApiError, clearToken, getBrand, getHealth, getToken } from "@/lib/api";
+import type { Brand, Health } from "@/lib/types";
+import { ChatProvider, CreateProvider } from "./ChatProvider";
+import { Login } from "./Login";
+import { Shell } from "./Shell";
+
+interface AuthState {
+  brand: Brand | null;
+  health: Health | null;
+  logout: () => void;
+  refreshHealth: () => void;
+}
+
+const AuthContext = createContext<AuthState | null>(null);
+
+export function useAuth(): AuthState {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthGate");
+  return ctx;
+}
+
+export function AuthGate({ children }: { children: React.ReactNode }) {
+  // null = not yet determined (avoids hydration flash)
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [brand, setBrand] = useState<Brand | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
+
+  const loadContext = useCallback(async () => {
+    try {
+      const b = await getBrand(); // authed — a 401 here means the token is invalid/expired
+      setBrand(b);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        // Dead token: clear it and drop to the Login screen instead of a silent empty Shell.
+        clearToken();
+        setAuthed(false);
+        setBrand(null);
+        return;
+      }
+      setBrand(null); // transient/other error — keep the shell, don't force a logout
+    }
+    getHealth().then(setHealth).catch(() => {}); // public + non-critical
+  }, []);
+
+  useEffect(() => {
+    const token = getToken();
+    setAuthed(!!token);
+    if (token) loadContext();
+  }, [loadContext]);
+
+  const logout = useCallback(() => {
+    clearToken();
+    setAuthed(false);
+    setBrand(null);
+  }, []);
+
+  const refreshHealth = useCallback(() => {
+    getHealth().then(setHealth).catch(() => {});
+  }, []);
+
+  if (authed === null) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4">
+        <div
+          className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl"
+          style={{ background: "var(--grad-navy)" }}
+        >
+          <span className="font-heading text-sm font-bold text-[var(--brand-red)]">TR</span>
+        </div>
+        <div className="font-heading text-sm tracking-wide text-muted">Talentrupt AI</div>
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return (
+      <Login
+        onAuthed={() => {
+          setAuthed(true);
+          loadContext();
+        }}
+      />
+    );
+  }
+
+  return (
+    <AuthContext.Provider value={{ brand, health, logout, refreshHealth }}>
+      <ChatProvider>
+        <CreateProvider>
+          {/* Shell renders all section views (kept mounted so state survives navigation);
+              the route pages render null and only drive the URL. */}
+          <Shell />
+          {children}
+        </CreateProvider>
+      </ChatProvider>
+    </AuthContext.Provider>
+  );
+}
