@@ -120,13 +120,7 @@ export function CreateView() {
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-        <div>
-          <h1 className="font-heading text-base font-semibold">Create</h1>
-          <p className="text-xs text-muted">
-            Generate on-brand images and presentations from a prompt.
-          </p>
-        </div>
+      <header className="flex items-center justify-end border-b border-[var(--border)] px-6 py-2.5">
         <div className="flex items-center gap-1">
           <button onClick={() => setTab("generate")} className={tabCls(tab === "generate")}>
             Generate

@@ -50,11 +50,7 @@ export function AnalyticsView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-        <div>
-          <h1 className="font-heading text-base font-semibold">Analytics</h1>
-          <p className="text-xs text-muted">Pipeline, outreach, campaigns, and content at a glance.</p>
-        </div>
+      <header className="flex items-center justify-end border-b border-[var(--border)] px-6 py-2.5">
         <button onClick={load} disabled={refreshing} className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-60">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={refreshing ? "animate-spin" : ""}>
             <path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6" />

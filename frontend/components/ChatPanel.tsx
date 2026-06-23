@@ -115,16 +115,10 @@ export function ChatPanel() {
 
       {/* Chat column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-          <div>
-            <h1 className="font-heading text-base font-semibold">Chat</h1>
-            <p className="text-xs text-muted">
-              Your all-access assistant — find prospects, write copy, generate visuals, ask anything.
-            </p>
-          </div>
+        <header className="flex items-center justify-end border-b border-[var(--border)] px-6 py-2.5 md:hidden">
           <button
             onClick={newChat}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground md:hidden"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
           >
             New chat
           </button>

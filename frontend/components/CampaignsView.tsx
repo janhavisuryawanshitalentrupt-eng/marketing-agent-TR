@@ -184,13 +184,6 @@ export function CampaignsView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-[var(--border)] px-6 py-4">
-        <h1 className="font-heading text-base font-semibold">Campaigns</h1>
-        <p className="text-xs text-muted">
-          Real-time campaigns by sector — each surfaces real target clients to work, scored.
-        </p>
-      </header>
-
       <div className="flex min-h-0 flex-1">
         {/* Rail */}
         <div className="flex w-60 shrink-0 flex-col border-r border-[var(--border)]">

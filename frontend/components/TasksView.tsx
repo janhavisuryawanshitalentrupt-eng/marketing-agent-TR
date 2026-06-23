@@ -120,11 +120,7 @@ export function TasksView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-        <div>
-          <h1 className="font-heading text-base font-semibold">Tasks</h1>
-          <p className="text-xs text-muted">Your follow-up reminders — overdue, today, and upcoming.</p>
-        </div>
+      <header className="flex items-center justify-end border-b border-[var(--border)] px-6 py-2.5">
         <button onClick={load} className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
           Refresh
         </button>
