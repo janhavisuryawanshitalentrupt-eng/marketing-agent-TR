@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { getOpportunities, getTasks, updateTask } from "@/lib/api";
 import type { BizTask } from "@/lib/types";
 import { EmptyState } from "./EmptyState";
@@ -10,6 +11,7 @@ export function TasksView() {
   const [tasks, setTasks] = useState<BizTask[]>([]);
   const [companies, setCompanies] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
+  const pathname = usePathname();
 
   function load() {
     getTasks()
@@ -18,7 +20,11 @@ export function TasksView() {
       .finally(() => setLoading(false));
   }
 
+  // All views stay mounted in the Shell, so this view never remounts on navigation. Re-fetch
+  // whenever it becomes active so changes made elsewhere (e.g. Snooze/Done in Business Dev)
+  // appear immediately — no manual Refresh needed.
   useEffect(() => {
+    if (pathname !== "/tasks") return;
     load();
     getOpportunities()
       .then((os) => {
@@ -27,7 +33,7 @@ export function TasksView() {
         setCompanies(m);
       })
       .catch(() => {});
-  }, []);
+  }, [pathname]);
 
   async function act(id: number, patch: { status?: "done"; snooze_days?: number }) {
     await updateTask(id, patch);
