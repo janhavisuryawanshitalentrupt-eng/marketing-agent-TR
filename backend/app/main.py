@@ -1413,6 +1413,19 @@ def update_task(
     return serialize_task(t)
 
 
+@app.delete("/api/tasks/{task_id}")
+def delete_task(
+    task_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+):
+    """Remove a follow-up task entirely."""
+    t = db.get(CalendarTask, task_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found")
+    db.delete(t)
+    db.commit()
+    return {"deleted": task_id}
+
+
 @app.get("/api/analytics/summary")
 def analytics_summary(db: Session = Depends(get_db), _: None = Depends(require_auth)):
     """Read-only pipeline rollup for the Analytics dashboard. Pure aggregation — no writes/LLM/web."""

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { getOpportunities, getTasks, updateTask } from "@/lib/api";
+import { deleteTask, getOpportunities, getTasks, updateTask } from "@/lib/api";
 import type { BizTask } from "@/lib/types";
 import { EmptyState } from "./EmptyState";
 
@@ -40,6 +40,16 @@ export function TasksView() {
     load();
   }
 
+  async function remove(id: number) {
+    if (!window.confirm("Delete this follow-up task? This can't be undone.")) return;
+    setTasks((prev) => prev.filter((t) => t.id !== id)); // optimistic
+    try {
+      await deleteTask(id);
+    } catch {
+      load(); // re-sync if the delete failed
+    }
+  }
+
   const startToday = new Date();
   startToday.setHours(0, 0, 0, 0);
   const endToday = new Date();
@@ -72,14 +82,24 @@ export function TasksView() {
           ) : null}
           {msg ? <p className="mt-0.5 line-clamp-2 text-[11px] text-muted">{msg}</p> : null}
         </div>
-        {t.status !== "done" && (
-          <div className="flex shrink-0 items-center gap-2">
-            <button onClick={() => act(t.id, { snooze_days: 1 })} className="text-[11px] text-muted hover:text-foreground" title="Snooze 1 day">1d</button>
-            <button onClick={() => act(t.id, { snooze_days: 3 })} className="text-[11px] text-muted hover:text-foreground" title="Snooze 3 days">3d</button>
-            <button onClick={() => act(t.id, { snooze_days: 7 })} className="text-[11px] text-muted hover:text-foreground" title="Snooze 7 days">7d</button>
-            <button onClick={() => act(t.id, { status: "done" })} className="text-[11px] text-[var(--brand-red)] hover:underline" title="Mark done">Done</button>
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {t.status !== "done" && (
+            <>
+              <button onClick={() => act(t.id, { snooze_days: 1 })} className="text-[11px] text-muted hover:text-foreground" title="Snooze 1 day">1d</button>
+              <button onClick={() => act(t.id, { snooze_days: 3 })} className="text-[11px] text-muted hover:text-foreground" title="Snooze 3 days">3d</button>
+              <button onClick={() => act(t.id, { snooze_days: 7 })} className="text-[11px] text-muted hover:text-foreground" title="Snooze 7 days">7d</button>
+              <button onClick={() => act(t.id, { status: "done" })} className="text-[11px] text-[var(--brand-red)] hover:underline" title="Mark done">Done</button>
+            </>
+          )}
+          <button
+            onClick={() => remove(t.id)}
+            className="rounded p-0.5 text-[13px] leading-none text-muted transition hover:text-[var(--brand-red)]"
+            title="Delete task"
+            aria-label="Delete task"
+          >
+            ✕
+          </button>
+        </div>
       </div>
     );
   }

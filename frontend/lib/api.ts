@@ -478,6 +478,14 @@ export async function updateTask(
   return res.json();
 }
 
+export async function deleteTask(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/tasks/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Task delete failed");
+}
+
 export async function regenerateAsset(
   id: number,
   opts?: { instruction?: string; replace?: boolean },
