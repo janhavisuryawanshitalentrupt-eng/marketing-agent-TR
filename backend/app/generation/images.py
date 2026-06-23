@@ -81,10 +81,13 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             '- "left"/"right": {"label","text"} for layout "comparison", else null\n'
             '- "cta": short call to action\n'
             "ART-DIRECTION RULES: Choose the style AND composition that genuinely best fit THIS "
-            "specific topic — be visually inventive. Do NOT default to a 'hand holding a card/phone' "
-            "image or a cream card with a navy heading; vary scenes, framing, and layout. Match the "
-            "topic; NEVER force healthcare/recruiting metrics onto unrelated topics (holidays, "
-            "culture); do NOT invent statistics.\n"
+            "specific topic — be visually inventive. PREFER a striking real-world PHOTOGRAPHIC or "
+            "editorial hero for most topics (it reads the most premium and on-brand, like a magazine "
+            "spread); reserve 'infographic'/'typographic' for topics genuinely about data, steps, or a "
+            "bold one-line statement. Do NOT default to a 'hand holding a card/phone' image or a cream "
+            "card with a navy heading; vary scenes, framing, and layout. Match the topic; NEVER force "
+            "healthcare/recruiting metrics onto unrelated topics (holidays, culture); do NOT invent "
+            "statistics.\n"
             + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if proof else "")
             + (f"\n{context}\n" if context else "")
         )
@@ -111,7 +114,7 @@ def _coerce(v: dict, concept: str, brand: Brand | None) -> dict:
     layout = v.get("layout") if v.get("layout") in LAYOUTS else "statement"
     return {
         "layout": layout,
-        "style": v.get("style") if v.get("style") in STYLES else "infographic",
+        "style": v.get("style") if v.get("style") in STYLES else "photographic",
         "composition": v.get("composition", ""),
         "bg": "cream" if v.get("bg") == "cream" else "navy",
         "headline": (v.get("headline") or concept or "RPO Done Right").strip(),
@@ -289,14 +292,18 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
         "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image — the official logo is "
         "overlaid afterward. Keep the BOTTOM-RIGHT corner empty and uncluttered for it. Premium B2B, "
         "magazine-quality finish.\n\n"
-        f"VISUAL STYLE: {_STYLE_DIRECTION.get(plan.get('style', 'infographic'), _STYLE_DIRECTION['infographic'])}\n"
+        f"VISUAL STYLE: {_STYLE_DIRECTION.get(plan.get('style', 'photographic'), _STYLE_DIRECTION['photographic'])}\n"
         f"COMPOSITION: {comp}\n"
         f'The ONLY text rendered in the image is the headline (spell EXACTLY): "{plan["headline"]}"'
         " plus the short supporting line / stat below. NO brand name, NO extra labels or captions.\n"
         f"Supporting line: {plan.get('subtext','')}\n{metric_line}\n{extra}\n"
         f"Topic: {concept}\n\n"
         + (f"Brand voice/themes to echo:\n{context}\n" if context else "")
-        + "\nOutput one finished, high-end 1:1 graphic with crisp, correctly-spelled text."
+        + "\nRENDER QUALITY: tack-sharp focus, high detail, crisp edges; professional editorial/studio "
+        "photography quality; vivid yet brand-accurate color with strong contrast and clean lighting. "
+        "Any panel or card behind text must be SOLID and fully opaque (never translucent). STRICTLY "
+        "AVOID: blur, soft focus, low contrast, faded/washed-out tones, muddy gradients, haze, or noise.\n"
+        + "Output one finished, high-end, photorealistic 1:1 graphic with crisp, correctly-spelled text."
     )
 
 
