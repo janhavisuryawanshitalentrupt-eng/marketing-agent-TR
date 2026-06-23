@@ -237,13 +237,6 @@ export function BusinessView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-[var(--border)] px-6 py-4">
-        <h1 className="font-heading text-base font-semibold">Business Dev</h1>
-        <p className="text-xs text-muted">
-          Find companies that are hiring, score the fit, and reach them.
-        </p>
-      </header>
-
       {/* Composer: ONE search bar — Find prospects (criteria) or Analyze (a single named company) */}
       <div className="border-b border-[var(--border)] px-6 py-4">
         <div className="card p-4">
