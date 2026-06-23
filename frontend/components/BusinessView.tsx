@@ -913,6 +913,27 @@ const SIGNALS = [
   "Opened a new office / location",
 ];
 
+// Quick-pick suggestions for the (free-text) Location filter. US-centric because discovery
+// defaults to the US; the user can still type anything (these only pre-fill the box).
+const LOCATIONS = [
+  "United States",
+  "Remote (US)",
+  "New York, NY",
+  "San Francisco Bay Area",
+  "Los Angeles, CA",
+  "Chicago, IL",
+  "Dallas–Fort Worth, TX",
+  "Houston, TX",
+  "Austin, TX",
+  "Atlanta, GA",
+  "Boston, MA",
+  "Seattle, WA",
+  "Denver, CO",
+  "Miami, FL",
+  "Phoenix, AZ",
+  "Washington, DC",
+];
+
 const INDUSTRY_KEYWORDS: Record<string, string[]> = {
   "Staffing & Recruiting": ["staffing", "recruit", "rpo", "talent", "workforce"],
   Healthcare: ["health", "clinical", "medical", "nurse", "care", "hospital"],
@@ -938,6 +959,7 @@ type FilterCfg = {
   title: string;
   kind: "text" | "select";
   options?: (string | { label: string; value: string })[];
+  suggestions?: string[]; // quick-pick chips for a free-text filter (typing still allowed)
   placeholder?: string;
   icon: string;
 };
@@ -947,7 +969,7 @@ const FILTERS: FilterCfg[] = [
   { key: "title", title: "Title / Role", kind: "text", placeholder: "e.g. VP Talent Acquisition", icon: "M3 7h18v13H3zM8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" },
   { key: "industry", title: "Industry", kind: "select", options: INDUSTRIES, icon: "M3 21h18M4 21V8l6-4 6 4M4 11h12M9 21v-4h2v4M19 21V11l-3-2" },
   { key: "company_size", title: "Company size", kind: "select", options: SIZES, icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87" },
-  { key: "location", title: "Location", kind: "text", placeholder: "e.g. United States, Remote", icon: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 13a3 3 0 100-6 3 3 0 000 6z" },
+  { key: "location", title: "Location", kind: "text", suggestions: LOCATIONS, placeholder: "e.g. United States, Remote", icon: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 13a3 3 0 100-6 3 3 0 000 6z" },
 ];
 
 function FilterBar({
@@ -1037,14 +1059,33 @@ function FilterControl({
                 })}
               </div>
             ) : (
-              <input
-                autoFocus
-                className="field"
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") setOpen(false); }}
-                placeholder={cfg.placeholder}
-              />
+              <>
+                <input
+                  autoFocus
+                  className="field"
+                  value={value}
+                  onChange={(e) => onChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setOpen(false); }}
+                  placeholder={cfg.placeholder}
+                />
+                {cfg.suggestions && cfg.suggestions.length > 0 && (() => {
+                  const q = value.trim().toLowerCase();
+                  const matches = cfg.suggestions.filter((s) => s.toLowerCase().includes(q));
+                  return matches.length > 0 ? (
+                    <div className="mt-1.5 max-h-44 overflow-y-auto">
+                      {matches.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => { onChange(s); setOpen(false); }}
+                          className={`block w-full rounded-md px-2 py-1.5 text-left text-sm transition hover:bg-[var(--surface-2)] ${value === s ? "text-[var(--brand-red)]" : ""}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+              </>
             )}
             {active && (
               <button onClick={() => { onChange(""); setOpen(false); }} className="mt-1.5 w-full px-2 py-1 text-left text-xs text-muted hover:text-[var(--brand-red)]">
