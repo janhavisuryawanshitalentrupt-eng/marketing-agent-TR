@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   bulkOpportunities,
   clearOpportunities,
@@ -92,6 +93,18 @@ export function BusinessView() {
     refreshOpps();
     getTasks().then(setTasks).catch(() => {});
   }, []);
+
+  // Deep-link from the Tasks view ("/business?prospect=<opportunity_id>") — select that prospect.
+  // Distinct param from Campaigns' "?open" so the two persistent views don't cross-talk.
+  const prospectParam = useSearchParams().get("prospect");
+  useEffect(() => {
+    const id = Number(prospectParam);
+    if (prospectParam && Number.isFinite(id) && id > 0) {
+      setSelectedId(id);
+      setSavedOnly(false); // make sure a filter doesn't hide the linked prospect from the list
+      setFilters({});
+    }
+  }, [prospectParam]);
 
   function refreshOpps() {
     getOpportunities().then(setOpps).catch(() => {});

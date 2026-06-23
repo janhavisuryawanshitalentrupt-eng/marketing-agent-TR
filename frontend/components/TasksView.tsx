@@ -57,7 +57,10 @@ export function TasksView() {
         <div className="min-w-0 flex-1">
           <div className={`truncate ${muted ? "line-through text-muted" : ""}`}>{t.title}</div>
           {company ? (
-            <Link href="/business" className="text-[11px] text-[var(--brand-red)] hover:underline">
+            <Link
+              href={t.opportunity_id != null ? `/business?prospect=${t.opportunity_id}` : "/business"}
+              className="text-[11px] text-[var(--brand-red)] hover:underline"
+            >
               {company}
             </Link>
           ) : null}
