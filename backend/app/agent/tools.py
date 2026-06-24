@@ -258,32 +258,45 @@ async def exec_analyze_company(db, state, brand, args) -> dict:
 
 # --- READ tools: let chat answer questions about what's ALREADY in the app -------------
 async def exec_list_prospects(db, state, brand, args) -> dict:
-    """READ the companies already saved in Business Dev (the prospects found/analyzed so far)."""
-    rows = db.query(Opportunity).order_by(Opportunity.fit_score.desc()).all()
+    """READ the prospects in Business Dev. Always reports EXACT counts: the TOTAL prospect count and
+    the ★ saved/shortlisted subset — so chat never conflates 'all prospects' with 'saved'."""
+    all_rows = db.query(Opportunity).order_by(Opportunity.fit_score.desc()).all()
+    total_all = len(all_rows)
+    saved_all = sum(1 for o in all_rows if (o.why or {}).get("saved"))
+    rows = all_rows
     status = (args.get("status") or "").strip().lower()
     if status in ("new", "contacted", "replied", "meeting"):
         rows = [o for o in rows if (o.status or "") == status]
-    if args.get("saved_only"):
+    saved_only = bool(args.get("saved_only"))
+    if saved_only:
         rows = [o for o in rows if (o.why or {}).get("saved")]
     term = (args.get("query") or "").strip().lower()
     if term:
         rows = [o for o in rows if term in f"{o.company} {o.segment} {o.signal}".lower()]
-    total = len(rows)
+    matched = len(rows)
     try:
         limit = max(1, min(int(args.get("limit", 50) or 50), 200))
     except (TypeError, ValueError):
         limit = 50
     shown = rows[:limit]
-    if not shown:
-        return {"summary": "No matching companies are saved in Business Dev yet — use Find prospects "
+    if total_all == 0:
+        return {"summary": "There are 0 prospects in Business Dev yet — use Find prospects "
                 "(or ask me to find some) to add them.", "assets": []}
+    # State both exact numbers up front so the model answers count questions correctly and never guesses.
+    counts = f"Business Dev has {total_all} prospect(s) total; {saved_all} are ★ saved/shortlisted."
+    if not shown:
+        return {"summary": counts + " None match that filter.", "assets": []}
     lines = [
         f"- {o.company} — fit {int(o.fit_score or 0)} ({o.segment or 'n/a'}); status {o.status}"
         + (" ★saved" if (o.why or {}).get("saved") else "")
         for o in shown
     ]
-    head = (f"{total} compan{'y' if total == 1 else 'ies'} saved in Business Dev"
-            + (f" (showing top {len(shown)})" if total > len(shown) else "") + ":")
+    if saved_only:
+        head = f"{counts}\nThe {matched} ★ saved/shortlisted prospect(s):"
+    elif status or term:
+        head = f"{counts}\n{matched} match your filter (showing {len(shown)}):"
+    else:
+        head = f"{counts} Showing {len(shown)}:"
     return {"summary": head + "\n" + "\n".join(lines), "assets": []}
 
 
@@ -733,14 +746,17 @@ TOOL_SCHEMAS = [
         },
         ["company"]),
     _fn("list_prospects",
-        "READ the companies ALREADY saved in the Business Dev tab (prospects found/analyzed so far). "
-        "Use this whenever the user asks to SEE, LIST, COUNT, FILTER, or LOOK UP existing / saved / "
-        "generated companies or prospects — e.g. 'list all the companies generated so far', 'how many "
-        "prospects do we have', 'show my saved companies', 'what's the status of <company>'. This does "
-        "NOT find new companies (that's discover_prospects).",
+        "READ the prospects in the Business Dev tab (companies found/analyzed so far). It ALWAYS "
+        "reports two exact numbers: the TOTAL prospect count and the ★ saved/shortlisted subset — use "
+        "those numbers verbatim, never estimate. Use this whenever the user asks to SEE, LIST, COUNT, "
+        "FILTER, or LOOK UP companies/prospects — e.g. 'how many prospects do we have' (the total), "
+        "'how many are saved/shortlisted' (set saved_only=true — that's the ★ subset), 'list my saved "
+        "companies', or 'what's the status of <company>'. Does NOT find new companies (that's "
+        "discover_prospects). NOTE: 'saved'/'shortlisted'/'starred' = the ★ subset; 'prospects'/"
+        "'companies' (unqualified) = ALL of them.",
         {
             "status": {"type": "string", "enum": ["new", "contacted", "replied", "meeting"], "description": "Filter by pipeline status"},
-            "saved_only": {"type": "boolean", "description": "Only the starred/shortlisted prospects"},
+            "saved_only": {"type": "boolean", "description": "true = only the ★ saved/shortlisted prospects (a subset of the total)"},
             "query": {"type": "string", "description": "Filter by company name / segment / signal substring"},
             "limit": {"type": "integer", "description": "Max to list (default 50)"},
         },
