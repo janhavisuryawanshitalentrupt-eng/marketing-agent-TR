@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from ..knowledge import retrieve
 from ..models import Brand, Message
 from ..providers import llm
+from . import create_intake
 from .prompts import build_system_prompt
 from .tools import STATUS_LABELS, tools_for
 
@@ -86,6 +87,26 @@ async def run(
     messages.append({"role": "user", "content": user_text})
 
     state: dict = {}
+
+    # CREATE intake: a vague NEW request gets a structured chip-brief instead of generating; a
+    # submitted "[brief] ..." line is parsed deterministically and force-generated (never re-survey).
+    if mode == "create":
+        ut = (user_text or "").strip()
+        if ut.lower().startswith("[brief]"):
+            note = create_intake.brief_system_note(create_intake.parse_brief_line(ut))
+            if note:
+                messages[0]["content"] += "\n\n" + note
+        else:
+            try:
+                intent = await create_intake.interpret_create_intent(brand, messages)
+            except Exception:
+                intent = {"action": "generate"}
+            if intent.get("action") == "form" and intent.get("form"):
+                yield {"event": "form", "data": intent["form"]}
+                yield {"event": "done", "data": intent.get("intro")
+                       or "Give me a few details below and I'll create it."}
+                return
+            # 'generate' / 'answer' -> fall through to the normal tool-calling loop
 
     for _ in range(MAX_STEPS):
         try:

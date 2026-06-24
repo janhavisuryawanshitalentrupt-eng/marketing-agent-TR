@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { deleteAsset, getAssets, getKnowledgeStatus, regenerateAsset, uploadBrandFile } from "@/lib/api";
-import type { Asset, KnowledgeStatus } from "@/lib/types";
+import type { Asset, FormBrief, FormCategory, KnowledgeStatus } from "@/lib/types";
 import { useCreate } from "./ChatProvider";
 import { AssetCard } from "./AssetCard";
 import { Markdown } from "./Markdown";
@@ -178,7 +178,7 @@ export function CreateView() {
                 m.role === "user" ? (
                   <div key={i} className="flex justify-end">
                     <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
-                      {m.content}
+                      {prettyUserMessage(m.content)}
                     </div>
                   </div>
                 ) : (
@@ -187,6 +187,9 @@ export function CreateView() {
                       <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
                         {m.content ? <Markdown content={m.content} /> : <Dots />}
                       </div>
+                    )}
+                    {m.form && m.form.categories?.length > 0 && (
+                      <BriefFormCard form={m.form} disabled={busy} onSubmit={submit} />
                     )}
                     {m.assets && m.assets.length > 0 && (
                       <div className="grid w-full max-w-2xl gap-2 sm:grid-cols-2">
@@ -451,5 +454,108 @@ function Dots() {
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted" />
     </span>
+  );
+}
+
+// Show a submitted "[brief] format=image; ..." line as a friendly summary instead of the raw payload.
+function prettyUserMessage(content: string): string {
+  if (!content.startsWith("[brief]")) return content;
+  const body = content.slice("[brief]".length).trim();
+  const parts = body
+    .split(";")
+    .map((p) => p.split("=").slice(1).join("=").trim())
+    .filter(Boolean);
+  return parts.length ? `Brief: ${parts.join(" · ")}` : "Brief submitted";
+}
+
+// Inline categorized creative-brief: chips per category (+ Other), Generate builds the "[brief] …" line.
+function BriefFormCard({
+  form,
+  disabled,
+  onSubmit,
+}: {
+  form: FormBrief;
+  disabled?: boolean;
+  onSubmit: (text: string) => void;
+}) {
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [other, setOther] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const locked = submitted || !!disabled;
+
+  const formatPick = (picks["format"] ?? [])[0];
+  const shown = (cat: FormCategory) =>
+    !(cat.key === "design" && formatPick && formatPick !== "image");
+
+  function toggle(cat: FormCategory, value: string) {
+    if (locked) return;
+    setPicks((p) => {
+      const cur = p[cat.key] ?? [];
+      if (cat.select === "single") return { ...p, [cat.key]: cur[0] === value ? [] : [value] };
+      return { ...p, [cat.key]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value] };
+    });
+  }
+
+  function generate() {
+    if (locked) return;
+    const parts: string[] = [];
+    for (const cat of form.categories) {
+      if (!shown(cat)) continue;
+      const vals = [...(picks[cat.key] ?? [])];
+      const ot = (other[cat.key] ?? "").trim();
+      if (ot) vals.push(ot);
+      if (vals.length) parts.push(`${cat.key}=${vals.join(",")}`);
+    }
+    if (form.topic) parts.push(`topic=${form.topic}`);
+    setSubmitted(true);
+    onSubmit(`[brief] ${parts.join("; ")}`);
+  }
+
+  const chipCls = (active: boolean) =>
+    `rounded-full border px-3 py-1.5 text-xs transition ${
+      active
+        ? "border-[var(--brand-navy)] bg-[var(--brand-navy)] text-cream"
+        : "border-[var(--border)] bg-[var(--surface)] text-muted hover:border-[var(--brand-red)] hover:text-foreground"
+    } ${locked ? "cursor-default opacity-80" : ""}`;
+
+  return (
+    <div className="w-full max-w-2xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      {form.categories.filter(shown).map((cat) => {
+        const sel = picks[cat.key] ?? [];
+        return (
+          <div key={cat.key} className="mb-3">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+              {cat.label}
+              {cat.select === "multi" && <span className="ml-1 normal-case opacity-70">(pick any)</span>}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {cat.options.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => toggle(cat, o.value)}
+                  className={chipCls(sel.includes(o.value))}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {cat.allow_other && (
+              <input
+                value={other[cat.key] ?? ""}
+                disabled={locked}
+                onChange={(e) => setOther((s) => ({ ...s, [cat.key]: e.target.value }))}
+                placeholder="Other…"
+                className="field mt-1.5 text-xs"
+              />
+            )}
+          </div>
+        );
+      })}
+      <button onClick={generate} disabled={locked} className="btn-primary mt-1 disabled:opacity-50">
+        {submitted ? "Generating…" : "Generate"}
+      </button>
+    </div>
   );
 }

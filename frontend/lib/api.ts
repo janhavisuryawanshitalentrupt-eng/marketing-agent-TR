@@ -11,6 +11,7 @@ import type {
   ChatMessage,
   ClientStrategy,
   Conversation,
+  FormBrief,
   Health,
   KnowledgeStatus,
   Opportunity,
@@ -559,6 +560,7 @@ export interface ChatHandlers {
   onStatus?: (text: string) => void;
   onToken?: (text: string) => void;
   onAsset?: (asset: Asset) => void;
+  onForm?: (form: FormBrief) => void;
   onDone?: (text: string) => void;
   onError?: (text: string) => void;
 }
@@ -648,6 +650,9 @@ export async function streamChat(
           break;
         case "asset":
           handlers.onAsset?.(data as unknown as Asset);
+          break;
+        case "form":
+          handlers.onForm?.(data as unknown as FormBrief);
           break;
         case "done":
           handlers.onDone?.(data.text ?? "");

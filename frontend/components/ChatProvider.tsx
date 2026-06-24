@@ -112,6 +112,16 @@ export function makeChatStore(endpoint: string, kind: string) {
                 ];
               });
             },
+            onForm: (form) => {
+              // A structured creative-brief to render inline; clear the typing state.
+              if (!live()) return;
+              setStatus("");
+              setMessages((m) => {
+                const last = m[m.length - 1];
+                if (last?.role !== "assistant") return m;
+                return [...m.slice(0, -1), { ...last, form, pending: false }];
+              });
+            },
             onDone: (final) => {
               if (!live()) return;
               setStatus("");

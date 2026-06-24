@@ -12,11 +12,32 @@ export interface Asset {
   meta: Record<string, unknown>;
 }
 
+export interface FormOption {
+  label: string;
+  value: string;
+}
+
+export interface FormCategory {
+  key: string;
+  label: string;
+  select: "single" | "multi";
+  allow_other: boolean;
+  options: FormOption[];
+}
+
+// A structured creative-brief shown inline in the Create chat for a vague request.
+export interface FormBrief {
+  title?: string;
+  topic?: string;
+  categories: FormCategory[];
+}
+
 export interface ChatMessage {
   role: Role;
   content: string;
   pending?: boolean;
   assets?: Asset[];
+  form?: FormBrief;
 }
 
 export interface Attachment {
