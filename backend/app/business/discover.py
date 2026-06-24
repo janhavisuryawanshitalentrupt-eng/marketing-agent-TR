@@ -33,9 +33,12 @@ _COMMON_TOKENS = {
     "grant", "reed", "james", "miller", "davis", "jones", "taylor", "anderson", "thomas",
     "jackson", "white", "harris", "martin", "thompson", "garcia", "lewis", "young", "allen",
 }
+# Roles too vague to scope a reliable people search (they match too many people). NOTE: "founder"
+# and "owner" are NOT here — they are SPECIFIC top roles (usually one person) and, scoped to a
+# distinctive company, find the right person; suppressing them wrongly hid the founder/owner link.
 _GENERIC_ROLES = {
-    "decision maker", "decision-maker", "owner", "manager", "management", "leadership", "hr",
-    "team", "staff", "employee", "contact", "executive", "leader", "head", "founder",
+    "decision maker", "decision-maker", "manager", "management", "leadership", "hr",
+    "team", "staff", "employee", "contact", "executive", "leader", "head",
 }
 
 
@@ -59,20 +62,24 @@ def _role_is_specific(role: str) -> bool:
     return bool(r) and r not in _GENERIC_ROLES
 
 
+# Strip ONLY legal/corporate-form suffixes — NOT industry descriptors (staffing, recruiting,
+# solutions, group, …). Those descriptors are part of the brand as it appears in LinkedIn profiles
+# and are what keep the phrase DISTINCTIVE: stripping them collapsed "On Target Staffing LLC" ->
+# "On Target" and "Total Care Staffing" -> "Total Care" (common English phrases), so the people
+# search landed on the WRONG people. Keeping them yields "On Target Staffing" / "Total Care Staffing".
 _STRIP_SUFFIXES = {
-    "staffing", "recruiting", "recruitment", "agency", "services", "solutions", "consulting",
-    "inc", "llc", "corp", "ltd", "co", "company", "incorporated", "corporation", "group",
-    "holdings", "international", "enterprises", "labs", "studios", "industries", "ventures",
+    "inc", "llc", "l.l.c", "corp", "ltd", "co", "company", "incorporated", "corporation",
+    "plc", "gmbh", "pvt", "limited", "llp",
 }
 
 
 def _search_phrase(company: str) -> str:
-    """The phrase to exact-quote in the X-ray. Trim trailing generic suffixes ONLY while a
-    multi-word (>=2 token) name remains, so name variants still match — e.g. "Judge Group
-    Staffing" -> "Judge Group" matches profiles that say "The Judge Group". Single-word names
-    are left intact (their full name is what appears in profiles)."""
+    """The phrase to exact-quote in the people search. Trim ONLY trailing legal suffixes (LLC, Inc,
+    Corp…) while >=2 tokens remain — keep the distinctive brand + industry words so the search stays
+    scoped to the RIGHT employer (e.g. "On Target Staffing LLC" -> "On Target Staffing", not "On
+    Target"). Single-word names are left intact."""
     core = company.split()
-    while len(core) > 2 and core[-1].strip(".,").lower() in _STRIP_SUFFIXES:
+    while len(core) > 1 and core[-1].strip(".,").lower() in _STRIP_SUFFIXES:
         core.pop()
     return " ".join(core)
 
