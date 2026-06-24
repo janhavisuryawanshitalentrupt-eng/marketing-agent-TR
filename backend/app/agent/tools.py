@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 
 from ..business import analyze as bd_analyze
 from ..business import discover as bd_discover
-from ..business.store import save_opportunity
-from ..generation import decks, images, pdf, posts, strategy
+from ..business import outreach as bd_outreach
+from ..business.store import save_opportunity, serialize_opportunity
+from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy
 from ..knowledge import retrieve
 from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Opportunity
 
@@ -425,6 +426,146 @@ async def exec_get_analytics(db, state, brand, args) -> dict:
     return {"summary": summary, "assets": []}
 
 
+# --- ACTION tools: let chat DO things (mirrors the Business Dev / Tasks / Create endpoints) -------
+_PIPELINE_ORDER = ["new", "contacted", "replied", "meeting"]  # mirrors main.py
+
+
+def _find_opp(db, name: str) -> Opportunity | None:
+    """Resolve a saved prospect by company name (exact first, then a contains match)."""
+    name = (name or "").strip().lower()
+    if not name:
+        return None
+    rows = db.query(Opportunity).all()
+    return (
+        next((o for o in rows if (o.company or "").strip().lower() == name), None)
+        or next((o for o in rows if name in (o.company or "").lower()), None)
+    )
+
+
+async def exec_draft_outreach(db, state, brand, args) -> dict:
+    """Generate + save outreach for a saved prospect and schedule follow-ups (mirrors POST .../outreach)."""
+    target = args.get("company", "")
+    o = _find_opp(db, target)
+    if not o:
+        return {"summary": f"No saved prospect matches \"{target}\". Find or analyze it first, then I can draft outreach.", "assets": []}
+    outreach = await bd_outreach.generate_outreach(o)
+    why = dict(o.why or {})
+    why["outreach"] = outreach
+    o.why = why
+    if o.status == "new":
+        o.status = "contacted"
+    db.commit()
+    n_fu = 0
+    for fu in outreach.get("followups", [])[:2]:
+        try:
+            days = int(fu.get("day", 3))
+        except (TypeError, ValueError):
+            days = 3
+        db.add(CalendarTask(
+            opportunity_id=o.id, title=f"Follow up with {o.company}", kind="followup",
+            due_at=datetime.now(timezone.utc) + timedelta(days=days),
+            payload={"message": fu.get("message", "")},
+        ))
+        n_fu += 1
+    db.commit()
+    summary = (
+        f"Drafted outreach for {o.company} (saved to Business Dev; status now {o.status}; "
+        f"{n_fu} follow-up reminder(s) scheduled — track-only, nothing was sent).\n\n"
+        f"SUBJECT: {outreach.get('email_subject','')}\n\n"
+        f"EMAIL:\n{outreach.get('email_body','')}\n\n"
+        f"LINKEDIN:\n{outreach.get('linkedin_message','')}"
+    )
+    return {"summary": summary, "assets": []}
+
+
+async def exec_update_pipeline(db, state, brand, args) -> dict:
+    """Record outreach activity + advance pipeline forward-only (mirrors POST .../track). Track-only."""
+    target = args.get("company", "")
+    o = _find_opp(db, target)
+    if not o:
+        return {"summary": f"No saved prospect matches \"{target}\".", "assets": []}
+    field = {"sent": "sent_at", "contacted": "sent_at", "replied": "replied_at",
+             "meeting": "meeting_at"}.get((args.get("event") or "").strip().lower())
+    if not field:
+        return {"summary": "Tell me what happened: sent, replied, or meeting.", "assets": []}
+    why = dict(o.why or {})
+    log = dict(why.get("outreach_log") or {})
+    history = list(log.get("history") or [])
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if args.get("channel"):
+        log["channel"] = str(args["channel"]).strip()
+    if args.get("notes"):
+        log["notes"] = str(args["notes"]).strip()
+    log[field] = now_iso
+    stage = {"sent_at": "contacted", "replied_at": "replied", "meeting_at": "meeting"}[field]
+    history.append({"event": field[:-3], "at": now_iso, "channel": log.get("channel", "")})
+    cur = o.status if o.status in _PIPELINE_ORDER else "new"
+    if _PIPELINE_ORDER.index(stage) > _PIPELINE_ORDER.index(cur):
+        o.status = stage
+    log["history"] = history
+    why["outreach_log"] = log
+    o.why = why
+    db.commit()
+    db.refresh(o)
+    return {"summary": f"Logged outreach for {o.company}. Pipeline status: {o.status} (track-only — no email sent).", "assets": []}
+
+
+async def exec_manage_task(db, state, brand, args) -> dict:
+    """Complete or snooze a follow-up task, found by its linked company or title (mirrors PATCH /tasks)."""
+    hint = (args.get("company") or args.get("task") or "").strip().lower()
+    if not hint:
+        return {"summary": "Which follow-up? Name the company (or task) it's for.", "assets": []}
+    rows = db.query(CalendarTask).filter(CalendarTask.status != "done").order_by(CalendarTask.due_at).all()
+    opp_ids = {t.opportunity_id for t in rows if t.opportunity_id}
+    companies = (
+        {o.id: (o.company or "").lower() for o in db.query(Opportunity).filter(Opportunity.id.in_(opp_ids)).all()}
+        if opp_ids else {}
+    )
+    target = next((t for t in rows if hint in (t.title or "").lower()
+                   or hint in companies.get(t.opportunity_id, "")), None)
+    if not target:
+        return {"summary": f"No open follow-up matches \"{hint}\".", "assets": []}
+    pay = dict(target.payload or {})
+    if (args.get("action") or "").strip().lower() == "snooze":
+        try:
+            days = max(1, int(args.get("snooze_days", 3) or 3))
+        except (TypeError, ValueError):
+            days = 3
+        target.due_at = datetime.now(timezone.utc) + timedelta(days=days)
+        target.status = "pending"
+        pay["snoozed_until"] = target.due_at.isoformat()
+        msg = f"Snoozed “{target.title}” for {days} day(s) — now due {target.due_at.date()}."
+    else:
+        target.status = "done"
+        pay["completed_at"] = datetime.now(timezone.utc).isoformat()
+        msg = f"Marked “{target.title}” as done."
+    target.payload = pay
+    db.commit()
+    return {"summary": msg, "assets": []}
+
+
+async def exec_regenerate_asset(db, state, brand, args) -> dict:
+    """Regenerate/refine a prior asset, saved as a NEW version (mirrors POST /assets/{id}/regenerate)."""
+    a = None
+    if args.get("asset_id"):
+        try:
+            a = db.get(Asset, int(args["asset_id"]))
+        except (TypeError, ValueError):
+            a = None
+    if not a:
+        title = (args.get("title") or "").strip().lower()
+        if title:
+            a = next((x for x in db.query(Asset).order_by(Asset.id.desc()).all()
+                      if title in (x.title or "").lower()), None)
+    if not a:
+        return {"summary": "Tell me which asset to regenerate (its title or id) — I couldn't match one.", "assets": []}
+    new = await gen_refine.regenerate_asset(db, a.id, (args.get("instruction") or "").strip(), False)
+    if not new:
+        return {"summary": f"Couldn't regenerate “{a.title}”.", "assets": []}
+    return {"summary": f"Regenerated a new version of “{a.title}” ([{new.type}]) — saved to Create.",
+            "assets": [serialize_asset(new)]}
+
+
 EXECUTORS = {
     "create_campaign": exec_create_campaign,
     "generate_posts": exec_generate_posts,
@@ -439,6 +580,10 @@ EXECUTORS = {
     "list_assets": exec_list_assets,
     "list_tasks": exec_list_tasks,
     "get_analytics": exec_get_analytics,
+    "draft_outreach": exec_draft_outreach,
+    "update_pipeline": exec_update_pipeline,
+    "manage_task": exec_manage_task,
+    "regenerate_asset": exec_regenerate_asset,
 }
 
 # Mode-specific tool sets:
@@ -454,13 +599,17 @@ CHAT_TOOL_NAMES = [
     "list_assets",
     "list_tasks",
     "get_analytics",
+    "draft_outreach",
+    "update_pipeline",
+    "manage_task",
+    "regenerate_asset",
     "create_campaign",
     "generate_posts",
     "generate_image",
     "build_deck",
     "build_pdf",
 ]
-CREATE_TOOL_NAMES = ["generate_image", "build_deck", "build_pdf"]
+CREATE_TOOL_NAMES = ["generate_image", "build_deck", "build_pdf", "regenerate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
@@ -484,6 +633,10 @@ STATUS_LABELS = {
     "list_assets": "Looking up generated assets",
     "list_tasks": "Checking your follow-up tasks",
     "get_analytics": "Pulling the analytics rollup",
+    "draft_outreach": "Writing outreach",
+    "update_pipeline": "Updating the pipeline",
+    "manage_task": "Updating your tasks",
+    "regenerate_asset": "Regenerating the asset",
 }
 
 
@@ -622,5 +775,44 @@ TOOL_SCHEMAS = [
         "'how's my pipeline', 'how many meetings do we have', 'what do my analytics look like', or a "
         "status update / summary of the business.",
         {},
+        []),
+    _fn("draft_outreach",
+        "Write ready-to-use outreach (email subject + body, a LinkedIn message, and 2 follow-up "
+        "reminders) for a saved prospect, grounded in their hiring signal; saves it to Business Dev and "
+        "schedules the follow-up tasks. Track-only — it NEVER sends. Use when the user asks you to "
+        "draft/write outreach, an intro email, or a LinkedIn message for a company.",
+        {"company": {"type": "string", "description": "The prospect company (must already be saved in Business Dev)"}},
+        ["company"]),
+    _fn("update_pipeline",
+        "Log outreach activity for a saved prospect and advance its pipeline stage "
+        "(new->contacted->replied->meeting). Track-only — it records that contact happened, it never "
+        "sends anything. Use when the user says they emailed/messaged a prospect, got a reply, or "
+        "booked a meeting.",
+        {
+            "company": {"type": "string", "description": "The prospect company name"},
+            "event": {"type": "string", "enum": ["sent", "replied", "meeting"], "description": "What happened"},
+            "channel": {"type": "string", "description": "Optional channel, e.g. email or LinkedIn"},
+            "notes": {"type": "string", "description": "Optional note"},
+        },
+        ["company", "event"]),
+    _fn("manage_task",
+        "Complete or snooze a follow-up reminder in the Tasks tab, identified by the company it's "
+        "linked to (or its title). Use when the user says a follow-up is done/handled, or wants to "
+        "push one out.",
+        {
+            "company": {"type": "string", "description": "Company (or task title) the follow-up is for"},
+            "action": {"type": "string", "enum": ["done", "snooze"], "description": "Complete or snooze it"},
+            "snooze_days": {"type": "integer", "description": "Days to snooze (default 3) when action=snooze"},
+        },
+        ["company", "action"]),
+    _fn("regenerate_asset",
+        "Regenerate or refine a previously generated image/deck/PDF with an optional instruction (e.g. "
+        "'make the deck punchier', 'new variation'). Saves a NEW version; the original is kept. Use "
+        "when the user asks to redo, refine, tweak, or make another version of something already made.",
+        {
+            "asset_id": {"type": "integer", "description": "The asset id, if known"},
+            "title": {"type": "string", "description": "Or match by the asset's title/topic"},
+            "instruction": {"type": "string", "description": "Optional change to apply"},
+        },
         []),
 ]
