@@ -146,6 +146,8 @@ async def exec_generate_image(db, state, brand, args) -> dict:
             file_path=path, file_url=meta["url"], meta=meta,
         )
         saved.append(serialize_asset(a))
+    if not saved:  # generation returned nothing (e.g. provider error) — don't claim success
+        return {"summary": "Image generation didn't return anything this time — please try again.", "assets": []}
     return {"summary": "Generated an on-brand image.", "assets": saved}
 
 

@@ -122,9 +122,12 @@ async def generate_pdf_outline(brand: Brand | None, topic: str, kind: str) -> di
         "point(s), and close with a concrete call to action. Professional US B2B tone."
     )
     usr = f"Document type: {kind}. Topic / brief: {topic}"
-    data = await llm.chat_json(
-        [{"role": "system", "content": sys}, {"role": "user", "content": usr}], temperature=0.7
-    )
+    try:
+        data = await llm.chat_json(
+            [{"role": "system", "content": sys}, {"role": "user", "content": usr}], temperature=0.7
+        )
+    except Exception:
+        return None  # transient provider/parse error -> caller falls back to the template path
     if not isinstance(data, dict):
         return None
     secs = data.get("sections")

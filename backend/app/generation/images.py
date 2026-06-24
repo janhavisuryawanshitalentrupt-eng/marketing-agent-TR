@@ -122,12 +122,15 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             + (f"\n{context}\n" if context else "")
         )
         usr = f"Topic/concept: {concept}\nProduce {count} variation(s)."
-        data = await llm.chat_json(
-            [{"role": "system", "content": sys}, {"role": "user", "content": usr}]
-        )
-        variations = data.get("variations") if isinstance(data, dict) else None
-        if variations:
-            return [_coerce(v, concept, brand) for v in variations[:count]]
+        try:
+            data = await llm.chat_json(
+                [{"role": "system", "content": sys}, {"role": "user", "content": usr}]
+            )
+            variations = data.get("variations") if isinstance(data, dict) else None
+            if variations:
+                return [_coerce(v, concept, brand) for v in variations[:count]]
+        except Exception:
+            pass  # transient provider/parse error -> degrade to the deterministic fallback below
 
     # Fallback: a clean statement card (no fabricated/healthcare metric).
     return [
@@ -143,12 +146,17 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
 def _metric_is_real(metric, brand: Brand | None) -> bool:
     """Anti-fabrication backstop: a rendered statistic must echo a REAL Talentrupt proof point.
     The planner is instructed to only use real numbers, but this guarantees it deterministically —
-    any number not present in the brand's proof points (e.g. an industry/market stat) is rejected."""
-    nums = re.findall(r"\d[\d,.]*", str(metric or ""))
-    if not nums:
-        return False
+    any number not present in the brand's proof points (e.g. an industry/market stat) is rejected.
+    Matches on WHOLE numbers (separators normalized) so a fabricated '5%' can't slip through just
+    because '5' is a substring of '500'/'95'."""
     proof = " ".join(brand.proof_points) if brand and brand.proof_points else ""
-    return bool(proof) and any(n in proof for n in nums)
+    if not proof:
+        return False
+    def _nums(s: str) -> set[str]:
+        # whole numeric tokens, commas stripped so '1,000' and '1000' compare equal
+        return {t.replace(",", "") for t in re.findall(r"\d[\d,]*", str(s or ""))}
+    cand = _nums(metric)
+    return bool(cand) and bool(cand & _nums(proof))
 
 
 _NONCOMMERCIAL_RE = re.compile(

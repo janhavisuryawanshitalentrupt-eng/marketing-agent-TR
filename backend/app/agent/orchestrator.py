@@ -127,7 +127,12 @@ async def run(
             yield ev
         return
 
-    yield {"event": "done", "data": "I've completed your request."}
+    # Reached MAX_STEPS without the model ending the turn — be truthful (assets already streamed
+    # are persisted), don't claim completion.
+    yield {"event": "done", "data": (
+        "I worked through several steps but hit my limit before fully finishing — anything I "
+        "generated above is saved. Ask me to continue if you'd like me to pick up from here."
+    )}
 
 
 async def _stream_text(text: str) -> AsyncIterator[dict]:

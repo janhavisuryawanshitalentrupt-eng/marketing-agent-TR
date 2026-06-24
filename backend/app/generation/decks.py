@@ -72,12 +72,15 @@ async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n
             f" | Campaign: {campaign.name}, audience: {campaign.audience}" if campaign else ""
         )
         # Slightly higher temperature so repeated requests on a topic diverge rather than repeat.
-        data = await llm.chat_json(
-            [{"role": "system", "content": sys}, {"role": "user", "content": usr}], temperature=0.85
-        )
-        slides = data.get("slides") if isinstance(data, dict) else None
-        if slides:
-            return _normalize(slides[:n], topic)
+        try:
+            data = await llm.chat_json(
+                [{"role": "system", "content": sys}, {"role": "user", "content": usr}], temperature=0.85
+            )
+            slides = data.get("slides") if isinstance(data, dict) else None
+            if slides:
+                return _normalize(slides[:n], topic)
+        except Exception:
+            pass  # transient provider/parse error -> degrade to the deterministic fallback below
 
     # Deterministic fallback with varied layouts
     title = topic or (campaign.name if campaign else "Talentrupt RPO")

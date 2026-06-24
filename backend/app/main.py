@@ -1439,7 +1439,9 @@ def analytics_summary(db: Session = Depends(get_db), _: None = Depends(require_a
         if why.get("saved"):
             saved += 1
         log = why.get("outreach_log") or {}
-        if log.get("sent_at") or why.get("outreach") or o.status in ("contacted", "replied", "meeting"):
+        # "Sent" = genuinely contacted (tracked send, or pipeline advanced past 'new'). A merely
+        # DRAFTED outreach (why["outreach"]) is not a send, so it no longer counts here.
+        if log.get("sent_at") or o.status in ("contacted", "replied", "meeting"):
             sent += 1
         if log.get("replied_at") or o.status in ("replied", "meeting"):
             replied += 1
