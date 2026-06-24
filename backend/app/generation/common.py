@@ -9,9 +9,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..config import settings
 
-# Brand logo mark — navy "TR" inside a red rounded square on white (the canonical Talentrupt logo).
+# Brand logo mark — navy "TR" inside a coral-red square on white (the canonical Talentrupt logo).
 _LOGO_NAVY = (0x0B, 0x35, 0x59)
 _LOGO_RED = (0xF6, 0x40, 0x4C)
+# The REAL logo, extracted from Talentrupt's brand guideline and bundled with the repo. Used by
+# default on every generated asset (overridable via settings.brand_logo_path).
+_BUNDLED_LOGO = Path(__file__).resolve().parent.parent / "brand" / "tr_logo.png"
 
 # Windows font candidates (bold heading + regular body), with graceful fallback.
 _HEADING_CANDIDATES = [
@@ -99,16 +102,18 @@ def logo_path() -> Path:
     logo (e.g. a real PNG dropped in directly); (3) a synthesized fallback. Self-healing."""
     p = settings.storage_path / "brand" / "tr_logo.png"
     p.parent.mkdir(parents=True, exist_ok=True)
-    src = (settings.brand_logo_path or "").strip()
-    if src:
-        srcp = Path(src)
-        # Use the real logo; re-copy when the cache is missing or the source is newer.
-        if srcp.exists() and srcp.resolve() != p.resolve():
-            if (not p.exists()) or srcp.stat().st_mtime > p.stat().st_mtime:
-                if _install_real_logo(srcp, p):
-                    return p
+    # Source for the REAL logo: an explicit override path wins; otherwise the bundled repo asset.
+    cfg = (settings.brand_logo_path or "").strip()
+    srcp = Path(cfg) if cfg else _BUNDLED_LOGO
+    if srcp.exists() and srcp.resolve() != p.resolve():
+        # Install/refresh the cache when it's missing or the source is newer.
+        if (not p.exists()) or srcp.stat().st_mtime > p.stat().st_mtime:
+            if _install_real_logo(srcp, p):
+                return p
+        if p.exists():
+            return p
     if not p.exists():
-        _render_logo(p)
+        _render_logo(p)  # synthesized fallback only when no real logo is available
     return p
 
 
