@@ -9,6 +9,8 @@ fallback path can call them.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -17,7 +19,7 @@ from ..business import discover as bd_discover
 from ..business.store import save_opportunity
 from ..generation import decks, images, pdf, posts, strategy
 from ..knowledge import retrieve
-from ..models import Asset, Brand, Campaign, CampaignProspect, Opportunity
+from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Opportunity
 
 
 # --- Serialization --------------------------------------------------------
@@ -337,6 +339,92 @@ async def exec_list_assets(db, state, brand, args) -> dict:
     return {"summary": head + "\n" + "\n".join(lines), "assets": []}
 
 
+async def exec_list_tasks(db, state, brand, args) -> dict:
+    """READ the follow-up reminders in the Tasks tab — grouped overdue / today / upcoming."""
+    rows = db.query(CalendarTask).order_by(CalendarTask.due_at).all()
+    status = (args.get("status") or "").strip().lower()
+    if status in ("pending", "done", "snoozed"):
+        rows = [t for t in rows if (t.status or "") == status]
+    opp_ids = {t.opportunity_id for t in rows if t.opportunity_id}
+    companies = (
+        {o.id: o.company for o in db.query(Opportunity).filter(Opportunity.id.in_(opp_ids)).all()}
+        if opp_ids else {}
+    )
+    now = datetime.now(timezone.utc)
+    start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_today = start_today + timedelta(days=1)
+    buckets: dict[str, list[str]] = {"Overdue": [], "Today": [], "Upcoming": [], "Done": []}
+    for t in rows:
+        co = companies.get(t.opportunity_id)
+        label = t.title + (f" — {co}" if co else "")
+        due = t.due_at
+        if due and due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        if (t.status or "") == "done":
+            buckets["Done"].append(label)
+        elif due and due < start_today:
+            buckets["Overdue"].append(f"{label} (was due {due.date()})")
+        elif due and due < end_today:
+            buckets["Today"].append(label)
+        else:
+            buckets["Upcoming"].append(label + (f" (due {due.date()})" if due else ""))
+    open_n = sum(len(buckets[k]) for k in ("Overdue", "Today", "Upcoming"))
+    if open_n == 0 and not buckets["Done"]:
+        return {"summary": "No follow-up tasks in the Tasks tab right now.", "assets": []}
+    parts = []
+    for k in ("Overdue", "Today", "Upcoming"):
+        if buckets[k]:
+            parts.append(f"{k} ({len(buckets[k])}):\n" + "\n".join(f"  - {x}" for x in buckets[k][:15]))
+    head = (f"{open_n} open follow-up task(s)"
+            + (f", {len(buckets['Done'])} done" if buckets["Done"] else "") + " in the Tasks tab:")
+    return {"summary": head + "\n" + "\n\n".join(parts), "assets": []}
+
+
+async def exec_get_analytics(db, state, brand, args) -> dict:
+    """READ the Analytics rollup (pipeline / outreach / campaigns / content / tasks). Read-only;
+    mirrors the /api/analytics/summary KPI definitions so chat and the dashboard agree."""
+    opps = db.query(Opportunity).all()
+    by_status = {"new": 0, "contacted": 0, "replied": 0, "meeting": 0}
+    saved = sent = replied = 0
+    for o in opps:
+        by_status[o.status if o.status in by_status else "new"] += 1
+        why = o.why or {}
+        if why.get("saved"):
+            saved += 1
+        log = why.get("outreach_log") or {}
+        if log.get("sent_at") or o.status in ("contacted", "replied", "meeting"):
+            sent += 1
+        if log.get("replied_at") or o.status in ("replied", "meeting"):
+            replied += 1
+    campaigns = db.query(Campaign).all()
+    planning = sum(1 for c in campaigns if c.status == "planning")
+    active_clients = db.query(CampaignProspect).filter(CampaignProspect.status == "active").count()
+    assets_by_type: dict[str, int] = {}
+    for (t,) in db.query(Asset.type).all():
+        assets_by_type[t] = assets_by_type.get(t, 0) + 1
+    now = datetime.now(timezone.utc)
+    overdue = due_soon = pending = 0
+    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending").all():
+        pending += 1
+        if tk.due_at:
+            due = tk.due_at if tk.due_at.tzinfo else tk.due_at.replace(tzinfo=timezone.utc)
+            if due < now:
+                overdue += 1
+            elif due <= now + timedelta(days=7):
+                due_soon += 1
+    content = ", ".join(f"{v} {k}{'s' if v != 1 else ''}" for k, v in sorted(assets_by_type.items())) or "none yet"
+    summary = (
+        "Talentrupt analytics snapshot:\n"
+        f"- Pipeline: {len(opps)} prospects — {by_status['new']} new, {by_status['contacted']} contacted, "
+        f"{by_status['replied']} replied, {by_status['meeting']} meeting; {saved} saved/shortlisted.\n"
+        f"- Outreach: {sent} contacted/sent, {replied} replied.\n"
+        f"- Campaigns: {len(campaigns)} total ({planning} in planning), {active_clients} active target clients.\n"
+        f"- Content generated: {content}.\n"
+        f"- Tasks: {pending} open ({overdue} overdue, {due_soon} due within 7 days)."
+    )
+    return {"summary": summary, "assets": []}
+
+
 EXECUTORS = {
     "create_campaign": exec_create_campaign,
     "generate_posts": exec_generate_posts,
@@ -349,6 +437,8 @@ EXECUTORS = {
     "list_prospects": exec_list_prospects,
     "list_campaigns": exec_list_campaigns,
     "list_assets": exec_list_assets,
+    "list_tasks": exec_list_tasks,
+    "get_analytics": exec_get_analytics,
 }
 
 # Mode-specific tool sets:
@@ -362,6 +452,8 @@ CHAT_TOOL_NAMES = [
     "list_prospects",
     "list_campaigns",
     "list_assets",
+    "list_tasks",
+    "get_analytics",
     "create_campaign",
     "generate_posts",
     "generate_image",
@@ -390,6 +482,8 @@ STATUS_LABELS = {
     "list_prospects": "Looking up saved companies",
     "list_campaigns": "Reviewing your campaigns",
     "list_assets": "Looking up generated assets",
+    "list_tasks": "Checking your follow-up tasks",
+    "get_analytics": "Pulling the analytics rollup",
 }
 
 
@@ -513,5 +607,20 @@ TOOL_SCHEMAS = [
             "type": {"type": "string", "enum": ["image", "deck", "pdf", "post"], "description": "Filter by asset type"},
             "limit": {"type": "integer", "description": "Max to list (default 30)"},
         },
+        []),
+    _fn("list_tasks",
+        "READ the follow-up reminders in the Tasks tab (overdue / today / upcoming, each with its "
+        "linked company). Use when the user asks what follow-ups, reminders, or to-dos they have, "
+        "what's due, what's overdue, or to review the Tasks tab.",
+        {
+            "status": {"type": "string", "enum": ["pending", "done", "snoozed"], "description": "Filter by task status"},
+        },
+        []),
+    _fn("get_analytics",
+        "READ the Analytics dashboard rollup: pipeline funnel by stage, prospects saved, outreach "
+        "sent/replied, campaigns, generated content by type, and tasks due. Use for questions like "
+        "'how's my pipeline', 'how many meetings do we have', 'what do my analytics look like', or a "
+        "status update / summary of the business.",
+        {},
         []),
 ]
