@@ -432,7 +432,9 @@ function CampaignDetailView({
         <button onClick={() => setView("calendar")} className={segCls(view === "calendar")}>Content calendar</button>
       </div>
       {view === "calendar" ? (
-        <CampaignCalendar items={detail.items || []} />
+        // Keyed by campaign id so switching folders remounts the calendar with THIS campaign's
+        // items (it seeds local state from props via useState, so without the key it'd stay stale).
+        <CampaignCalendar key={detail.id} items={detail.items || []} />
       ) : (
         // Keyed by sector so changing it remounts + re-fetches the (re-filled) clients.
         <CampaignClients key={`${detail.id}:${sector}`} campaignId={detail.id} campaignName={detail.name} />
