@@ -139,8 +139,8 @@ async def exec_generate_posts(db, state, brand, args) -> dict:
 
 async def exec_generate_image(db, state, brand, args) -> dict:
     concept = args.get("concept", "")
-    # Single image per request for now.
-    rendered = await images.build_images(brand, None, concept, count=1)
+    # Single image per request for now. An explicit user-chosen style (optional) is honored.
+    rendered = await images.build_images(brand, None, concept, count=1, style=args.get("style"))
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
@@ -695,6 +695,9 @@ TOOL_SCHEMAS = [
         "Render one on-brand image (PNG) for the requested concept.",
         {
             "concept": {"type": "string", "description": "The topic/visual message — be specific to the request"},
+            "style": {"type": "string",
+                      "enum": ["photographic", "editorial_collage", "infographic", "ui_mockup", "typographic", "decorative"],
+                      "description": "Optional — set ONLY when the user explicitly chose a visual style; otherwise omit and the art director picks the best fit."},
         },
         ["concept"]),
     _fn("build_deck",

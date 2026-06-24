@@ -58,7 +58,8 @@ def _wrap(draw, text, font, max_width):
 
 
 # --- Content planning -----------------------------------------------------
-async def _plan(brand: Brand | None, concept: str, count: int, context: str = "") -> list[dict]:
+async def _plan(brand: Brand | None, concept: str, count: int, context: str = "",
+                force_style: str | None = None) -> list[dict]:
     proof = ", ".join(brand.proof_points) if brand and brand.proof_points else ""
     if llm.provider_available():
         sys = (
@@ -128,7 +129,7 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             )
             variations = data.get("variations") if isinstance(data, dict) else None
             if variations:
-                return [_coerce(v, concept, brand) for v in variations[:count]]
+                return [_coerce(v, concept, brand, force_style=force_style) for v in variations[:count]]
         except Exception:
             pass  # transient provider/parse error -> degrade to the deterministic fallback below
 
@@ -137,7 +138,7 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
         _coerce(
             {"layout": "statement", "bg": "navy" if i % 2 == 0 else "cream",
              "headline": concept, "subtext": brand.tagline if brand else "RPO Done Right"},
-            concept, brand,
+            concept, brand, force_style=force_style,
         )
         for i in range(count)
     ]
@@ -175,9 +176,10 @@ def _is_noncommercial_topic(concept: str) -> bool:
     return bool(_NONCOMMERCIAL_RE.search(concept or ""))
 
 
-def _coerce(v: dict, concept: str, brand: Brand | None) -> dict:
+def _coerce(v: dict, concept: str, brand: Brand | None, force_style: str | None = None) -> dict:
     layout = v.get("layout") if v.get("layout") in LAYOUTS else "statement"
-    style = v.get("style") if v.get("style") in STYLES else "photographic"
+    # An explicit, valid user-chosen style wins; else use the planner's pick (default photographic).
+    style = force_style if force_style in STYLES else (v.get("style") if v.get("style") in STYLES else "photographic")
     metric = v.get("metric") if layout == "metric" else None
     metric_label = v.get("metric_label") if layout == "metric" else None
     # Never render a number that isn't a real Talentrupt proof point — drop it and fall back to a
@@ -518,11 +520,13 @@ async def _openai_image(
 
 # --- Public API -----------------------------------------------------------
 async def build_images(
-    brand: Brand | None, campaign: Campaign | None, concept: str, count: int = 1
+    brand: Brand | None, campaign: Campaign | None, concept: str, count: int = 1,
+    style: str | None = None,
 ) -> list[tuple[str, str, dict]]:
     count = max(1, min(count, 4))
     context = await retrieve.brand_context(concept, k=3)
-    plans = await _plan(brand, concept, count, context)
+    # `style`, when set (e.g. an explicit Create-intake choice), forces the visual style.
+    plans = await _plan(brand, concept, count, context, force_style=style)
 
     use_openai = llm.image_provider_available()
     results: list[tuple[str, str, dict]] = []

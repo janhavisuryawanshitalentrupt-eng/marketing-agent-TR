@@ -234,7 +234,7 @@ export function CreateView() {
                 </button>
               </div>
               <p className="mt-2 text-center text-[11px] text-muted">
-                Generates one on-brand asset per request.
+                Asks a quick question if the brief is vague, then generates one on-brand asset.
               </p>
             </div>
           </div>
