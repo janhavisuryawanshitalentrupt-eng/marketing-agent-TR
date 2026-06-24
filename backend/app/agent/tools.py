@@ -139,8 +139,12 @@ async def exec_generate_posts(db, state, brand, args) -> dict:
 
 async def exec_generate_image(db, state, brand, args) -> dict:
     concept = args.get("concept", "")
-    # Single image per request for now. An explicit user-chosen style (optional) is honored.
-    rendered = await images.build_images(brand, None, concept, count=1, style=args.get("style"))
+    # Offer variations to pick from. Clamp to 1-3 as a hard cost ceiling regardless of the model's ask.
+    try:
+        count = max(1, min(int(args.get("count", 1) or 1), 3))
+    except (TypeError, ValueError):
+        count = 1
+    rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"))
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
@@ -151,7 +155,10 @@ async def exec_generate_image(db, state, brand, args) -> dict:
         saved.append(serialize_asset(a))
     if not saved:  # generation returned nothing (e.g. provider error) — don't claim success
         return {"summary": "Image generation didn't return anything this time — please try again.", "assets": []}
-    return {"summary": "Generated an on-brand image.", "assets": saved}
+    n = len(saved)
+    summary = (f"Generated {n} on-brand image variations to choose from." if n > 1
+               else "Generated an on-brand image.")
+    return {"summary": summary, "assets": saved}
 
 
 async def exec_build_deck(db, state, brand, args) -> dict:
@@ -692,9 +699,12 @@ TOOL_SCHEMAS = [
         },
         ["count"]),
     _fn("generate_image",
-        "Render one on-brand image (PNG) for the requested concept.",
+        "Render on-brand image(s) (PNG) for the requested concept.",
         {
             "concept": {"type": "string", "description": "The topic/visual message — be specific to the request"},
+            "count": {"type": "integer",
+                      "description": "How many distinct variations to render (1-3). Defaults to 1; only set "
+                                     "higher when you intend to offer the user multiple options to choose from."},
             "style": {"type": "string",
                       "enum": ["photographic", "editorial_collage", "infographic", "ui_mockup", "typographic", "decorative"],
                       "description": "Optional — set ONLY when the user explicitly chose a visual style; otherwise omit and the art director picks the best fit."},
