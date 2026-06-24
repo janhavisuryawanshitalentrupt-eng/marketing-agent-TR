@@ -5,7 +5,7 @@ import io
 import uuid
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from ..config import settings
 
@@ -127,21 +127,32 @@ def paste_logo(img, x: int, y: int, size: int) -> bool:
         return False
 
 
-def composite_logo_bytes(png_bytes: bytes, corner: str = "bottom-right", frac: float = 0.13) -> bytes:
+def composite_logo_bytes(png_bytes: bytes, corner: str = "bottom-right", frac: float = 0.17) -> bytes:
     """Overlay the brand logo onto an existing PNG (e.g. an AI-generated image) so the correct
-    Talentrupt mark is always present. Draws a clean white chip behind it so the logo reads even
-    if the model rendered text/graphics in that corner. Returns bytes unchanged on any failure."""
+    Talentrupt mark is always present AND clearly visible. Sits the logo on an opaque white chip with
+    a soft drop shadow + subtle border so it lifts off ANY background. Returns bytes unchanged on failure."""
     try:
         base = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-        s = max(48, int(min(base.size) * frac))
-        pad = int(s * 0.45)
+        s = max(64, int(min(base.size) * frac))  # logo edge in px (bigger + a higher floor than before)
+        pad = int(s * 0.42)
         x = pad if "left" in corner else base.size[0] - s - pad
         y = pad if "top" in corner else base.size[1] - s - pad
-        # Opaque white chip behind the mark — covers any underlying art so there's no overlap/clash.
+        m = int(s * 0.18)
+        chip = [x - m, y - m, x + s + m, y + s + m]
+        rad = int(s * 0.22)
+        # Soft drop shadow on its own layer so the chip reads on light AND dark/busy backgrounds.
+        off = max(2, int(s * 0.06))
+        shadow = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        ImageDraw.Draw(shadow).rounded_rectangle(
+            [chip[0] + off, chip[1] + off, chip[2] + off, chip[3] + off], radius=rad,
+            fill=(11, 53, 89, 120),  # navy-tinted shadow
+        )
+        shadow = shadow.filter(ImageFilter.GaussianBlur(max(3, int(s * 0.07))))
+        base = Image.alpha_composite(base, shadow)
+        # Opaque white chip + faint navy hairline border.
         d = ImageDraw.Draw(base)
-        m = int(s * 0.16)
-        d.rounded_rectangle([x - m, y - m, x + s + m, y + s + m], radius=int(s * 0.2),
-                            fill=(255, 255, 255, 255))
+        d.rounded_rectangle(chip, radius=rad, fill=(255, 255, 255, 255),
+                            outline=(11, 53, 89, 45), width=max(1, int(s * 0.012)))
         paste_logo(base, x, y, s)
         out = io.BytesIO()
         base.convert("RGB").save(out, format="PNG")

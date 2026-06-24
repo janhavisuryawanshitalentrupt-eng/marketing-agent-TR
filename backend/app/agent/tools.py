@@ -161,35 +161,51 @@ async def exec_generate_image(db, state, brand, args) -> dict:
     return {"summary": summary, "assets": saved}
 
 
+def _variation_count(args) -> int:
+    """User-chosen number of variations, clamped 1-3 (hard cost ceiling)."""
+    try:
+        return max(1, min(int(args.get("count", 1) or 1), 3))
+    except (TypeError, ValueError):
+        return 1
+
+
 async def exec_build_deck(db, state, brand, args) -> dict:
     topic = args.get("topic") or "Talentrupt RPO"
-    path, fname, meta = await decks.build_deck(
-        brand, None, topic, slides=args.get("slides", 6)
-    )
-    a = _save_asset(
-        db, None, "deck", topic,
-        body={"topic": topic}, file_path=path,
-        file_url=meta["url"], meta=meta,
-    )
-    return {"summary": f"Built a {meta['slides']}-slide presentation.", "assets": [serialize_asset(a)]}
+    slides = args.get("slides", 6)
+    count = _variation_count(args)
+    saved = []
+    for _ in range(count):  # each build re-plans the outline -> distinct variations
+        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides)
+        a = _save_asset(db, None, "deck", topic, body={"topic": topic},
+                        file_path=path, file_url=meta["url"], meta=meta)
+        saved.append(serialize_asset(a))
+    if not saved:
+        return {"summary": "Couldn't build the presentation this time — please try again.", "assets": []}
+    n = len(saved)
+    summary = (f"Built {n} presentation variations to choose from."
+               if n > 1 else f"Built a {saved[0].get('meta', {}).get('slides', slides)}-slide presentation.")
+    return {"summary": summary, "assets": saved}
 
 
 async def exec_build_pdf(db, state, brand, args) -> dict:
     kind = args.get("kind", "report")
     topic = (args.get("topic") or "").strip()
-    # Write tailored, brand-grounded content for the topic (None -> template fallback in build_pdf).
-    outline = await pdf.generate_pdf_outline(brand, topic, kind) if topic else None
-    path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline)
-    title = (topic or f"Talentrupt — {kind}")[:120]
-    a = _save_asset(
-        db, None, "pdf", title,
-        body={"kind": kind, "topic": topic}, file_path=path,
-        file_url=meta["url"], meta=meta,
-    )
-    return {
-        "summary": f"Created a {kind} PDF" + (f" on “{topic}”." if topic else "."),
-        "assets": [serialize_asset(a)],
-    }
+    count = _variation_count(args)
+    saved = []
+    for _ in range(count):
+        # Write tailored, brand-grounded content for the topic (None -> template fallback in build_pdf).
+        outline = await pdf.generate_pdf_outline(brand, topic, kind) if topic else None
+        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline)
+        title = (topic or f"Talentrupt — {kind}")[:120]
+        a = _save_asset(db, None, "pdf", title, body={"kind": kind, "topic": topic},
+                        file_path=path, file_url=meta["url"], meta=meta)
+        saved.append(serialize_asset(a))
+    if not saved:
+        return {"summary": "Couldn't build the document this time — please try again.", "assets": []}
+    n = len(saved)
+    summary = (f"Created {n} {kind} PDF variations to choose from" + (f" on “{topic}”." if topic else ".")
+               if n > 1 else f"Created a {kind} PDF" + (f" on “{topic}”." if topic else "."))
+    return {"summary": summary, "assets": saved}
 
 
 async def exec_search_brand_knowledge(db, state, brand, args) -> dict:
@@ -715,6 +731,9 @@ TOOL_SCHEMAS = [
         {
             "topic": {"type": "string"},
             "slides": {"type": "integer", "description": "Slide count (3-12)"},
+            "count": {"type": "integer",
+                      "description": "How many distinct deck variations to build (1-3). Defaults to 1; only "
+                                     "set higher when the user wants multiple options to choose from."},
         },
         ["topic"]),
     _fn("build_pdf",
@@ -723,6 +742,9 @@ TOOL_SCHEMAS = [
         {
             "kind": {"type": "string", "enum": ["report", "proposal", "one-pager"]},
             "topic": {"type": "string", "description": "What the document is about — be specific to the request"},
+            "count": {"type": "integer",
+                      "description": "How many distinct document variations to build (1-3). Defaults to 1; only "
+                                     "set higher when the user wants multiple options to choose from."},
         },
         ["topic"]),
     _fn("search_brand_knowledge",
