@@ -85,11 +85,27 @@ async def plan_campaign(brand: Brand | None, brief: dict) -> dict:
     if llm.provider_available():
         pillars = ", ".join(brand.pillars) if brand else ""
         proof = "; ".join(brand.proof_points) if brand and brand.proof_points else ""
-        context = await retrieve.brand_context(f"{name} {goal} {audience}", k=8)
+        sector = (brief.get("sector") or "").strip()
+        context = await retrieve.brand_context(f"{name} {goal} {audience} {sector}".strip(), k=8)
+        sector_line = (
+            f"TARGET SECTOR: {sector}. This campaign sells Talentrupt's offshore RPO INTO the "
+            f"{sector} industry, to: {audience or 'this sector'}. EVERY item's topic and hook MUST be "
+            f"specific to {sector} hiring — name the real roles, hiring pains, volume/seasonal cycles, "
+            f"and compliance/credentialing that define recruiting in THIS industry, and tie each to "
+            f"how Talentrupt helps. A reader must instantly know the post is about {sector}. This "
+            "applies to EVERY item including the awareness opener and the CTA/closing items — make "
+            f"those sector-specific too (a {sector} CTA names that sector's roles/pipeline, not a "
+            "vague 'your team'). Do NOT produce generic, sector-agnostic RPO topics that could "
+            "headline ANY campaign (e.g. 'The Myth vs Truth of RPO', 'Scaling Without Internal "
+            "Overhead', 'Data-Driven Hiring Decisions', 'Call to Action: Let's Connect', 'Final "
+            f"Reminder'); every topic must contain {sector} or a concrete {sector} role/pain.\n"
+            if sector else ""
+        )
         sys = (
             "You are a senior B2B marketing strategist for Talentrupt (offshore RPO, 'RPO Done "
             f"Right'). Brand pillars: {pillars}. Proof points (use only if real/relevant, never "
             f"invent): {proof}.\n"
+            + sector_line
             + (f"\n{context}\n\n" if context else "")
             + "Plan a forward-looking campaign. Return ONLY JSON with TWO keys:\n"
             '"strategy": {"objective","audience","key_messages":[...3-4],"pillars":[...],'
@@ -102,10 +118,16 @@ async def plan_campaign(brand: Brand | None, brief: dict) -> dict:
             '"format": one of "post","image","deck","pdf" (mostly "post"/"image"; occasional '
             '"deck"/"pdf" for milestones), "topic": short content topic, '
             '"hook": a scroll-stopping one-line hook for that piece}.\n'
-            "Make the arc build over time (awareness -> proof -> offer -> CTA). Vary topics/formats; "
-            "ground them in Talentrupt's real services, process, pricing, and proof."
+            "Make the arc build over time (awareness -> proof -> offer -> CTA), but keep EVERY piece "
+            + (f"anchored to {sector} and its audience. " if sector else "")
+            + "Vary topics/formats; ground them in Talentrupt's real services, process, and proof.\n"
+            "NEVER invent numbers, percentages, timelines, counts, or client results in any topic or "
+            "hook. The ONLY statistics you may cite are the real proof points listed above, used "
+            "verbatim; otherwise keep hooks qualitative — no made-up figures like '150 roles in 3 "
+            "months' or 'cuts time-to-fill by 50%', and no fictional client success numbers."
         )
-        usr = f"Campaign: {name}\nGoal: {goal}\nAudience: {audience}\nChannels: {channels}\nTimeframe: {weeks} weeks"
+        usr = (f"Campaign: {name}\nGoal: {goal}\nTarget sector: {sector}\nAudience: {audience}\n"
+               f"Channels: {channels}\nTimeframe: {weeks} weeks")
         data = await llm.chat_json(
             [{"role": "system", "content": sys}, {"role": "user", "content": usr}]
         )
@@ -128,14 +150,15 @@ async def plan_campaign(brand: Brand | None, brief: dict) -> dict:
         "kpis": ["Impressions", "Engagement rate", "Qualified replies", "Meetings booked"],
     }
     fmts = ["post", "image", "post", "image", "deck", "pdf"]
+    label = (brief.get("sector") or audience or name).strip() or name
     items = []
     for i in range(n_items):
         items.append({
             "day_offset": int(i * (weeks * WEEK_DAYS) / max(1, n_items)),
             "channel": channels[i % len(channels)],
             "format": fmts[i % len(fmts)],
-            "topic": f"{name}: angle {i + 1}",
-            "hook": "RPO Done Right — here's what that means for your hiring.",
+            "topic": f"{label} hiring — angle {i + 1}",
+            "hook": f"RPO Done Right — what that means for {label} hiring.",
         })
     return {"strategy": strategy, "items": items}
 
