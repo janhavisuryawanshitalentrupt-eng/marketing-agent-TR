@@ -39,6 +39,9 @@ WHITE_RGB = hex_to_rgb(WHITE)
 LAYOUTS = {"metric", "statement", "steps", "comparison"}
 STYLES = {"photographic", "decorative", "infographic", "ui_mockup", "typographic", "editorial_collage"}
 RICH_STYLES = {"photographic", "decorative", "ui_mockup", "infographic", "editorial_collage"}
+# Diverse style rotation used to spread MULTIPLE variations across genuinely different looks (so 3
+# "options" aren't three near-identical collages). Ordered most-distinct-first.
+_VARIETY = ["photographic", "infographic", "editorial_collage", "typographic", "decorative", "ui_mockup"]
 
 
 def _wrap(draw, text, font, max_width):
@@ -61,6 +64,15 @@ def _wrap(draw, text, font, max_width):
 async def _plan(brand: Brand | None, concept: str, count: int, context: str = "",
                 force_style: str | None = None) -> list[dict]:
     proof = ", ".join(brand.proof_points) if brand and brand.proof_points else ""
+    # Per-variation style: an explicit user choice applies to all; for MULTIPLE options with no chosen
+    # style, spread DISTINCT styles so the variations look genuinely different (not the same archetype);
+    # a single image (count==1, no choice) lets the planner pick the best fit (None).
+    if force_style in STYLES:
+        assigned = [force_style] * count
+    elif count > 1:
+        assigned = [_VARIETY[i % len(_VARIETY)] for i in range(count)]
+    else:
+        assigned = [None]
     if llm.provider_available():
         sys = (
             "You are an art director for Talentrupt (offshore RPO, 'RPO Done Right'; "
@@ -122,23 +134,37 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if proof else "")
             + (f"\n{context}\n" if context else "")
         )
-        usr = f"Topic/concept: {concept}\nProduce {count} variation(s)."
+        diversity = ""
+        if count > 1 and force_style in STYLES:
+            diversity = (f"\nProduce EXACTLY {count} variations ALL in the '{force_style}' style, but each "
+                         "a DISTINCT concept — different scene, subject, framing, layout and bg. They must "
+                         "look like different options, never the same image reworded.")
+        elif count > 1:
+            spread = "; ".join(f"variation {i + 1} = {s}" for i, s in enumerate(assigned))
+            diversity = (f"\nProduce EXACTLY {count} variations that are VISUALLY DISTINCT from each other. "
+                         f"Use these styles IN ORDER: {spread}. Give each a different scene, composition, "
+                         "framing and bg, and write its content to suit its style. They must look like "
+                         "genuinely different options to choose from — NOT the same image reworded.")
+        usr = f"Topic/concept: {concept}\nProduce {count} variation(s).{diversity}"
         try:
             data = await llm.chat_json(
                 [{"role": "system", "content": sys}, {"role": "user", "content": usr}]
             )
             variations = data.get("variations") if isinstance(data, dict) else None
             if variations:
-                return [_coerce(v, concept, brand, force_style=force_style) for v in variations[:count]]
+                vs = variations[:count]
+                # Force each variation to its assigned style so the spread is GUARANTEED (the model
+                # otherwise tends to collapse multiple options into one favored archetype).
+                return [_coerce(v, concept, brand, force_style=assigned[i]) for i, v in enumerate(vs)]
         except Exception:
             pass  # transient provider/parse error -> degrade to the deterministic fallback below
 
-    # Fallback: a clean statement card (no fabricated/healthcare metric).
+    # Fallback: distinct styles + alternating bg so multiple options still differ (no fabricated metric).
     return [
         _coerce(
             {"layout": "statement", "bg": "navy" if i % 2 == 0 else "cream",
              "headline": concept, "subtext": brand.tagline if brand else "RPO Done Right"},
-            concept, brand, force_style=force_style,
+            concept, brand, force_style=assigned[i],
         )
         for i in range(count)
     ]
