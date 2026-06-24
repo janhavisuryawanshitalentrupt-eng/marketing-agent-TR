@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     admin_password: str = "Admin123"
     admin_token: str = "dev-talentrupt-admin-token"
 
+    # --- Brand logo -----------------------------------------------------
+    # Path to the REAL Talentrupt logo PNG (navy "TR" in a coral-red square). When set and the file
+    # exists, it is used verbatim for every generated asset (image/deck/PDF). When empty, a close
+    # synthesized fallback is rendered. Drop the official logo here to make every generation exact.
+    brand_logo_path: str = ""
+
     # --- Storage / CORS -------------------------------------------------
     storage_dir: str = str(PROJECT_DIR / "storage")
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

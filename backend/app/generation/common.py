@@ -62,24 +62,52 @@ def public_url(kind: str, file_name: str) -> str:
 
 
 def _render_logo(path: Path, size: int = 600) -> None:
-    """Draw the canonical Talentrupt logo: navy 'TR' in a red rounded-square frame on white."""
+    """Draw a close approximation of the Talentrupt logo: navy 'TR' in a coral-red near-square frame
+    on white. Used only as a fallback when no real logo file is configured (see logo_path)."""
     img = Image.new("RGBA", (size, size), (255, 255, 255, 255))
     d = ImageDraw.Draw(img)
-    m = int(size * 0.10)
-    bw = max(8, int(size * 0.055))
-    d.rounded_rectangle([m, m, size - m, size - m], radius=int(size * 0.10), outline=_LOGO_RED, width=bw)
-    font = heading_font(int(size * 0.46))
+    m = int(size * 0.09)
+    bw = max(10, int(size * 0.06))
+    # Near-square corners (small radius) to match the real mark's square red frame.
+    d.rounded_rectangle([m, m, size - m, size - m], radius=int(size * 0.05), outline=_LOGO_RED, width=bw)
+    # Large, tight 'TR' filling the frame.
+    font = heading_font(int(size * 0.52))
     l, t, r, b = d.textbbox((0, 0), "TR", font=font)
     d.text(((size - (r - l)) / 2 - l, (size - (b - t)) / 2 - t), "TR", font=font, fill=_LOGO_NAVY)
     img.save(str(path))
 
 
+def _install_real_logo(src: Path, dest: Path) -> bool:
+    """Normalize a user-provided logo file into the cache as a square RGBA PNG. Best-effort."""
+    try:
+        logo = Image.open(str(src)).convert("RGBA")
+        w, h = logo.size
+        side = max(w, h)
+        # Center on a white square so a non-square or transparent source still composites cleanly.
+        canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
+        canvas.paste(logo, ((side - w) // 2, (side - h) // 2), logo)
+        canvas.save(str(dest))
+        return True
+    except Exception:
+        return False
+
+
 def logo_path() -> Path:
-    """Path to the canonical Talentrupt logo PNG. Rendered once on first use (self-healing if
-    deleted) so every generated asset — image, deck, PDF — embeds the SAME, correct mark."""
+    """Path to the canonical Talentrupt logo PNG used by EVERY generated asset (image/deck/PDF).
+    Resolution order: (1) the real logo file at settings.brand_logo_path, if set + present — it is
+    normalized into the cache and refreshed whenever the source changes; (2) an existing cached
+    logo (e.g. a real PNG dropped in directly); (3) a synthesized fallback. Self-healing."""
     p = settings.storage_path / "brand" / "tr_logo.png"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    src = (settings.brand_logo_path or "").strip()
+    if src:
+        srcp = Path(src)
+        # Use the real logo; re-copy when the cache is missing or the source is newer.
+        if srcp.exists() and srcp.resolve() != p.resolve():
+            if (not p.exists()) or srcp.stat().st_mtime > p.stat().st_mtime:
+                if _install_real_logo(srcp, p):
+                    return p
     if not p.exists():
-        p.parent.mkdir(parents=True, exist_ok=True)
         _render_logo(p)
     return p
 
