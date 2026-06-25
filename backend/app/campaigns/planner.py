@@ -124,7 +124,12 @@ async def plan_campaign(brand: Brand | None, brief: dict) -> dict:
             "NEVER invent numbers, percentages, timelines, counts, or client results in any topic or "
             "hook. The ONLY statistics you may cite are the real proof points listed above, used "
             "verbatim; otherwise keep hooks qualitative — no made-up figures like '150 roles in 3 "
-            "months' or 'cuts time-to-fill by 50%', and no fictional client success numbers."
+            "months' or 'cuts time-to-fill by 50%', and no fictional client success numbers. "
+            "Use each proof point with its ORIGINAL meaning — never re-attach a real number to a "
+            "different claim (e.g. do NOT turn '90% submission-to-interview alignment' into '90% of "
+            "companies choose us'). Cite the healthcare-specific '500+ healthcare roles filled annually' "
+            "proof ONLY in a healthcare campaign; in other sectors omit it or quote it WITHOUT the "
+            "'healthcare' qualifier."
         )
         usr = (f"Campaign: {name}\nGoal: {goal}\nTarget sector: {sector}\nAudience: {audience}\n"
                f"Channels: {channels}\nTimeframe: {weeks} weeks")

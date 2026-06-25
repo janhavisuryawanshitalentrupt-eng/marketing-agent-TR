@@ -349,13 +349,19 @@ async def exec_list_prospects(db, state, brand, args) -> dict:
 
 
 async def exec_list_campaigns(db, state, brand, args) -> dict:
-    """READ the planned campaigns + their target-client counts (or one campaign's clients)."""
+    """READ the planned campaigns + their target-client counts (or one campaign's clients).
+    Reports the TOTAL campaign count alongside the planning subset so 'how many campaigns' is answered
+    with the real total (not just the planned ones)."""
+    total = db.query(Campaign).count()
     camps = (
         db.query(Campaign).filter(Campaign.status == "planning")
         .order_by(Campaign.id.desc()).all()
     )
     if not camps:
-        return {"summary": "No campaigns have been planned yet.", "assets": []}
+        if total:
+            return {"summary": f"There are {total} campaign(s) in total, but none are in the planning "
+                    "stage right now.", "assets": []}
+        return {"summary": "No campaigns have been created yet.", "assets": []}
     term = (args.get("name") or "").strip().lower()
     if term:
         match = next((c for c in camps if term in (c.name or "").lower()), None)
@@ -377,7 +383,8 @@ async def exec_list_campaigns(db, state, brand, args) -> dict:
             .filter(CampaignProspect.campaign_id == c.id, CampaignProspect.status == "active").count()
         )
         lines.append(f"- {c.name}" + (f" [{sector}]" if sector else "") + f" — {n} target client(s)")
-    return {"summary": f"{len(camps)} campaign(s):\n" + "\n".join(lines), "assets": []}
+    return {"summary": f"{total} campaign(s) in total; {len(camps)} in the planning stage:\n"
+            + "\n".join(lines), "assets": []}
 
 
 async def exec_list_assets(db, state, brand, args) -> dict:

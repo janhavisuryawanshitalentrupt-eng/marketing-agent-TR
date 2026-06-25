@@ -81,7 +81,9 @@ def _search_phrase(company: str) -> str:
     core = company.split()
     while len(core) > 1 and core[-1].strip(".,").lower() in _STRIP_SUFFIXES:
         core.pop()
-    return " ".join(core)
+    # Drop any trailing punctuation left after popping a suffix (e.g. "VJ Technologies, Inc." ->
+    # "VJ Technologies", not "VJ Technologies,") so the exact-quoted people search stays precise.
+    return " ".join(core).strip(" ,.;")
 
 
 def _linkedin_search_url(company: str, role: str, website: str = "") -> str:
