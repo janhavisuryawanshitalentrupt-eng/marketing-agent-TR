@@ -217,7 +217,7 @@ def _stream(req: ChatRequest, db: Session, mode: str) -> StreamingResponse:
             interrupted = True  # client disconnected mid-stream
             raise
         except Exception as e:  # unhandled error escaping the run loop
-            log.warning("chat stream failed (conv %s): %s", conv_id, e)
+            log.warning("chat stream failed (conv %s): %s", conv_id, e, exc_info=True)
             err_text = "The assistant hit an error and couldn't finish that — please try again."
             try:
                 yield _sse("error", {"text": err_text})

@@ -8,13 +8,50 @@ Phase 2 will add tool-calling on top of ``chat_complete``.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import logging
 from collections.abc import AsyncIterator
 
 import httpx
 
 from ..config import settings
+
+log = logging.getLogger("talentrupt")
+
+# Transient provider statuses worth a quick retry (rate limit + upstream/gateway hiccups).
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+
+async def _post_json(
+    url: str, headers: dict, payload: dict, timeout: float = 120, attempts: int = 3
+) -> dict:
+    """POST a chat-completions request and return the parsed body, retrying briefly on TRANSIENT
+    provider failures (timeouts, connection drops, 429/5xx). Non-transient errors (e.g. 400/401)
+    raise immediately. Re-raises the last error if every attempt fails — so callers' own
+    try/except still governs the user-facing outcome."""
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code in _RETRY_STATUSES and i < attempts - 1:
+                log.info("provider %s (attempt %d/%d) — retrying", resp.status_code, i + 1, attempts)
+                await asyncio.sleep(0.6 * (i + 1))
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last = e
+            if i < attempts - 1:
+                log.info("provider transport error (attempt %d/%d): %s — retrying", i + 1, attempts, e)
+                await asyncio.sleep(0.6 * (i + 1))
+                continue
+            raise
+    if last:
+        raise last
+    raise RuntimeError("provider returned no response")
 
 
 def provider_available() -> bool:
@@ -130,10 +167,8 @@ async def chat_with_tools(
         "tools": tools,
         "tool_choice": "auto",
     }
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]
+    data = await _post_json(url, headers, payload)
+    return data["choices"][0]["message"]
 
 
 def _extract_json(text: str):
@@ -194,10 +229,8 @@ async def chat_json(messages: list[dict], temperature: float = 0.6) -> dict:
         "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
+    data = await _post_json(url, headers, payload)
+    content = data["choices"][0]["message"]["content"]
     try:
         return json.loads(content)
     except json.JSONDecodeError:
