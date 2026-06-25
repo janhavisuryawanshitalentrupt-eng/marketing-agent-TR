@@ -88,25 +88,18 @@ async def run(
 
     state: dict = {}
 
-    # CREATE intake: a vague NEW request gets a structured chip-brief instead of generating; a
-    # submitted "[brief] ..." line is parsed deterministically and force-generated (never re-survey).
+    # CREATE intake: a vague NEW request gets a short conversational nudge + tappable quick-picks
+    # instead of generating blind. Specific / "your call" / answering / refine fall straight through.
     if mode == "create":
-        ut = (user_text or "").strip()
-        if ut.lower().startswith("[brief]"):
-            note = create_intake.brief_system_note(create_intake.parse_brief_line(ut))
-            if note:
-                messages[0]["content"] += "\n\n" + note
-        else:
-            try:
-                intent = await create_intake.interpret_create_intent(brand, messages)
-            except Exception:
-                intent = {"action": "generate"}
-            if intent.get("action") == "form" and intent.get("form"):
-                yield {"event": "form", "data": intent["form"]}
-                yield {"event": "done", "data": intent.get("intro")
-                       or "Give me a few details below and I'll create it."}
-                return
-            # 'generate' / 'answer' -> fall through to the normal tool-calling loop
+        try:
+            intent = await create_intake.interpret_create_intent(brand, messages)
+        except Exception:
+            intent = {"action": "generate"}
+        if intent.get("action") == "ask" and intent.get("message"):
+            yield {"event": "chips", "data": {"items": intent.get("chips", [])}}
+            yield {"event": "done", "data": intent["message"]}
+            return
+        # 'generate' / 'answer' -> fall through to the normal tool-calling loop
 
     for _ in range(MAX_STEPS):
         try:

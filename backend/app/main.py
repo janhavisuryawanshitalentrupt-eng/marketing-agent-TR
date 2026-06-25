@@ -208,9 +208,9 @@ def _stream(req: ChatRequest, db: Session, mode: str) -> StreamingResponse:
                 elif ev["event"] == "error":
                     err_text = ev["data"] or "Something went wrong."
                     yield _sse("error", {"text": err_text})
-                elif ev["event"] == "form":
-                    # The data IS the form object (must NOT be wrapped under {"text": ...}).
-                    yield _sse("form", ev["data"])
+                elif ev["event"] == "chips":
+                    # Tappable quick-pick options for a conversational ask; data is {"items": [...]}.
+                    yield _sse("chips", ev["data"])
                 else:
                     yield _sse(ev["event"], {"text": ev["data"]})
         except (GeneratorExit, asyncio.CancelledError):
