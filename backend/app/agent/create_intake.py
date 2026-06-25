@@ -62,8 +62,14 @@ _FORMAT_ANCHOR = {
 }
 
 
+_FORMAT_KW = {"deck": _DECK_KW, "pdf": _PDF_KW, "image": _IMAGE_KW}
+
+
 def _detect_format(messages: list[dict]) -> str:
-    """Infer the intended output format from the conversation; newest user message wins on conflict."""
+    """Infer the intended output format. The most RECENT user message that names a format wins (so a
+    mid-conversation pivot re-targets). Within a single message a fixed deck>pdf>image priority breaks
+    ties — it picks A format, not necessarily the last-named one, which is fine since this only chooses
+    which brief questions to ask (the model still generates the right format via CREATE_GUIDANCE)."""
     users = [str(m.get("content", "")).lower() for m in messages if m.get("role") == "user"]
     for text in reversed(users):
         if any(k in text for k in _DECK_KW):
@@ -87,9 +93,15 @@ async def interpret_create_intent(brand: Brand | None, messages: list[dict]) -> 
     fmt = _detect_format(convo)
 
     # Soft cap on the brief: once a few questions have been asked, the agent may still ANSWER a question
-    # or GENERATE, but must not keep asking. (Counting assistant questions is a heuristic — a question
-    # the agent answered may also contain "?", which only makes the cap kick in a touch sooner.)
-    asked = sum(1 for m in convo if m["role"] == "assistant" and "?" in m["content"])
+    # or GENERATE, but must not keep asking. Count questions only SINCE the current format was last named,
+    # so a mid-conversation pivot (e.g. deck -> image) gets a fresh budget instead of inheriting the prior
+    # format's count. (Counting assistant "?" turns is a heuristic — an answered question may also contain
+    # "?", which only makes the cap kick in a touch sooner.)
+    anchor = 0
+    for i, m in enumerate(convo):
+        if m["role"] == "user" and any(k in m["content"].lower() for k in _FORMAT_KW[fmt]):
+            anchor = i
+    asked = sum(1 for m in convo[anchor:] if m["role"] == "assistant" and "?" in m["content"])
     capped = asked >= _MAX_QUESTIONS.get(fmt, 3)
 
     sys = (

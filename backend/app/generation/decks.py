@@ -421,6 +421,23 @@ def _metric_parts(s: dict) -> tuple[str, str]:
     return raw[:16], label
 
 
+def _metric_is_real(s: dict, brand: Brand | None) -> bool:
+    """Anti-fabrication gate for the standout-number slide: the metric is shown ONLY if its number
+    matches a REAL brand proof point (exact leading-number match), so the LLM can't slip a made-up
+    figure (e.g. '40%') onto the one slide whose entire job is to display a statistic."""
+    num, _ = _metric_parts(s)
+    if not num:
+        return False
+    target = num.replace(" ", "").lower()
+    for p in (brand.proof_points if brand and brand.proof_points else []):
+        pnum, _ = _metric_parts({"metric": p})
+        if pnum and pnum.replace(" ", "").lower() == target:
+            return True
+        if str(p).strip().lower().startswith(target):
+            return True
+    return False
+
+
 def _metric_size(metric: str) -> int:
     """Auto-size the giant number so it always fits the slide width, whatever its length —
     shrink rather than truncate, so a long number (e.g. '$1,250,000') stays correct."""
@@ -504,8 +521,13 @@ async def build_deck(
             _r_cover(slide, s, cover_img, th)
         elif layout == "section":
             _r_section(slide, s, th)
-        elif layout == "metric" and s.get("metric"):
+        elif layout == "metric" and s.get("metric") and _metric_is_real(s, brand):
             _r_metric(slide, s, i + 1, total, th)
+        elif layout == "metric":
+            # The number isn't a real proof point — never paint a fabricated stat; show a clean
+            # section divider with the intended message instead.
+            _r_section(slide, {"title": s.get("title", ""),
+                               "subtitle": s.get("metric_label") or s.get("subtitle") or ""}, th)
         elif layout == "two_column":
             _r_columns(slide, s, i + 1, total, th, compare=False)
         elif layout == "comparison":

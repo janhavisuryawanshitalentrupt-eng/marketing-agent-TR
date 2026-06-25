@@ -490,7 +490,9 @@ def _render_outline(outline: dict, kind: str, brand: Brand | None, st: dict, the
 
 
 def _render_campaign(campaign: Campaign | None, brand: Brand | None, topic: str, st: dict, theme: dict,
-                     bw: float, kind_label: str, title: str) -> list:
+                     bw: float, kind_label: str, title: str, keep: bool = True) -> list:
+    # `keep` must be False for a one-pager: its whole body is wrapped in KeepInFrame, which cannot
+    # contain KeepTogether (raises at draw time) — mirror _render_outline's keep rule.
     flow: list = []
     flow += _masthead(st, theme, title, kind_label, kind_label, bw)
     strat = (campaign.strategy if campaign and campaign.strategy else {}) or {}
@@ -500,11 +502,11 @@ def _render_campaign(campaign: Campaign | None, brand: Brand | None, topic: str,
             items = [c for c in content if str(c).strip()]
             if not items:
                 return
-            _emit(flow, _divider_parts(st, theme, h) + [_bullets(items, st, theme)], True)
+            _emit(flow, _divider_parts(st, theme, h) + [_bullets(items, st, theme)], keep)
         else:
             if not str(content).strip():
                 return
-            _emit(flow, _divider_parts(st, theme, h) + [Paragraph(_esc(content), st["body"])], True)
+            _emit(flow, _divider_parts(st, theme, h) + [Paragraph(_esc(content), st["body"])], keep)
 
     if strat:
         sec("Objective", strat.get("objective", campaign.goal if campaign else ""))
@@ -524,9 +526,9 @@ def _render_campaign(campaign: Campaign | None, brand: Brand | None, topic: str,
     else:
         sec("Overview", topic or (campaign.goal if campaign else "Talentrupt RPO campaign."))
         sec("Services", brand.services if brand else ["Offshore RPO delivery"])
-    _emit(flow, _metric_cards(_pick_metrics({}, brand), st, theme, bw), True)
+    _emit(flow, _metric_cards(_pick_metrics({}, brand), st, theme, bw), keep)
     _emit(flow, _cta_panel("Let's scale your hiring.", "Partner with Talentrupt — RPO Done Right.",
-                           st, theme, bw), True)
+                           st, theme, bw), keep)
     return flow
 
 
@@ -584,7 +586,8 @@ def build_pdf(
         body = _render_outline(outline, kind, brand, st, theme, bw,
                                with_masthead=not has_cover, title=title, kind_label=kind_label)
     else:
-        body = _render_campaign(campaign, brand, topic, st, theme, bw, kind_label, title)
+        body = _render_campaign(campaign, brand, topic, st, theme, bw, kind_label, title,
+                                keep=kind != "one-pager")
 
     if kind == "one-pager":
         flow.append(KeepInFrame(bw, H - TOP - BOT, body, mode="shrink"))
