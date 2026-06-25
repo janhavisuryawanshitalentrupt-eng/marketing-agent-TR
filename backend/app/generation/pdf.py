@@ -391,12 +391,16 @@ async def generate_pdf_outline(brand: Brand | None, topic: str, kind: str, *,
     }.get(kind, "an executive document.")
     sys = (
         "You are Talentrupt's senior marketing writer (offshore RPO selling into the US market, "
-        f"'RPO Done Right'). Brand pillars: {pillars}. "
-        f"Proof points (cite ONLY those directly relevant to THIS topic; never invent numbers): {proof}. "
-        f"Services: {services}.\n"
+        f"'RPO Done Right'). Brand pillars: {pillars}. Services: {services}. "
+        f"Proof points — the ONLY real numbers you may ever state: {proof}.\n"
+        "ANTI-FABRICATION (critical): do NOT state ANY percentage, multiple, count or dollar figure "
+        "ANYWHERE (title, subtitle, headings, bodies, bullets, callout, cta) UNLESS it is copied EXACTLY "
+        f"from this list: {proof or 'none'}. Otherwise describe benefits QUALITATIVELY (write 'faster "
+        "time-to-fill', NEVER '40% faster'). Inventing a number is a serious error.\n"
         + (f"\n{context}\n\n" if context else "")
         + _pdf_directives(audience, tone)
-        + f"Write {kind_guide}\n"
+        + f"Write {kind_guide} Reference the reader/client and topic by name where natural, and weave in "
+        "real Talentrupt services so it reads tailored, not boilerplate.\n"
         'Return ONLY JSON: {"title": str, "subtitle": str, "kicker": str (2-4 word eyebrow), '
         '"metrics": [str], "callout": str (one punchy key insight or client-outcome line), '
         '"sections": [{"heading": str, "body": str, "bullets": [str], "layout": "single"|"two_column"}], '

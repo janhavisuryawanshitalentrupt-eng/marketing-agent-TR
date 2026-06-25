@@ -85,37 +85,46 @@ async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n
         context = await retrieve.brand_context(topic, k=6)
         sys = (
             "You are Talentrupt's strategy deck designer (offshore RPO selling into the US market, "
-            f"'RPO Done Right'). Brand pillars: {pillars}. "
-            f"Proof points (cite ONLY the one or two directly relevant to THIS topic — never invent "
-            f"numbers, never list them all): {proof}. Services: {services}.\n"
+            f"'RPO Done Right'). Brand pillars: {pillars}. Services: {services}. "
+            f"Proof points — these are the ONLY real numbers you may ever state: {proof}.\n"
             + (f"\n{context}\n\n" if context else "")
             + _directives(audience, tone, depth)
             + f"Design a {n}-slide deck built SPECIFICALLY around the topic below — its own narrative "
-            "arc, not a generic company overview. Do NOT default to the boilerplate "
-            "'Why choose us / Proven track record / Our services' template unless the topic is literally "
-            "a company pitch. Lead with the audience's problem or the topic's core idea.\n"
+            "arc, not a generic company overview. Lead with the audience's problem or the topic's core "
+            "idea, then show how Talentrupt's services solve it. Reference the audience/client and topic "
+            "by name where natural, and weave in real Talentrupt services and proof so it feels tailored, "
+            "not boilerplate.\n"
+            "EVERY slide must be SUBSTANTIVE — no near-empty slides. Fill each with real, specific content "
+            "(not one line floating in space).\n"
+            "ANTI-FABRICATION (critical): do NOT state ANY percentage, multiple, count or dollar figure "
+            "ANYWHERE — titles, subtitles, bodies, bullets, card details, step descriptions, notes — "
+            f"UNLESS it is copied EXACTLY from this list: {proof or 'none'}. Otherwise describe benefits "
+            "QUALITATIVELY (write 'faster time-to-fill', NEVER '40% faster'; 'lower overhead', not '30% "
+            "cheaper'). Inventing a number is a serious error.\n"
             f"Return ONLY JSON: {{\"slides\": [...]}} with {n} items. Each slide object:\n"
             '- "layout": one of "cover","section","bullets","metric","two_column","quote",'
             '"comparison","cards","timeline","closing"\n'
             '- "title": short, executive, specific to the topic\n'
-            '- "subtitle": one line (for cover/section/closing)\n'
-            '- "bullets": array of 3-4 SUBSTANTIVE points — each a specific, benefit-driven idea with a '
-            'concrete detail, not a generic phrase (for "bullets")\n'
-            '- "metric": JUST a short number/percent — e.g. "90%", "500+", "3x" — 6 characters MAX, '
-            'NEVER a sentence; put the description in "metric_label" (for "metric"). Use AT MOST ONE '
-            "metric slide, and ONLY with a proof point directly relevant to the topic (never invent one)\n"
+            '- "subtitle": one supporting line — REQUIRED for "cover","section","closing","timeline"\n'
+            '- "bullets": 3-4 SUBSTANTIVE points — each a specific, benefit-driven sentence with a '
+            'concrete detail tied to the audience, not a generic phrase (for "bullets")\n'
+            '- "metric": JUST a short number/percent copied from the proof points — e.g. "90%", "500+" — '
+            '6 chars MAX, NEVER a sentence; put words in "metric_label" (for "metric"). AT MOST one metric '
+            "slide, only with a proof point relevant to the topic\n"
             '- "quote": a punchy one-sentence pull-quote + "attribution" (for "quote")\n'
-            '- "left"/"right": {"label","points":[...]} (for "two_column" and "comparison")\n'
-            '- "cards": [{"title","detail"}] exactly 3 short value props (for "cards") — NO invented numbers\n'
-            '- "steps": [3-5 short labels] for a process row (for "timeline") — e.g. Source, Screen, Submit, Place\n'
-            '- "notes": 2-3 sentences of speaker talking points for this slide (what the presenter says)\n'
+            '- "left"/"right": {"label","points":[...3-4 points...]} (for "two_column"/"comparison")\n'
+            '- "cards": [{"title","detail"}] exactly 3 value props, each with a FULL one-line detail '
+            '(for "cards")\n'
+            '- "steps": [{"label": short, "desc": a 6-12 word benefit line}] 3-5 steps (for "timeline") — '
+            "every step MUST have a real 'desc', never a bare label\n"
+            '- "notes": 2-3 sentences of speaker talking points for this slide\n'
             "LAYOUT MIX (so the deck looks designed, never an all-bullets wall): slide 1 MUST be 'cover' "
             "and the LAST MUST be 'closing'; include AT LEAST one 'section' divider and at least one of "
             "'two_column'/'comparison'/'cards'/'timeline'; use AT MOST one 'metric' and one 'quote'; NO "
-            "MORE THAN half the slides may be 'bullets'. Professional US B2B tone, no filler, no repeated "
-            "claims.\n"
-            "Example arc: cover → section → bullets(problem) → cards(why it works) → metric(real proof) "
-            "→ timeline(Source·Screen·Submit·Place) → closing."
+            "MORE THAN half the slides may be 'bullets'. Professional US B2B tone, no filler.\n"
+            "Example arc: cover → section → bullets(the problem, for THIS client) → cards(how Talentrupt "
+            "helps) → metric(one real proof) → timeline(Source/Screen/Submit/Place, each with a desc) → "
+            "closing(CTA)."
         )
         usr = f"Topic: {topic}" + (
             f" | Campaign: {campaign.name}, audience: {campaign.audience}" if campaign else ""
@@ -167,7 +176,11 @@ def _fallback_outline(brand: Brand | None, campaign: Campaign | None, topic: str
         {"layout": "bullets", "title": "What's slowing hiring down", "bullets": rnd.choice(challenge_pool)},
         {"layout": "cards", "title": "Why Talentrupt works", "cards": rnd.choice(cards_pool)},
         {"layout": "metric", "title": "Proven delivery", "metric": rnd.choice(proofs)},
-        {"layout": "timeline", "title": "How we deliver", "steps": ["Source", "Screen", "Submit", "Place"]},
+        {"layout": "timeline", "title": "How we deliver", "subtitle": "A proven, SLA-driven process end to end",
+         "steps": [{"label": "Source", "desc": "Pinpoint the right talent, fast"},
+                   {"label": "Screen", "desc": "Vet for skills, fit and quality"},
+                   {"label": "Submit", "desc": "Deliver shortlists on SLA"},
+                   {"label": "Place", "desc": "Close, onboard and support"}]},
         {"layout": "comparison", "title": "RPO vs In-House",
          "left": {"label": "Talentrupt RPO", "points": ["Scales on demand", "SLA-driven", "Lower overhead"]},
          "right": {"label": "In-house only", "points": ["Capacity-bound", "Slower ramp", "Higher cost"]}},
@@ -358,16 +371,32 @@ def _r_timeline(slide, s, idx, total, th):
     _bg(slide, WHITE)
     _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
     _rect(slide, 0, 0, SW, Inches(1.5), NAVY)
-    _text(slide, Inches(0.7), Inches(0.55), Inches(11.5), Inches(0.8), s.get("title", ""), 30, WHITE, bold=True)
-    steps = [str(x).strip() for x in (s.get("steps") or []) if str(x).strip()][:5] or ["Source", "Screen", "Submit", "Place"]
-    n = len(steps)
+    _text(slide, Inches(0.7), Inches(0.42), Inches(11.5), Inches(0.7), s.get("title", ""), 30, WHITE, bold=True)
+    sub = s.get("subtitle") or s.get("intro") or ""
+    if sub:
+        _text(slide, Inches(0.72), Inches(1.04), Inches(11.5), Inches(0.4), sub, 14, CREAM)
+    # Steps may be {"label","desc"} or bare strings; normalize and always carry a description.
+    norm = []
+    for st_ in (s.get("steps") or [])[:5]:
+        if isinstance(st_, dict):
+            norm.append((str(st_.get("label", "") or "").strip(),
+                         str(st_.get("desc") or st_.get("detail") or "").strip()))
+        elif str(st_).strip():
+            norm.append((str(st_).strip(), ""))
+    if not norm:
+        norm = [("Source", "Pinpoint the right talent, fast"), ("Screen", "Vet for fit and quality"),
+                ("Submit", "Deliver shortlists on SLA"), ("Place", "Close, onboard and support")]
+    n = len(norm)
     cw = 11.9 / n
-    _rect(slide, Inches(1.15), Inches(3.83), Inches(11.0), Inches(0.06), CREAM)  # connecting rule
-    for j, step in enumerate(steps):
+    rowy = 2.75
+    _rect(slide, Inches(1.0), Inches(rowy + 0.47), Inches(11.3), Inches(0.05), CREAM)  # connector behind chips
+    for j, (label, desc) in enumerate(norm):
         cx = 0.7 + j * cw + cw / 2
-        _round(slide, Inches(cx - 0.45), Inches(3.3), Inches(0.9), Inches(0.9), th["chip"])
-        _text(slide, Inches(cx - 0.45), Inches(3.45), Inches(0.9), Inches(0.6), str(j + 1), 26, WHITE, bold=True, align=PP_ALIGN.CENTER)
-        _text(slide, Inches(0.7 + j * cw), Inches(4.5), Inches(cw - 0.2), Inches(1.2), step, 16, NAVY, bold=True, align=PP_ALIGN.CENTER)
+        _round(slide, Inches(cx - 0.5), Inches(rowy), Inches(1.0), Inches(1.0), th["chip"])
+        _text(slide, Inches(cx - 0.5), Inches(rowy + 0.2), Inches(1.0), Inches(0.6), str(j + 1), 32, WHITE, bold=True, align=PP_ALIGN.CENTER)
+        _text(slide, Inches(0.7 + j * cw), Inches(rowy + 1.2), Inches(cw - 0.15), Inches(0.5), label, 19, NAVY, bold=True, align=PP_ALIGN.CENTER)
+        if desc:
+            _text(slide, Inches(0.7 + j * cw + 0.1), Inches(rowy + 1.78), Inches(cw - 0.4), Inches(1.7), desc, 12.5, NAVY, align=PP_ALIGN.CENTER)
     _footer(slide, idx, total)
 
 
