@@ -49,16 +49,18 @@ async def regenerate_asset(
         new_body, title = {"concept": concept, "layout": m.get("layout")}, concept or title
     elif a.type == "deck":
         topic = _augment(body.get("topic") or a.title, instruction)
-        path, _fn, m = await decks.build_deck(brand, None, topic, slides=meta_in.get("slides") or 6)
+        style = {k: body[k] for k in ("audience", "tone", "depth", "design_theme") if body.get(k)}
+        path, _fn, m = await decks.build_deck(brand, None, topic, slides=meta_in.get("slides") or 6, **style)
         file_path, file_url, new_meta = path, m["url"], dict(m)
-        new_body, title = {"topic": topic}, topic
+        new_body, title = {"topic": topic, **style}, topic
     elif a.type == "pdf":
         kind = body.get("kind") or "report"
         topic = _augment(body.get("topic") or a.title, instruction)
-        outline = await pdf.generate_pdf_outline(brand, topic, kind) if topic else None
-        path, _fn, m = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline)
+        style = {k: body[k] for k in ("audience", "tone", "depth", "design_theme") if body.get(k)}
+        outline = await pdf.generate_pdf_outline(brand, topic, kind, **style) if topic else None
+        path, _fn, m = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, **style)
         file_path, file_url, new_meta = path, m["url"], dict(m)
-        new_body, title = {"kind": kind, "topic": topic}, topic
+        new_body, title = {"kind": kind, "topic": topic, **style}, topic
     else:
         return None  # campaigns / unknown types aren't regeneratable
 

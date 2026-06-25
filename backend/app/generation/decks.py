@@ -7,6 +7,7 @@ background image. Text + design are grounded in the ingested brand library.
 """
 from __future__ import annotations
 
+import random
 import re
 
 from pptx import Presentation
@@ -30,11 +31,53 @@ SW, SH = Inches(13.333), Inches(7.5)
 HEAD = "Segoe UI Semibold"
 BODY = "Segoe UI"
 
-LAYOUTS = {"cover", "section", "bullets", "metric", "two_column", "quote", "comparison", "closing"}
+LAYOUTS = {"cover", "section", "bullets", "metric", "two_column", "quote", "comparison", "closing",
+           "cards", "timeline"}
+
+# design_theme → accent profile. Navy/red/cream + logo are ALWAYS on-brand; the theme only re-weights
+# the accent colour, the side-spine width, and the chip colour so decks vary without going off-brand.
+DECK_THEMES = {
+    "editorial": {"accent": RED, "spine": 0.30, "chip": RED},      # default — matches today's look
+    "minimal": {"accent": NAVY, "spine": 0.16, "chip": NAVY},
+    "bold": {"accent": RED, "spine": 0.46, "chip": CORAL},
+    "data-driven": {"accent": RED, "spine": 0.30, "chip": CORAL},
+}
+
+
+def _deck_theme(name: str) -> dict:
+    return DECK_THEMES.get((name or "").strip().lower(), DECK_THEMES["editorial"])
+
+
+# Voice per tone, woven into the outline prompt so the narrative matches what the user asked for.
+_TONE_VOICE = {
+    "executive": "boardroom-level: concise, confident, lead every slide with the outcome",
+    "professional": "polished, credible US B2B (the default)",
+    "conversational": "direct and warm — speak to the reader as 'you'",
+    "persuasive": "sales-forward — build toward a strong close and a clear ask",
+    "data-driven": "tight and evidence-led — foreground the single most relevant REAL proof point",
+}
+_DEPTH_VOICE = {
+    "concise": "headline-driven; at most 3 short bullets per slide; lots of whitespace",
+    "standard": "balanced detail",
+    "in-depth": "thorough supporting detail and a process/cards slide where it helps",
+}
+
+
+def _directives(audience: str, tone: str, depth: str) -> str:
+    """Build the per-brief directive block injected into the outline prompt (only for set values)."""
+    lines = []
+    if audience:
+        lines.append(f"Write for this audience: {audience}. Frame the problem, examples and CTA for them.")
+    if tone and tone in _TONE_VOICE:
+        lines.append(f"Voice/tone: {_TONE_VOICE[tone]}.")
+    if depth and depth in _DEPTH_VOICE:
+        lines.append(f"Depth: {_DEPTH_VOICE[depth]}.")
+    return ("\nBRIEF DIRECTIVES:\n- " + "\n- ".join(lines) + "\n") if lines else ""
 
 
 # --- Outline / design plan ------------------------------------------------
-async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n: int) -> list[dict]:
+async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n: int, *,
+                   audience: str = "", tone: str = "", depth: str = "", design_theme: str = "editorial") -> list[dict]:
     if llm.provider_available():
         pillars = ", ".join(brand.pillars) if brand and brand.pillars else ""
         proof = "; ".join(brand.proof_points) if brand and brand.proof_points else ""
@@ -46,27 +89,33 @@ async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n
             f"Proof points (cite ONLY the one or two directly relevant to THIS topic — never invent "
             f"numbers, never list them all): {proof}. Services: {services}.\n"
             + (f"\n{context}\n\n" if context else "")
+            + _directives(audience, tone, depth)
             + f"Design a {n}-slide deck built SPECIFICALLY around the topic below — its own narrative "
             "arc, not a generic company overview. Do NOT default to the boilerplate "
             "'Why choose us / Proven track record / Our services' template unless the topic is literally "
             "a company pitch. Lead with the audience's problem or the topic's core idea.\n"
-            f"Return ONLY JSON: {{\"slides\": [...]}} with {n} items. VARY the layout across slides so the "
-            "deck looks designed (do NOT make every slide a bullet list). Each slide object:\n"
+            f"Return ONLY JSON: {{\"slides\": [...]}} with {n} items. Each slide object:\n"
             '- "layout": one of "cover","section","bullets","metric","two_column","quote",'
-            '"comparison","closing"\n'
+            '"comparison","cards","timeline","closing"\n'
             '- "title": short, executive, specific to the topic\n'
             '- "subtitle": one line (for cover/section/closing)\n'
             '- "bullets": array of 3-4 SUBSTANTIVE points — each a specific, benefit-driven idea with a '
             'concrete detail, not a generic phrase (for "bullets")\n'
             '- "metric": JUST a short number/percent — e.g. "90%", "500+", "3x" — 6 characters MAX, '
             'NEVER a sentence; put the description in "metric_label" (for "metric"). Use AT MOST ONE '
-            "metric slide, and only with a proof point directly relevant to the topic\n"
+            "metric slide, and ONLY with a proof point directly relevant to the topic (never invent one)\n"
             '- "quote": a punchy one-sentence pull-quote + "attribution" (for "quote")\n'
             '- "left"/"right": {"label","points":[...]} (for "two_column" and "comparison")\n'
+            '- "cards": [{"title","detail"}] exactly 3 short value props (for "cards") — NO invented numbers\n'
+            '- "steps": [3-5 short labels] for a process row (for "timeline") — e.g. Source, Screen, Submit, Place\n'
             '- "notes": 2-3 sentences of speaker talking points for this slide (what the presenter says)\n'
-            "Slide 1 MUST be layout 'cover'; the last slide should be 'closing' (a CTA). Use 'metric' "
-            "for a standout number, 'two_column' for service breakdowns, 'comparison' for RPO-vs-X, "
-            "'quote' for a bold statement. Professional US B2B tone, no filler, no repeated claims."
+            "LAYOUT MIX (so the deck looks designed, never an all-bullets wall): slide 1 MUST be 'cover' "
+            "and the LAST MUST be 'closing'; include AT LEAST one 'section' divider and at least one of "
+            "'two_column'/'comparison'/'cards'/'timeline'; use AT MOST one 'metric' and one 'quote'; NO "
+            "MORE THAN half the slides may be 'bullets'. Professional US B2B tone, no filler, no repeated "
+            "claims.\n"
+            "Example arc: cover → section → bullets(problem) → cards(why it works) → metric(real proof) "
+            "→ timeline(Source·Screen·Submit·Place) → closing."
         )
         usr = f"Topic: {topic}" + (
             f" | Campaign: {campaign.name}, audience: {campaign.audience}" if campaign else ""
@@ -80,29 +129,56 @@ async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n
             if slides:
                 return _normalize(slides[:n], topic)
         except Exception:
-            pass  # transient provider/parse error -> degrade to the deterministic fallback below
+            pass  # transient provider/parse error -> degrade to the varied fallback below
 
-    # Deterministic fallback with varied layouts
+    return _fallback_outline(brand, campaign, topic, n)
+
+
+def _fallback_outline(brand: Brand | None, campaign: Campaign | None, topic: str, n: int) -> list[dict]:
+    """Deterministic but VARIED fallback (no provider): pick one slide per role from small pools so
+    repeat builds differ instead of emitting one identical template. Any number is a REAL proof point."""
+    rnd = random.Random()  # system entropy -> distinct selection each build
     title = topic or (campaign.name if campaign else "Talentrupt RPO")
-    base = [
+    proofs = (brand.proof_points if brand and brand.proof_points
+              else ["90% submission-to-interview alignment", "500+ healthcare roles filled annually"])
+    challenge_pool = [
+        ["Recruiting demand outpaces internal capacity", "High overhead of in-house recruiting",
+         "Inconsistent submission quality and SLA misses"],
+        ["Time-to-fill keeps slipping on critical roles", "Hiring spikes overwhelm a fixed team",
+         "Thin pipeline visibility and reporting"],
+        ["Quality candidates surface too slowly", "Cost-per-hire creeps up every quarter",
+         "Coverage gaps across roles and time zones"],
+    ]
+    cards_pool = [
+        [{"title": "Scalable", "detail": "Capacity that flexes with demand"},
+         {"title": "SLA-driven", "detail": "On-time, predictable delivery"},
+         {"title": "Transparent", "detail": "Live reporting end to end"}],
+        [{"title": "Dedicated", "detail": "Recruiters embedded in your team"},
+         {"title": "Cost-efficient", "detail": "Lower overhead than in-house"},
+         {"title": "Fast ramp", "detail": "Productive in days, not months"}],
+    ]
+    closing_pool = [
+        {"title": "Let's scale your hiring", "subtitle": "Partner with Talentrupt — RPO Done Right."},
+        {"title": "Ready when you are", "subtitle": "Let's build your hiring engine — RPO Done Right."},
+    ]
+    out = [
         {"layout": "cover", "title": title, "subtitle": "RPO Done Right — engineered hiring systems"},
-        {"layout": "bullets", "title": "The Challenge", "bullets": [
-            "Recruiting demand outpaces internal capacity",
-            "High overhead of in-house recruiting",
-            "Inconsistent submission quality and SLA misses"]},
-        {"layout": "two_column", "title": "The Talentrupt Model",
-         "left": {"label": "What we do", "points": ["Dedicated offshore recruiters", "Source · Screen · Submit · Place"]},
-         "right": {"label": "How you win", "points": ["Scalable capacity", "Transparent reporting"]}},
-        {"layout": "metric", "title": "Proven Delivery", "metric": "90%", "metric_label": "submission-to-interview alignment"},
+        {"layout": "section", "title": "The Challenge", "subtitle": "Where hiring breaks down"},
+        {"layout": "bullets", "title": "What's slowing hiring down", "bullets": rnd.choice(challenge_pool)},
+        {"layout": "cards", "title": "Why Talentrupt works", "cards": rnd.choice(cards_pool)},
+        {"layout": "metric", "title": "Proven delivery", "metric": rnd.choice(proofs)},
+        {"layout": "timeline", "title": "How we deliver", "steps": ["Source", "Screen", "Submit", "Place"]},
         {"layout": "comparison", "title": "RPO vs In-House",
          "left": {"label": "Talentrupt RPO", "points": ["Scales on demand", "SLA-driven", "Lower overhead"]},
          "right": {"label": "In-house only", "points": ["Capacity-bound", "Slower ramp", "Higher cost"]}},
-        {"layout": "closing", "title": "Let's scale your hiring", "subtitle": "Partner with Talentrupt — RPO Done Right."},
     ]
-    while len(base) < n:
-        base.insert(-1, {"layout": "bullets", "title": "Engagement Model", "bullets": [
-            "Full life-cycle recruiter or dedicated sourcer", "Flexible, scalable capacity", "Cost-efficient delivery"]})
-    return base[:n]
+    rnd.shuffle(closing_pool)
+    closing = {**closing_pool[0], "layout": "closing"}
+    body = out[1:]  # keep cover first
+    rnd.shuffle(body)  # vary the middle order run-to-run
+    out = [out[0]] + body
+    out = out[:max(2, n - 1)] + [closing]
+    return out[:n]
 
 
 def _normalize(slides: list, topic: str) -> list[dict]:
@@ -209,7 +285,7 @@ async def _ai_cover(brand: Brand | None, topic: str) -> str | None:
 
 
 # --- Slide renderers ------------------------------------------------------
-def _r_cover(slide, s, cover_img):
+def _r_cover(slide, s, cover_img, th):
     title = s.get("title", "Talentrupt")
     sub = s.get("subtitle") or "RPO Done Right"
     if cover_img:
@@ -218,32 +294,32 @@ def _r_cover(slide, s, cover_img):
         except Exception:
             _bg(slide, CREAM)
         _rect(slide, 0, Inches(5.0), SW, Inches(2.5), NAVY)  # legibility band
-        _rect(slide, 0, Inches(4.92), SW, Inches(0.08), RED)
+        _rect(slide, 0, Inches(4.92), SW, Inches(0.08), th["accent"])
         _logo(slide, CREAM)
         _text(slide, Inches(0.7), Inches(5.15), Inches(12), Inches(1.4), title, 44, WHITE, bold=True)
         _text(slide, Inches(0.72), Inches(6.55), Inches(12), Inches(0.6), sub, 18, CREAM)
     else:
         _bg(slide, CREAM)
-        _rect(slide, 0, 0, Inches(0.35), SH, RED)
+        _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
         _logo(slide, NAVY)
         _text(slide, Inches(0.9), Inches(2.6), Inches(11.4), Inches(2.4), title, 48, NAVY, bold=True)
-        _rect(slide, Inches(0.95), Inches(4.95), Inches(2.2), Inches(0.12), RED)
+        _rect(slide, Inches(0.95), Inches(4.95), Inches(2.2), Inches(0.12), th["accent"])
         _text(slide, Inches(0.9), Inches(5.2), Inches(11), Inches(1), sub, 22, NAVY)
 
 
-def _r_section(slide, s):
+def _r_section(slide, s, th):
     _bg(slide, NAVY)
-    _rect(slide, 0, 0, Inches(0.3), SH, RED)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
     _logo(slide, CREAM)
     _text(slide, Inches(0.9), Inches(2.7), Inches(11.4), Inches(2), s.get("title", ""), 40, WHITE, bold=True, anchor=MSO_ANCHOR.MIDDLE)
-    _rect(slide, Inches(0.95), Inches(4.6), Inches(2), Inches(0.12), RED)
+    _rect(slide, Inches(0.95), Inches(4.6), Inches(2), Inches(0.12), th["accent"])
     if s.get("subtitle"):
         _text(slide, Inches(0.9), Inches(4.85), Inches(11), Inches(1), s["subtitle"], 20, CREAM)
 
 
-def _r_bullets(slide, s, idx, total):
+def _r_bullets(slide, s, idx, total, th):
     _bg(slide, WHITE)
-    _rect(slide, 0, 0, Inches(0.28), SH, RED)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
     _rect(slide, 0, 0, SW, Inches(1.5), NAVY)
     _text(slide, Inches(0.7), Inches(0.55), Inches(11.5), Inches(0.8), s.get("title", ""), 30, WHITE, bold=True)
     shown = (s.get("bullets") or [])[:5]
@@ -251,9 +327,47 @@ def _r_bullets(slide, s, idx, total):
     for n, b in enumerate(shown, 1):
         y = Inches(top + (n - 1) * ch)
         _round(slide, Inches(0.7), y, Inches(11.9), Inches(ch - 0.18), CREAM)
-        _round(slide, Inches(0.95), y + Inches(0.14), Inches(0.5), Inches(0.5), RED)
+        _round(slide, Inches(0.95), y + Inches(0.14), Inches(0.5), Inches(0.5), th["chip"])
         _text(slide, Inches(0.95), y + Inches(0.18), Inches(0.5), Inches(0.4), str(n), 18, WHITE, bold=True, align=PP_ALIGN.CENTER)
         _text(slide, Inches(1.7), y + Inches(0.04), Inches(10.5), Inches(ch - 0.2), str(b), 17, NAVY, anchor=MSO_ANCHOR.MIDDLE)
+    _footer(slide, idx, total)
+
+
+def _r_cards(slide, s, idx, total, th):
+    _bg(slide, WHITE)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
+    _rect(slide, 0, 0, SW, Inches(1.5), NAVY)
+    _text(slide, Inches(0.7), Inches(0.55), Inches(11.5), Inches(0.8), s.get("title", ""), 30, WHITE, bold=True)
+    cards = [c for c in (s.get("cards") or []) if isinstance(c, dict)][:3]
+    if not cards:
+        return _footer(slide, idx, total)
+    n = len(cards)
+    gap = 0.4
+    cw = (11.9 - gap * (n - 1)) / n
+    for j, c in enumerate(cards):
+        x = Inches(0.7 + j * (cw + gap))
+        _round(slide, x, Inches(2.1), Inches(cw), Inches(4.3), CREAM)
+        _round(slide, x + Inches(0.3), Inches(2.45), Inches(0.7), Inches(0.7), th["chip"])
+        _text(slide, x + Inches(0.3), Inches(2.55), Inches(0.7), Inches(0.5), str(j + 1), 24, WHITE, bold=True, align=PP_ALIGN.CENTER)
+        _text(slide, x + Inches(0.3), Inches(3.45), Inches(cw - 0.6), Inches(0.9), c.get("title", ""), 20, NAVY, bold=True)
+        _text(slide, x + Inches(0.3), Inches(4.4), Inches(cw - 0.6), Inches(1.8), c.get("detail", ""), 15, NAVY)
+    _footer(slide, idx, total)
+
+
+def _r_timeline(slide, s, idx, total, th):
+    _bg(slide, WHITE)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
+    _rect(slide, 0, 0, SW, Inches(1.5), NAVY)
+    _text(slide, Inches(0.7), Inches(0.55), Inches(11.5), Inches(0.8), s.get("title", ""), 30, WHITE, bold=True)
+    steps = [str(x).strip() for x in (s.get("steps") or []) if str(x).strip()][:5] or ["Source", "Screen", "Submit", "Place"]
+    n = len(steps)
+    cw = 11.9 / n
+    _rect(slide, Inches(1.15), Inches(3.83), Inches(11.0), Inches(0.06), CREAM)  # connecting rule
+    for j, step in enumerate(steps):
+        cx = 0.7 + j * cw + cw / 2
+        _round(slide, Inches(cx - 0.45), Inches(3.3), Inches(0.9), Inches(0.9), th["chip"])
+        _text(slide, Inches(cx - 0.45), Inches(3.45), Inches(0.9), Inches(0.6), str(j + 1), 26, WHITE, bold=True, align=PP_ALIGN.CENTER)
+        _text(slide, Inches(0.7 + j * cw), Inches(4.5), Inches(cw - 0.2), Inches(1.2), step, 16, NAVY, bold=True, align=PP_ALIGN.CENTER)
     _footer(slide, idx, total)
 
 
@@ -293,56 +407,59 @@ def _metric_size(metric: str) -> int:
     return 44
 
 
-def _r_metric(slide, s, idx, total):
+def _r_metric(slide, s, idx, total, th):
     _bg(slide, NAVY)
-    _rect(slide, 0, 0, Inches(0.3), SH, RED)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
     _logo(slide, CREAM)
     _text(slide, Inches(0.9), Inches(1.4), Inches(11.4), Inches(0.8), s.get("title", ""), 28, WHITE, bold=True)
     metric, label = _metric_parts(s)
-    _text(slide, Inches(0.85), Inches(2.5), Inches(11.6), Inches(2.2), metric, _metric_size(metric), RED, bold=True)
+    _text(slide, Inches(0.85), Inches(2.5), Inches(11.6), Inches(2.2), metric, _metric_size(metric), th["accent"], bold=True)
     _text(slide, Inches(0.95), Inches(5.0), Inches(11), Inches(1.4), label, 26, CREAM)
     _footer(slide, idx, total, CREAM)
 
 
-def _r_columns(slide, s, idx, total, compare=False):
+def _r_columns(slide, s, idx, total, th, compare=False):
     _bg(slide, WHITE)
     _rect(slide, 0, 0, SW, Inches(1.5), NAVY)
-    _rect(slide, 0, 0, Inches(0.28), SH, RED)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
     _text(slide, Inches(0.7), Inches(0.55), Inches(11.5), Inches(0.8), s.get("title", ""), 30, WHITE, bold=True)
     left, right = s.get("left") or {}, s.get("right") or {}
     panels = [(Inches(0.7), left, CREAM, NAVY), (Inches(6.95), right, NAVY if compare else CREAM, CREAM if compare else NAVY)]
     for x, col, fill, txt in panels:
         _round(slide, x, Inches(1.95), Inches(5.65), Inches(4.7), fill)
-        _text(slide, x + Inches(0.35), Inches(2.2), Inches(5), Inches(0.6), col.get("label", ""), 20, RED if fill == CREAM else CORAL, bold=True)
+        _text(slide, x + Inches(0.35), Inches(2.2), Inches(5), Inches(0.6), col.get("label", ""), 20, th["accent"] if fill == CREAM else CORAL, bold=True)
         _bullet_list(slide, x + Inches(0.35), Inches(3.0), Inches(5.0), col.get("points", []), txt, size=16, gap=0.7)
     _footer(slide, idx, total)
 
 
-def _r_quote(slide, s, idx, total):
+def _r_quote(slide, s, idx, total, th):
     _bg(slide, CREAM)
-    _rect(slide, 0, 0, Inches(0.3), SH, RED)
-    _text(slide, Inches(0.8), Inches(0.9), Inches(3), Inches(1.6), "“", 140, RED, bold=True)
+    _rect(slide, 0, 0, Inches(th["spine"]), SH, th["accent"])
+    _text(slide, Inches(0.8), Inches(0.9), Inches(3), Inches(1.6), "“", 140, th["accent"], bold=True)
     _text(slide, Inches(1.6), Inches(2.4), Inches(11), Inches(3), s.get("quote", s.get("title", "")), 34, NAVY, bold=True)
     if s.get("attribution"):
         _text(slide, Inches(1.65), Inches(5.6), Inches(10), Inches(0.6), f"— {s['attribution']}", 18, NAVY)
     _footer(slide, idx, total)
 
 
-def _r_closing(slide, s):
+def _r_closing(slide, s, th):
     _bg(slide, NAVY)
-    _rect(slide, 0, 0, SW, Inches(0.16), RED)
+    _rect(slide, 0, 0, SW, Inches(0.16), th["accent"])
     _logo(slide, CREAM)
     _text(slide, Inches(0.9), Inches(2.7), Inches(11.4), Inches(1.6), s.get("title", "Let's talk"), 42, WHITE, bold=True, anchor=MSO_ANCHOR.MIDDLE)
-    _rect(slide, Inches(0.95), Inches(4.5), Inches(2), Inches(0.12), RED)
+    _rect(slide, Inches(0.95), Inches(4.5), Inches(2), Inches(0.12), th["accent"])
     _text(slide, Inches(0.9), Inches(4.8), Inches(11), Inches(1), s.get("subtitle") or "Partner with Talentrupt — RPO Done Right.", 22, CREAM)
 
 
 # --- Public API -----------------------------------------------------------
 async def build_deck(
-    brand: Brand | None, campaign: Campaign | None, topic: str, slides: int = 6
+    brand: Brand | None, campaign: Campaign | None, topic: str, slides: int = 6, *,
+    audience: str = "", tone: str = "", depth: str = "", design_theme: str = "editorial",
 ) -> tuple[str, str, dict]:
     slides = max(3, min(slides, 12))
-    outline = await _outline(brand, campaign, topic, slides)
+    th = _deck_theme(design_theme)
+    outline = await _outline(brand, campaign, topic, slides,
+                             audience=audience, tone=tone, depth=depth, design_theme=design_theme)
     cover_img = await _ai_cover(brand, topic)
 
     prs = Presentation()
@@ -355,21 +472,25 @@ async def build_deck(
         slide = prs.slides.add_slide(blank)
         layout = s.get("layout", "bullets")
         if layout == "cover":
-            _r_cover(slide, s, cover_img)
+            _r_cover(slide, s, cover_img, th)
         elif layout == "section":
-            _r_section(slide, s)
+            _r_section(slide, s, th)
         elif layout == "metric" and s.get("metric"):
-            _r_metric(slide, s, i + 1, total)
+            _r_metric(slide, s, i + 1, total, th)
         elif layout == "two_column":
-            _r_columns(slide, s, i + 1, total, compare=False)
+            _r_columns(slide, s, i + 1, total, th, compare=False)
         elif layout == "comparison":
-            _r_columns(slide, s, i + 1, total, compare=True)
+            _r_columns(slide, s, i + 1, total, th, compare=True)
+        elif layout == "cards" and s.get("cards"):
+            _r_cards(slide, s, i + 1, total, th)
+        elif layout == "timeline":
+            _r_timeline(slide, s, i + 1, total, th)
         elif layout == "quote" and (s.get("quote") or s.get("title")):
-            _r_quote(slide, s, i + 1, total)
+            _r_quote(slide, s, i + 1, total, th)
         elif layout == "closing":
-            _r_closing(slide, s)
+            _r_closing(slide, s, th)
         else:
-            _r_bullets(slide, s, i + 1, total)
+            _r_bullets(slide, s, i + 1, total, th)
 
         # Speaker notes give the presenter talking points — turns a skeletal deck into a usable one.
         note = s.get("notes") or s.get("note")
@@ -385,6 +506,7 @@ async def build_deck(
     return str(path), file_name, {
         "topic": topic,
         "slides": total,
+        "theme": (design_theme or "editorial"),
         "url": public_url("decks", file_name),
         "ai_cover": bool(cover_img),
     }

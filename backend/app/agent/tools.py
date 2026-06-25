@@ -169,14 +169,38 @@ def _variation_count(args) -> int:
         return 1
 
 
+# Document styling vocabulary — single source of truth shared by the schemas and the builders.
+DOC_TONE = ["executive", "professional", "conversational", "persuasive", "data-driven"]
+DOC_DEPTH = ["concise", "standard", "in-depth"]
+DOC_THEME = ["minimal", "editorial", "bold", "data-driven"]
+_DEPTH_SLIDES = {"concise": 5, "standard": 8, "in-depth": 12}
+
+
+def _doc_style(args) -> dict:
+    """Extract the optional document-tailoring params, validated against the enums. Returns ONLY the
+    keys the user actually supplied, so old topic-only calls pass nothing extra and builders use defaults."""
+    out: dict = {}
+    if (aud := str(args.get("audience") or "").strip()):
+        out["audience"] = aud[:200]
+    if (tone := str(args.get("tone") or "").strip().lower()) in DOC_TONE:
+        out["tone"] = tone
+    if (depth := str(args.get("depth") or "").strip().lower()) in DOC_DEPTH:
+        out["depth"] = depth
+    if (theme := str(args.get("design_theme") or "").strip().lower()) in DOC_THEME:
+        out["design_theme"] = theme
+    return out
+
+
 async def exec_build_deck(db, state, brand, args) -> dict:
     topic = args.get("topic") or "Talentrupt RPO"
-    slides = args.get("slides", 6)
+    style = _doc_style(args)
+    # Explicit slide count wins; else derive from depth; else default 6.
+    slides = args.get("slides") or _DEPTH_SLIDES.get(style.get("depth", ""), 6)
     count = _variation_count(args)
     saved = []
     for _ in range(count):  # each build re-plans the outline -> distinct variations
-        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides)
-        a = _save_asset(db, None, "deck", topic, body={"topic": topic},
+        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides, **style)
+        a = _save_asset(db, None, "deck", topic, body={"topic": topic, **style},
                         file_path=path, file_url=meta["url"], meta=meta)
         saved.append(serialize_asset(a))
     if not saved:
@@ -190,14 +214,15 @@ async def exec_build_deck(db, state, brand, args) -> dict:
 async def exec_build_pdf(db, state, brand, args) -> dict:
     kind = args.get("kind", "report")
     topic = (args.get("topic") or "").strip()
+    style = _doc_style(args)
     count = _variation_count(args)
     saved = []
     for _ in range(count):
         # Write tailored, brand-grounded content for the topic (None -> template fallback in build_pdf).
-        outline = await pdf.generate_pdf_outline(brand, topic, kind) if topic else None
-        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline)
+        outline = await pdf.generate_pdf_outline(brand, topic, kind, **style) if topic else None
+        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, **style)
         title = (topic or f"Talentrupt — {kind}")[:120]
-        a = _save_asset(db, None, "pdf", title, body={"kind": kind, "topic": topic},
+        a = _save_asset(db, None, "pdf", title, body={"kind": kind, "topic": topic, **style},
                         file_path=path, file_url=meta["url"], meta=meta)
         saved.append(serialize_asset(a))
     if not saved:
@@ -727,21 +752,37 @@ TOOL_SCHEMAS = [
         },
         ["concept"]),
     _fn("build_deck",
-        "Build a ready-to-present PowerPoint (.pptx) in Talentrupt's deck style.",
+        "Build a ready-to-present, designed PowerPoint (.pptx) in Talentrupt's deck style. Pass the "
+        "audience/tone/depth gathered from the user so the deck is tailored, not generic.",
         {
             "topic": {"type": "string"},
-            "slides": {"type": "integer", "description": "Slide count (3-12)"},
+            "slides": {"type": "integer", "description": "Slide count (3-12). Omit to derive from depth."},
+            "audience": {"type": "string", "description": "Optional — who the deck is for (e.g. 'healthcare CHROs'); set only when the user indicated it."},
+            "tone": {"type": "string", "enum": DOC_TONE,
+                     "description": "Optional — the voice/formality the user asked for; omit if unspecified."},
+            "depth": {"type": "string", "enum": DOC_DEPTH,
+                      "description": "Optional — how deep: concise (~5 slides), standard (~8), in-depth (~12)."},
+            "design_theme": {"type": "string", "enum": DOC_THEME,
+                             "description": "Optional visual theme; derive from tone (executive→minimal, persuasive→bold, data-driven→data-driven, else editorial). Never invent statistics to suit a theme."},
             "count": {"type": "integer",
                       "description": "How many distinct deck variations to build (1-3). Defaults to 1; only "
                                      "set higher when the user wants multiple options to choose from."},
         },
         ["topic"]),
     _fn("build_pdf",
-        "Build a PDF document (campaign report, proposal, or one-pager) on a specific topic, "
-        "with tailored content grounded in Talentrupt's brand.",
+        "Build a designed PDF document (report, proposal, or one-pager) on a specific topic, with "
+        "tailored, brand-grounded content. Pass the audience/tone/depth gathered from the user.",
         {
-            "kind": {"type": "string", "enum": ["report", "proposal", "one-pager"]},
+            "kind": {"type": "string", "enum": ["report", "proposal", "one-pager"],
+                     "description": "proposal = client pitch; one-pager = quick leave-behind; report = analysis/briefing."},
             "topic": {"type": "string", "description": "What the document is about — be specific to the request"},
+            "audience": {"type": "string", "description": "Optional — who reads it; set only when the user indicated it."},
+            "tone": {"type": "string", "enum": DOC_TONE,
+                     "description": "Optional — the voice/formality the user asked for; omit if unspecified."},
+            "depth": {"type": "string", "enum": DOC_DEPTH,
+                      "description": "Optional — concise (one-pager feel), standard, or in-depth."},
+            "design_theme": {"type": "string", "enum": DOC_THEME,
+                             "description": "Optional visual theme; derive from tone (executive→minimal, persuasive→bold, data-driven→data-driven, else editorial). Never invent statistics to suit a theme."},
             "count": {"type": "integer",
                       "description": "How many distinct document variations to build (1-3). Defaults to 1; only "
                                      "set higher when the user wants multiple options to choose from."},
