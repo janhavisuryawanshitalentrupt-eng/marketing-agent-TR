@@ -127,17 +127,18 @@ def paste_logo(img, x: int, y: int, size: int) -> bool:
         return False
 
 
-def composite_logo_bytes(png_bytes: bytes, corner: str = "bottom-right", frac: float = 0.17) -> bytes:
+def composite_logo_bytes(png_bytes: bytes, corner: str = "bottom-right", frac: float = 0.10) -> bytes:
     """Overlay the brand logo onto an existing PNG (e.g. an AI-generated image) so the correct
-    Talentrupt mark is always present AND clearly visible. Sits the logo on an opaque white chip with
-    a soft drop shadow + subtle border so it lifts off ANY background. Returns bytes unchanged on failure."""
+    Talentrupt mark is always present. Kept SMALL with a TIGHT chip so it reads as a corner badge and
+    does not cover the image's headline or stat text. Sits on an opaque white chip with a soft drop
+    shadow + subtle border so it lifts off ANY background. Returns bytes unchanged on failure."""
     try:
         base = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-        s = max(64, int(min(base.size) * frac))  # logo edge in px (bigger + a higher floor than before)
-        pad = int(s * 0.42)
+        s = max(56, int(min(base.size) * frac))  # small logo edge in px
+        pad = int(s * 0.40)
         x = pad if "left" in corner else base.size[0] - s - pad
         y = pad if "top" in corner else base.size[1] - s - pad
-        m = int(s * 0.18)
+        m = int(s * 0.10)  # tight chip margin — minimal coverage of the underlying image
         chip = [x - m, y - m, x + s + m, y + s + m]
         rad = int(s * 0.22)
         # Soft drop shadow on its own layer so the chip reads on light AND dark/busy backgrounds.

@@ -478,8 +478,10 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
         "photo and type stay clean.\n"
         "- CRITICAL: do NOT render the word 'Talentrupt', the tagline 'RPO Done Right', or ANY company "
         "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image — the official logo is "
-        "overlaid afterward. Keep the BOTTOM-RIGHT corner empty and uncluttered for it. Premium B2B, "
-        "magazine-quality finish.\n\n"
+        "overlaid afterward. Keep the BOTTOM-RIGHT corner (about the last 20% of the width AND height) "
+        "COMPLETELY EMPTY — no headline, subtext, stat cards, numbers, subject or graphics there. Place "
+        "any stat cards or text along the bottom-LEFT or center so nothing reaches the bottom-right "
+        "corner. Premium B2B, magazine-quality finish.\n\n"
         f"VISUAL STYLE: {_STYLE_DIRECTION.get(plan.get('style', 'photographic'), _STYLE_DIRECTION['photographic'])}\n"
         f"COMPOSITION: {comp}\n"
         f'The ONLY text rendered in the image is the headline (spell EXACTLY): "{plan["headline"]}"'
