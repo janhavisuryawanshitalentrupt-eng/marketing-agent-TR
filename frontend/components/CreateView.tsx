@@ -188,7 +188,7 @@ export function CreateView() {
                         {m.content ? <Markdown content={m.content} /> : <Dots />}
                       </div>
                     )}
-                    {m.chips && m.chips.length > 0 && (
+                    {m.chips && m.chips.length > 0 && i === messages.length - 1 && (
                       <div className="flex max-w-2xl flex-wrap gap-1.5">
                         {m.chips.map((c, j) => (
                           <button
