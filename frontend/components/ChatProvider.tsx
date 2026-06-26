@@ -85,6 +85,7 @@ export function makeChatStore(endpoint: string, kind: string) {
           { role: "user", content: trimmed },
           { role: "assistant", content: "", pending: true },
         ]);
+        let gotAsset = false; // keep a staged photo until it's actually used in a generated asset
 
         try {
         await streamChat(
@@ -103,6 +104,7 @@ export function makeChatStore(endpoint: string, kind: string) {
             },
             onAsset: (asset: Asset) => {
               if (!live()) return;
+              gotAsset = true;
               setMessages((m) => {
                 const last = m[m.length - 1];
                 if (last?.role !== "assistant") return m;
@@ -174,7 +176,9 @@ export function makeChatStore(endpoint: string, kind: string) {
           if (live()) {
             setStatus("");
             setBusy(false);
-            setAttachments([]); // each file rides one message; saved to the library for later turns
+            // Keep a staged photo until it's actually used in a post — so an intake question or a
+            // chat reply in between doesn't lose it. Other files clear after their one turn.
+            if (gotAsset || !attachments.some((a) => a.kind === "image")) setAttachments([]);
             refresh();
           }
         }

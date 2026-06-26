@@ -101,8 +101,11 @@ async def run(
     # with their REAL face — never AI-generated). Resolve the persisted upload by its SourceFile id.
     attached_imgs = []
     for a in (attachments or []):
-        if (a.get("kind") == "image") and a.get("id"):
-            sf = db.get(SourceFile, a["id"])
+        if a.get("kind") == "image" and a.get("id") is not None:
+            try:
+                sf = db.get(SourceFile, int(a["id"]))
+            except (TypeError, ValueError):
+                sf = None
             if sf and sf.path and os.path.exists(sf.path):
                 attached_imgs.append({"id": sf.id, "name": a.get("name") or "photo", "path": sf.path})
     if attached_imgs:
@@ -110,7 +113,9 @@ async def run(
 
     # CREATE intake: a vague NEW request gets a short conversational nudge + tappable quick-picks
     # instead of generating blind. Specific / "your call" / answering / refine fall straight through.
-    if mode == "create":
+    # SKIP the intake entirely when a photo is attached — generate on THIS turn so the attachment (which
+    # rides only one message) isn't lost to a follow-up question.
+    if mode == "create" and not attached_imgs:
         try:
             intent = await create_intake.interpret_create_intent(brand, messages)
         except Exception:
