@@ -142,6 +142,23 @@ def detect_team_person(text: str) -> str | None:
     return None
 
 
+_GROUP_CUES = {"team", "teams", "group", "everyone", "everybody", "staff", "leadership", "leaders",
+               "all", "crew", "folks", "company", "office", "department", "squad", "members",
+               "colleagues", "family", "culture", "together", "people", "us", "we"}
+
+
+def is_group_query(text: str) -> bool:
+    """True when the request is about the team/group as a whole (so we feature a GROUP shot)."""
+    return bool({t for t in re.findall(r"[a-z]+", (text or "").lower())} & _GROUP_CUES)
+
+
+def group_photos() -> list:
+    """Team photos that depict a GROUP (no individual role) — used so a generic 'the team' request
+    rotates across real group shots instead of silently defaulting to one person."""
+    from ..knowledge import retrieve
+    return [p for p in retrieve.list_team_photos() if parse_team_label(p["label"])[1] == ""]
+
+
 _BACKDROPS = [
     ([(640, 120, 360, 360, 18), (560, 360, 420, 420, -12), (720, 540, 300, 300, 26)], (880, 300, -10)),
     ([(600, 60, 440, 440, -14), (520, 470, 360, 360, 16), (770, 300, 280, 280, 30)], (300, 250, 100)),

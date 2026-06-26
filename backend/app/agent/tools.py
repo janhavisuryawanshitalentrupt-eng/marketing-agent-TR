@@ -691,22 +691,37 @@ async def exec_team_image(db, state, brand, args) -> dict:
                 "I won't invent a face. Add the photos to a 'Team/' folder inside the brand library "
                 "(named descriptively, e.g. Team/nishant-trivedi-coo.jpg), then re-run the knowledge "
                 "import.", "assets": []}
-    photos = retrieve.person_photos(person or message)
+    # Route the request WITHOUT ever silently defaulting to one individual:
+    #  - a real named person we have -> their photos;
+    #  - a generic 'team'/group request (or a bare message) -> rotate real GROUP shots;
+    #  - a name we DON'T have -> ask who (don't substitute someone else).
+    query = person or message
+    specific = teampost.detect_team_person(query)
+    if specific:
+        photos = retrieve.person_photos(specific)
+    elif person and not teampost.is_group_query(person):
+        photos = []
+    else:
+        photos = teampost.group_photos()
     if not photos:
         labels = ", ".join(sorted({o["label"] for o in options}))
-        return {"summary": f"I couldn't match “{person or message}” to a team photo. Available "
-                f"team photos: {labels}. Who should I feature? (I only use the real photos on file — I "
-                "never invent a face.)", "assets": []}
+        miss = person or message
+        return {"summary": (f"I couldn't match “{miss}” to a team photo. " if miss else
+                            "I don't have a group photo on file yet to feature the team. ")
+                + f"Available team photos: {labels}. Who should I feature? (I only use the real photos "
+                "on file — I never invent a face.)", "assets": []}
     # Decide how many posts and in which FORMAT(s). A specific style honors it; otherwise rotate
     # distinct formats so posts don't all look alike (and count>1 returns options to choose from).
     n = max(1, min(int(args.get("count") or 1), 4))
     style_arg = (args.get("style") or "").strip().lower()
+    # A crowd shouldn't be cut out — group posts use the full-photo formats; individuals rotate all.
+    style_pool = ["magazine", "split"] if (not specific and not style_arg) else teampost.STYLE_NAMES
     if style_arg in teampost.STYLE_NAMES:
         styles = [style_arg] * n
     else:
-        styles = random.sample(teampost.STYLE_NAMES, k=min(n, len(teampost.STYLE_NAMES)))
+        styles = random.sample(style_pool, k=min(n, len(style_pool)))
         while len(styles) < n:
-            styles.append(random.choice(teampost.STYLE_NAMES))
+            styles.append(random.choice(style_pool))
         random.shuffle(styles)
 
     # Split the user's message into a punchy headline + supporting subline so it's shown in full.
