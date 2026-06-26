@@ -16,6 +16,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class AppSetting(Base):
+    """Tiny key-value store for mutable runtime settings (e.g. the admin password override set via
+    'forgot password', and the active password-reset code). Created by init_db()'s create_all — no
+    migration needed. The config defaults still apply until a key is written here."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class Brand(Base):
     __tablename__ = "brands"
 

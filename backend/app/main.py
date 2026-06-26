@@ -57,11 +57,15 @@ from .providers import llm
 from .schemas import (
     ChatRequest,
     ConversationOut,
+    ForgotRequest,
+    ForgotResponse,
     LoginRequest,
     LoginResponse,
     MessageOut,
+    ResetRequest,
 )
 from .seed import seed_brand
+from . import auth_reset
 
 log = logging.getLogger("talentrupt")
 
@@ -105,12 +109,50 @@ def health() -> dict:
     }
 
 
-# --- Auth endpoint --------------------------------------------------------
+# --- Auth endpoints -------------------------------------------------------
+def _is_admin_email(email: str) -> bool:
+    return (email or "").strip().lower() == settings.admin_username.strip().lower()
+
+
 @app.post("/api/auth/login", response_model=LoginResponse)
-def login(req: LoginRequest) -> LoginResponse:
-    if req.username == settings.admin_username and req.password == settings.admin_password:
-        return LoginResponse(token=settings.admin_token, username=req.username)
+def login(req: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+    # Password may have been changed via 'forgot password' (DB override); verify_password falls back
+    # to the configured default until then, so existing credentials keep working.
+    if _is_admin_email(req.username) and auth_reset.verify_password(db, req.password):
+        return LoginResponse(token=settings.admin_token, username=settings.admin_username)
     raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/api/auth/forgot", response_model=ForgotResponse)
+def forgot_password(req: ForgotRequest, db: Session = Depends(get_db)) -> ForgotResponse:
+    """Issue a reset code for the admin account. Always returns the same generic message (no account
+    enumeration). The code is emailed when SMTP is configured, otherwise logged server-side."""
+    generic = "If that email is registered, a reset code has been sent."
+    if not _is_admin_email(req.email):
+        return ForgotResponse(message=generic, dev_code=None)
+    code = auth_reset.create_reset_code(db)
+    if auth_reset.email_available():
+        try:
+            auth_reset.send_reset_email(settings.admin_username, code)
+        except Exception:
+            log.warning("password reset email failed to send", exc_info=True)
+    else:
+        log.warning("PASSWORD RESET CODE for %s = %s (email not configured)", req.email, code)
+    dev = code if (settings.auth_reset_dev_return_code and not auth_reset.email_available()) else None
+    return ForgotResponse(message=generic, dev_code=dev)
+
+
+@app.post("/api/auth/reset", response_model=LoginResponse)
+def reset_password(req: ResetRequest, db: Session = Depends(get_db)) -> LoginResponse:
+    """Verify the reset code and set a new password (DB override), then sign the admin in."""
+    if not _is_admin_email(req.email) or not auth_reset.verify_reset_code(db, req.code):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+    pw = (req.new_password or "").strip()
+    if len(pw) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    auth_reset.set_password(db, pw)
+    auth_reset.clear_reset_code(db)
+    return LoginResponse(token=settings.admin_token, username=settings.admin_username)
 
 
 # --- Brand ----------------------------------------------------------------

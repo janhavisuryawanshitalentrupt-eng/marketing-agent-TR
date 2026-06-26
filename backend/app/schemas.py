@@ -14,6 +14,21 @@ class LoginResponse(BaseModel):
     username: str
 
 
+class ForgotRequest(BaseModel):
+    email: str
+
+
+class ForgotResponse(BaseModel):
+    message: str
+    dev_code: str | None = None  # only populated in dev mode when email isn't configured
+
+
+class ResetRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: int | None = None

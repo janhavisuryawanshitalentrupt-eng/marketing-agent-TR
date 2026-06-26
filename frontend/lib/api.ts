@@ -64,6 +64,35 @@ export async function login(
   return res.json();
 }
 
+export async function forgotPassword(
+  email: string,
+): Promise<{ message: string; dev_code: string | null }> {
+  const res = await fetch(`${API_BASE}/api/auth/forgot`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error("Couldn't send a reset code — please try again.");
+  return res.json();
+}
+
+export async function resetPassword(
+  email: string,
+  code: string,
+  new_password: string,
+): Promise<{ token: string; username: string }> {
+  const res = await fetch(`${API_BASE}/api/auth/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, new_password }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail ?? "Invalid or expired reset code");
+  }
+  return res.json();
+}
+
 export async function getHealth(): Promise<Health> {
   const res = await fetch(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error("Backend unavailable");

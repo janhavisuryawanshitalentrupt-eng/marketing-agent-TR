@@ -78,6 +78,22 @@ class Settings(BaseSettings):
     admin_password: str = "Admin123"
     admin_token: str = "dev-talentrupt-admin-token"
 
+    # --- Email / password reset (optional) ------------------------------
+    # SMTP is used to deliver the 'forgot password' reset code to the admin email. Until host+from are
+    # set, the reset flow still works but the code is written to the server log instead of emailed.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""        # the From address (e.g. "Talentrupt AI <noreply@talentrupt.com>")
+    smtp_starttls: bool = True
+    # Dev-only convenience: when email is NOT configured, return the reset code in the API response so
+    # the flow is testable. MUST stay False in any shared/production environment.
+    auth_reset_dev_return_code: bool = False
+
+    def email_available(self) -> bool:
+        return bool(self.smtp_host.strip() and self.smtp_from.strip())
+
     # --- Brand logo -----------------------------------------------------
     # Path to the REAL Talentrupt logo PNG (navy "TR" in a coral-red square). When set and the file
     # exists, it is used verbatim for every generated asset (image/deck/PDF). When empty, a close
