@@ -1,9 +1,13 @@
-"""Branded "feature a person/team" post built around a REAL photo (exact faces — never AI-synthesized).
+"""Branded "feature a person/team" posts built around a REAL photo (exact faces — never AI-synthesized).
 
-Cuts the person out of their actual photo (offline background removal via rembg, when available) and
-places them as a hero on Talentrupt's navy designed background — a bold headline, a question, a
-"Featuring <name> · <role>" badge, and the real logo (the "Man on a Mission" style). Falls back to a
-clean cover-fit (no cut-out) if rembg isn't installed, so the feature never breaks. No LLM/image-API.
+Several distinct FORMATS so the same person isn't always shown the same way:
+  - spotlight : person cut out (offline rembg) as a hero on the navy designed background ("Man on a
+                Mission" style).
+  - magazine  : the full real photo, full-bleed, with a navy caption band (shows the real backdrop).
+  - split     : the full photo on one side, a navy text panel on the other.
+  - framed    : a rounded "spotlight card" — framed portrait centred on navy with name/role.
+Each also has background/headline/accent variants. Falls back to a cover-fit (no cut-out) if rembg
+isn't installed, so the feature never breaks. No LLM / image-API — pure PIL.
 """
 from __future__ import annotations
 
@@ -23,17 +27,35 @@ RED = (0xF6, 0x40, 0x4C)
 CREAM = (0xEB, 0xE9, 0xDF)
 WHITE = (255, 255, 255)
 
+STYLE_NAMES = ["spotlight", "magazine", "split", "framed"]
 
+
+# --- shared helpers --------------------------------------------------------
 def _cutout(img: Image.Image) -> Image.Image:
     """Background-removed RGBA of the subject (offline rembg). Returns the original as opaque RGBA if
-    rembg isn't available, so the post still renders (cover-fit) rather than failing."""
+    rembg isn't available, so the post still renders rather than failing."""
     try:
-        from rembg import remove  # heavy import; only loaded when a team post is built
+        from rembg import remove  # heavy import; only loaded when a cut-out post is built
         out = remove(img).convert("RGBA")
         bbox = out.getbbox()
         return out.crop(bbox) if bbox else out
     except Exception:
         return img.convert("RGBA")
+
+
+def _cover_fit(img: Image.Image, w: int, h: int) -> Image.Image:
+    """Center-crop + scale `img` to exactly fill w×h (never distort)."""
+    img = img.convert("RGB")
+    src_r, dst_r = img.width / img.height, w / h
+    if src_r > dst_r:
+        nw = max(1, int(img.height * dst_r))
+        x = (img.width - nw) // 2
+        img = img.crop((x, 0, x + nw, img.height))
+    else:
+        nh = max(1, int(img.width / dst_r))
+        y = (img.height - nh) // 2
+        img = img.crop((0, y, img.width, y + nh))
+    return img.resize((w, h), Image.LANCZOS)
 
 
 def _wrap(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
@@ -51,8 +73,6 @@ def _wrap(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
     return lines or [""]
 
 
-# Background variety: each entry is (ghost rounded-rects, dotted-arc center+start-angle). Picked by
-# `variant` so repeated posts for the same person don't share an identical background.
 _BACKDROPS = [
     ([(640, 120, 360, 360, 18), (560, 360, 420, 420, -12), (720, 540, 300, 300, 26)], (880, 300, -10)),
     ([(600, 60, 440, 440, -14), (520, 470, 360, 360, 16), (770, 300, 280, 280, 30)], (300, 250, 100)),
@@ -74,26 +94,54 @@ def _paint_backdrop(canvas: Image.Image, d: ImageDraw.ImageDraw, variant: int = 
     d.rectangle([0, 0, RAIL_W, H], fill=RED)
 
 
-def build_team_image(
-    brand: Brand | None, photo_bytes: bytes, name: str, role: str = "",
-    headline: str = "", question: str = "", variant: int = 0,
-) -> tuple[str, str, dict]:
-    """Compose a branded feature post around a real photo. `variant` rotates the background, hero scale
-    and headline accent so repeats look different. Returns (path, file_name, meta) — same shape as
-    images._render. Raises on an unreadable photo (caller surfaces a message; never an AI face)."""
-    try:  # team photos may be HEIC (iPhone) — register the opener when available
-        import pillow_heif
-        pillow_heif.register_heif_opener()
-    except Exception:
-        pass
-    photo = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
-    hero = _cutout(photo)
+def _draw_headline(d, x, y, text, max_w, accent_box=True, size=104) -> int:
+    """Headline in heading font, wrapped (≤3 lines, auto-shrink). Even variants box the last line red;
+    odd variants underline. Returns the y below the block."""
+    hlines = _wrap(d, text or "On a Mission!", heading_font(size), max_w)[:3]
+    if max(d.textlength(ln, font=heading_font(size)) for ln in hlines) > max_w:
+        size = int(size * 0.8)
+    f = heading_font(size)
+    last_tw = 0
+    for idx, ln in enumerate(hlines):
+        tw = d.textlength(ln, font=f)
+        last_tw = tw
+        if accent_box and idx == len(hlines) - 1:
+            d.rectangle([x - 8, y - 4, x + tw + 26, y + f.size + 14], fill=RED)
+            d.text((x + 6, y + 4), ln, font=f, fill=WHITE)
+        else:
+            d.text((x, y + 4), ln, font=f, fill=WHITE)
+        y += int(f.size * 1.18) + 10
+    if not accent_box:
+        d.rectangle([x, y - 2, x + min(int(last_tw), max_w), y + 12], fill=RED)
+        y += 18
+    return y
 
+
+def _role_badge(d, x, y, role, fill=WHITE, fg=NAVY) -> None:
+    bf = body_font(30)
+    rw = d.textlength(role, font=bf)
+    bw = 24 + 16 + rw
+    d.rounded_rectangle([x, y, x + bw + 40, y + 52], radius=26, fill=fill)
+    ix, iy = x + 22, y + 16  # mini briefcase, drawn (no emoji-font dependency)
+    d.rounded_rectangle([ix, iy + 5, ix + 24, iy + 20], radius=3, fill=fg)
+    d.rectangle([ix + 8, iy, ix + 16, iy + 7], outline=fg, width=3)
+    d.text((ix + 36, y + 11), role, font=bf, fill=fg)
+
+
+def _draw_featuring(d, x, y, name, role, name_size=58) -> None:
+    d.rectangle([x, y - 16, x + 120, y - 12], fill=WHITE)
+    d.text((x, y), "Featuring", font=body_font(32), fill=CREAM)
+    d.text((x, y + 40), name or "the Talentrupt team", font=heading_font(name_size), fill=WHITE)
+    if role:
+        _role_badge(d, x, y + 40 + 72, role)
+
+
+# --- formats ---------------------------------------------------------------
+def _layout_spotlight(photo, name, role, headline, question, variant) -> Image.Image:
     canvas = Image.new("RGB", (W, H), NAVY)
     d = ImageDraw.Draw(canvas)
     _paint_backdrop(canvas, d, variant)
-
-    # Hero on the right, anchored bottom; cap width so a wide cut-out (group/scene) can't overflow.
+    hero = _cutout(photo)
     target_h = int(H * (0.80, 0.78, 0.82)[variant % 3])
     scale = target_h / hero.height
     if hero.width * scale > W * 0.62:
@@ -104,61 +152,134 @@ def build_team_image(
     except Exception:
         pass
     canvas.paste(hero, (W - hero.width - 36, H - hero.height), hero)
-
     pad = 70
-    head = (headline or "On a Mission!").strip()
-    hlines = _wrap(d, head, heading_font(104), W - 470)[:3]
-    f = heading_font(104 if max(d.textlength(ln, font=heading_font(104)) for ln in hlines) <= (W - 470) else 84)
-    accent_box = (variant % 2 == 0)  # even: red box on the last line; odd: a red underline bar
-    y, last_tw = 84, 0
-    for idx, ln in enumerate(hlines):
-        tw = d.textlength(ln, font=f)
-        last_tw = tw
-        if accent_box and idx == len(hlines) - 1:
-            d.rectangle([pad - 8, y - 4, pad + tw + 26, y + f.size + 14], fill=RED)
-            d.text((pad + 6, y + 4), ln, font=f, fill=WHITE)
-        else:
-            d.text((pad, y + 4), ln, font=f, fill=WHITE)
-        y += int(f.size * 1.18) + 10
-    if not accent_box:
-        d.rectangle([pad, y - 2, pad + min(int(last_tw), W - 470), y + 12], fill=RED)
-        y += 18
-
+    y = _draw_headline(d, pad, 84, headline, W - 470, accent_box=(variant % 2 == 0))
     if question:
         qf = body_font(34)
         y += 12
         for ln in _wrap(d, question, qf, 440):
             d.text((pad, y), ln, font=qf, fill=CREAM)
             y += 44
+    _draw_featuring(d, pad, H - 250, name, role)
+    paste_logo(canvas, W - 116, H - 116, 74)
+    return canvas
 
-    # Featuring + name + role badge, bottom-left
-    fy = H - 250
-    d.rectangle([pad, fy - 16, pad + 120, fy - 12], fill=WHITE)
-    d.text((pad, fy), "Featuring", font=body_font(32), fill=CREAM)
-    namef = heading_font(58)
-    d.text((pad, fy + 40), name or "the Talentrupt team", font=namef, fill=WHITE)
+
+def _scrim(canvas, top_frac, start_alpha) -> Image.Image:
+    """Composite a bottom navy gradient onto a full-bleed photo for caption legibility."""
+    grad = Image.new("L", (1, H), 0)
+    y0, y1 = H * top_frac, H * (top_frac + 0.18)
+    for yy in range(H):
+        if yy < y0:
+            a = 0
+        elif yy < y1:
+            a = int(start_alpha * (yy - y0) / (y1 - y0))
+        else:
+            a = start_alpha
+        grad.putpixel((0, yy), a)
+    layer = Image.new("RGBA", (W, H), (*NAVY, 255))
+    layer.putalpha(grad.resize((W, H)))
+    return Image.alpha_composite(canvas.convert("RGBA"), layer).convert("RGB")
+
+
+def _layout_magazine(photo, name, role, headline, question, variant) -> Image.Image:
+    canvas = _cover_fit(photo, W, H)
+    canvas = _scrim(canvas, 0.44, 248)
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, 0, RAIL_W, H], fill=RED)
+    pad = 70
+    ky = H - 330
+    d.rectangle([pad, ky - 16, pad + 90, ky - 11], fill=RED)  # red tick
+    d.text((pad, ky), (headline or "On a Mission!").upper(), font=body_font(34), fill=CREAM)
+    d.text((pad, ky + 48), name or "the Talentrupt team", font=heading_font(78), fill=WHITE)
     if role:
-        ny = fy + 40 + 72
-        bf = body_font(30)
-        rw = d.textlength(role, font=bf)
-        bw = 24 + 16 + rw  # briefcase icon + gap + role text
-        d.rounded_rectangle([pad, ny, pad + bw + 40, ny + 52], radius=26, fill=WHITE)
-        ix, iy = pad + 22, ny + 16  # mini briefcase, drawn (no emoji font dependency)
-        d.rounded_rectangle([ix, iy + 5, ix + 24, iy + 20], radius=3, fill=NAVY)
-        d.rectangle([ix + 8, iy, ix + 16, iy + 7], outline=NAVY, width=3)
-        d.text((ix + 36, ny + 11), role, font=bf, fill=NAVY)
+        _role_badge(d, pad, ky + 48 + 96, role)
+    paste_logo(canvas, W - 116, H - 116, 74)
+    return canvas
 
-    try:
-        paste_logo(canvas, W - 116, H - 116, 74)
+
+def _layout_split(photo, name, role, headline, question, variant) -> Image.Image:
+    canvas = Image.new("RGB", (W, H), NAVY)
+    d = ImageDraw.Draw(canvas)
+    panel_w = int(W * 0.44)
+    canvas.paste(_cover_fit(photo, W - panel_w, H), (panel_w, 0))
+    d.rectangle([panel_w - 8, 0, panel_w, H], fill=RED)  # seam
+    d.rectangle([0, 0, RAIL_W, H], fill=RED)
+    for i in range(20):  # small dotted arc accent in the panel
+        a = math.radians(-20 + i * 8)
+        px, py = int(panel_w * 0.5 + 90 * math.cos(a)), int(H * 0.30 + 90 * math.sin(a))
+        d.ellipse([px - 3, py - 3, px + 3, py + 3], fill=NAVY2)
+    pad = 64
+    y = _draw_headline(d, pad, 110, headline, panel_w - 2 * pad, accent_box=(variant % 2 == 0), size=78)
+    if question:
+        qf = body_font(30)
+        y += 10
+        for ln in _wrap(d, question, qf, panel_w - 2 * pad):
+            d.text((pad, y), ln, font=qf, fill=CREAM)
+            y += 40
+    _draw_featuring(d, pad, H - 300, name, role, name_size=48)
+    paste_logo(canvas, pad, H - 110, 60)
+    return canvas
+
+
+def _layout_framed(photo, name, role, headline, question, variant) -> Image.Image:
+    canvas = Image.new("RGB", (W, H), NAVY)
+    d = ImageDraw.Draw(canvas)
+    _paint_backdrop(canvas, d, variant)
+    fw, fh, fy = 600, 620, 170
+    fx = (W - fw) // 2
+    portrait = _cover_fit(photo, fw, fh)
+    mask = Image.new("L", (fw, fh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, fw, fh], radius=44, fill=255)
+    d.rounded_rectangle([fx - 8, fy - 8, fx + fw + 8, fy + fh + 8], radius=50, outline=WHITE, width=6)
+    canvas.paste(portrait, (fx, fy), mask)
+    hf = heading_font(50)
+    ht = (headline or "Team Spotlight").strip()
+    d.text(((W - d.textlength(ht, font=hf)) // 2, 72), ht, font=hf, fill=CREAM)
+    nm = name or "the Talentrupt team"
+    nf = heading_font(60)
+    d.text(((W - d.textlength(nm, font=nf)) // 2, fy + fh + 32), nm, font=nf, fill=WHITE)
+    if role:
+        rf = body_font(32)
+        rw = d.textlength(role, font=rf)
+        ry = fy + fh + 32 + 78
+        d.rounded_rectangle([(W - rw) // 2 - 30, ry, (W + rw) // 2 + 30, ry + 54], radius=27, fill=RED)
+        d.text(((W - rw) // 2, ry + 12), role, font=rf, fill=WHITE)
+    paste_logo(canvas, W - 116, H - 116, 74)
+    return canvas
+
+
+_LAYOUTS = {
+    "spotlight": _layout_spotlight,
+    "magazine": _layout_magazine,
+    "split": _layout_split,
+    "framed": _layout_framed,
+}
+
+
+def build_team_image(
+    brand: Brand | None, photo_bytes: bytes, name: str, role: str = "",
+    headline: str = "", question: str = "", variant: int = 0, style: str = "spotlight",
+) -> tuple[str, str, dict]:
+    """Compose a branded feature post around a real photo in one of STYLE_NAMES formats. `variant`
+    rotates background/scale/accent within a format. Returns (path, file_name, meta) — same shape as
+    images._render. Raises on an unreadable photo (caller surfaces a message; never an AI face)."""
+    try:  # team photos may be HEIC (iPhone) — register the opener when available
+        import pillow_heif
+        pillow_heif.register_heif_opener()
     except Exception:
         pass
+    photo = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
+    style = style if style in _LAYOUTS else "spotlight"
+    canvas = _LAYOUTS[style](photo, name, role, headline, question, variant)
 
     file_name = unique_name("tr-team", "png")
     path = storage_subdir("images") / file_name
     canvas.convert("RGB").save(str(path), "PNG")
     return str(path), file_name, {
         "url": public_url("images", file_name),
-        "renderer": "team_feature_cutout",
+        "renderer": f"team_{style}",
+        "style": style,
         "size": f"{W}x{H}",
         "kind": "team",
     }

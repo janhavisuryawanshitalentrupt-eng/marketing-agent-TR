@@ -681,29 +681,50 @@ async def exec_team_image(db, state, brand, args) -> dict:
         return {"summary": f"I couldn't match “{person or message}” to a team photo. Available "
                 f"team photos: {labels}. Who should I feature? (I only use the real photos on file — I "
                 "never invent a face.)", "assets": []}
-    # Rotate across this person's shots + vary the layout so repeats don't look identical.
-    chosen = random.choice(photos)
-    raw = retrieve.team_reference_bytes(chosen["path"])
-    if not raw:
-        return {"summary": "I found the photo but couldn't read it from the brand library — please re-run "
-                "the knowledge import and try again.", "assets": []}
-    name, role = _parse_team_label(chosen["label"])
-    headline = message or random.choice(_FEATURE_HEADLINES)
-    variant = random.randint(0, 5)
-    try:
-        path, fname, meta = teampost.build_team_image(brand, raw, name=name, role=role,
-                                                      headline=headline, variant=variant)
-    except Exception:
+    # Decide how many posts and in which FORMAT(s). A specific style honors it; otherwise rotate
+    # distinct formats so posts don't all look alike (and count>1 returns options to choose from).
+    n = max(1, min(int(args.get("count") or 1), 4))
+    style_arg = (args.get("style") or "").strip().lower()
+    if style_arg in teampost.STYLE_NAMES:
+        styles = [style_arg] * n
+    else:
+        styles = random.sample(teampost.STYLE_NAMES, k=min(n, len(teampost.STYLE_NAMES)))
+        while len(styles) < n:
+            styles.append(random.choice(teampost.STYLE_NAMES))
+        random.shuffle(styles)
+
+    assets, used, name, role = [], [], "", ""
+    for i in range(n):
+        photo = random.choice(photos)  # rotate across this person's real shots
+        raw = retrieve.team_reference_bytes(photo["path"])
+        if not raw:
+            continue
+        name, role = _parse_team_label(photo["label"])
+        headline = message or random.choice(_FEATURE_HEADLINES)
+        try:
+            path, fname, meta = teampost.build_team_image(
+                brand, raw, name=name, role=role, headline=headline,
+                variant=random.randint(0, 5), style=styles[i])
+        except Exception:
+            continue
+        meta = {**meta, "team_photo": photo["label"]}
+        title = f"{name}" + (f" — {role}" if role else "")
+        a = _save_asset(db, None, "image", title[:380],
+                        body={"person": name, "role": role, "headline": headline,
+                              "kind": "team", "style": styles[i]},
+                        file_path=path, file_url=meta["url"], meta=meta)
+        assets.append(serialize_asset(a))
+        used.append(styles[i])
+
+    if not assets:
         return {"summary": "Couldn't build the team post this time — please try again.", "assets": []}
-    meta = {**meta, "team_photo": chosen["label"]}
-    title = f"{name}" + (f" — {role}" if role else "")
-    a = _save_asset(db, None, "image", title[:380],
-                    body={"person": name, "role": role, "headline": headline, "kind": "team"},
-                    file_path=path, file_url=meta["url"], meta=meta)
-    extra = f" (rotating across {len(photos)} photos on file)" if len(photos) > 1 else \
-            " — add more photos of them (same name, e.g. \"…-2.jpg\") and I'll rotate the look"
-    return {"summary": f"Created an on-brand post featuring {name}" + (f" ({role})" if role else "")
-            + " — their real photo." + extra, "assets": [serialize_asset(a)]}
+    fmts = ", ".join(dict.fromkeys(used))
+    note = (f" in {len(assets)} different formats ({fmts}) — pick your favourite"
+            if len(assets) > 1 else f" ({fmts} format)")
+    tip = "" if len(photos) > 1 else \
+        " · add more photos of them (same name, e.g. \"…-2.jpg\") for even more variety"
+    return {"summary": f"Created {len(assets)} post(s) featuring {name}" + (f" ({role})" if role else "")
+            + " — real photos" + note + tip + ".", "assets": assets}
 
 
 EXECUTORS = {
@@ -845,6 +866,14 @@ TOOL_SCHEMAS = [
                        "description": "Who to feature, as the user said it (e.g. 'the founder', 'Rushikesh', 'the leadership team', 'the whole team')."},
             "message": {"type": "string",
                         "description": "The headline/message for the post (e.g. 'Meet our founder'). Used as the post headline."},
+            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed"],
+                      "description": "Optional post FORMAT. Set ONLY when the user picked one: spotlight = "
+                                     "person cut out on a designed background; magazine = full real photo + "
+                                     "caption band; split = photo beside a text panel; framed = centered "
+                                     "spotlight card. Omit to rotate formats so posts don't all look alike."},
+            "count": {"type": "integer",
+                      "description": "How many posts to make (1-4). Use 2-4 when the user wants OPTIONS to "
+                                     "choose from — each comes back in a different format. Defaults to 1."},
         },
         ["person"]),
     _fn("build_deck",
