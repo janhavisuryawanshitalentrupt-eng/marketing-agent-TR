@@ -10,6 +10,7 @@ fallback path can call them.
 from __future__ import annotations
 
 import random
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
@@ -663,6 +664,29 @@ def _parse_team_label(label: str) -> tuple[str, str]:
     return base.title(), ""
 
 
+def _split_message(message: str) -> tuple[str, str]:
+    """Split a post message into a punchy (headline, subline) so a longer message is fully shown
+    instead of being truncated into the headline. Splits on the first sentence break, else a
+    colon/dash, else after the first few words for long messages. Short messages stay all-headline.
+    'Congrats Nishant! Celebrating 10+ years at Talentrupt' -> ('Congrats Nishant!', 'Celebrating 10+
+    years at Talentrupt')."""
+    msg = " ".join((message or "").split())
+    if not msg:
+        return "", ""
+    m = re.search(r"[.!?]", msg)
+    if m and msg[m.end():].strip():
+        return msg[:m.end()].strip(), msg[m.end():].strip()
+    for sep in (" — ", " - ", ": ", "—", ":"):
+        if sep in msg:
+            a, b = msg.split(sep, 1)
+            if a.strip() and b.strip():
+                return a.strip(), b.strip()
+    words = msg.split()
+    if len(words) > 6:
+        return " ".join(words[:3]), " ".join(words[3:])
+    return msg, ""
+
+
 async def exec_team_image(db, state, brand, args) -> dict:
     """Feature a REAL Talentrupt person/group: composite their ACTUAL photo (from the brand library's
     Team/ folder) into a branded cut-out post. Never AI-generates a face; if no photo matches, lists
@@ -693,6 +717,8 @@ async def exec_team_image(db, state, brand, args) -> dict:
             styles.append(random.choice(teampost.STYLE_NAMES))
         random.shuffle(styles)
 
+    # Split the user's message into a punchy headline + supporting subline so it's shown in full.
+    msg_head, msg_sub = _split_message(message)
     assets, used, name, role = [], [], "", ""
     for i in range(n):
         photo = random.choice(photos)  # rotate across this person's real shots
@@ -700,10 +726,13 @@ async def exec_team_image(db, state, brand, args) -> dict:
         if not raw:
             continue
         name, role = _parse_team_label(photo["label"])
-        headline = message or random.choice(_FEATURE_HEADLINES)
+        if message:
+            headline, subline = msg_head, msg_sub
+        else:
+            headline, subline = random.choice(_FEATURE_HEADLINES), ""
         try:
             path, fname, meta = teampost.build_team_image(
-                brand, raw, name=name, role=role, headline=headline,
+                brand, raw, name=name, role=role, headline=headline, question=subline,
                 variant=random.randint(0, 5), style=styles[i])
         except Exception:
             continue

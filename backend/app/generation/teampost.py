@@ -94,18 +94,21 @@ def _paint_backdrop(canvas: Image.Image, d: ImageDraw.ImageDraw, variant: int = 
     d.rectangle([0, 0, RAIL_W, H], fill=RED)
 
 
-def _draw_headline(d, x, y, text, max_w, accent_box=True, size=104) -> int:
-    """Headline in heading font, wrapped (≤3 lines, auto-shrink). Even variants box the last line red;
-    odd variants underline. Returns the y below the block."""
-    hlines = _wrap(d, text or "On a Mission!", heading_font(size), max_w)[:3]
-    if max(d.textlength(ln, font=heading_font(size)) for ln in hlines) > max_w:
-        size = int(size * 0.8)
+def _draw_headline(d, x, y, text, max_w, accent_box=True, size=104, max_lines=3) -> int:
+    """Headline in heading font, auto-shrunk so the FULL text fits within max_lines — never drops
+    words. Even variants box the last line red; odd variants underline. Returns the y below the block."""
+    text = (text or "On a Mission!").strip()
     f = heading_font(size)
+    lines = _wrap(d, text, f, max_w)
+    while len(lines) > max_lines and size > 44:
+        size -= 6
+        f = heading_font(size)
+        lines = _wrap(d, text, f, max_w)
     last_tw = 0
-    for idx, ln in enumerate(hlines):
+    for idx, ln in enumerate(lines):
         tw = d.textlength(ln, font=f)
         last_tw = tw
-        if accent_box and idx == len(hlines) - 1:
+        if accent_box and idx == len(lines) - 1:
             d.rectangle([x - 8, y - 4, x + tw + 26, y + f.size + 14], fill=RED)
             d.text((x + 6, y + 4), ln, font=f, fill=WHITE)
         else:
@@ -184,16 +187,28 @@ def _scrim(canvas, top_frac, start_alpha) -> Image.Image:
 
 def _layout_magazine(photo, name, role, headline, question, variant) -> Image.Image:
     canvas = _cover_fit(photo, W, H)
-    canvas = _scrim(canvas, 0.44, 248)
+    canvas = _scrim(canvas, 0.40, 250)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=RED)
     pad = 70
-    ky = H - 330
-    d.rectangle([pad, ky - 16, pad + 90, ky - 11], fill=RED)  # red tick
-    d.text((pad, ky), (headline or "On a Mission!").upper(), font=body_font(34), fill=CREAM)
-    d.text((pad, ky + 48), name or "the Talentrupt team", font=heading_font(78), fill=WHITE)
+    cap = headline or "On a Mission!"
+    if question:
+        cap = f"{cap} {question}"
+    for s in (32, 28, 25):  # shrink the caption so the whole message fits (never truncated)
+        cf = body_font(s)
+        cap_lines = _wrap(d, cap, cf, W - 2 * pad)
+        if len(cap_lines) <= 3:
+            break
+    cap_lines = cap_lines[:3]
+    name_y = H - 250
+    cy = name_y - 20 - len(cap_lines) * (cf.size + 6)
+    d.rectangle([pad, cy - 18, pad + 90, cy - 13], fill=RED)  # red tick
+    for ln in cap_lines:
+        d.text((pad, cy), ln, font=cf, fill=CREAM)
+        cy += cf.size + 6
+    d.text((pad, name_y), name or "the Talentrupt team", font=heading_font(74), fill=WHITE)
     if role:
-        _role_badge(d, pad, ky + 48 + 96, role)
+        _role_badge(d, pad, name_y + 92, role)
     paste_logo(canvas, W - 116, H - 116, 74)
     return canvas
 
@@ -226,23 +241,34 @@ def _layout_framed(photo, name, role, headline, question, variant) -> Image.Imag
     canvas = Image.new("RGB", (W, H), NAVY)
     d = ImageDraw.Draw(canvas)
     _paint_backdrop(canvas, d, variant)
-    fw, fh, fy = 600, 620, 170
+    fw, fh, fy = 580, 540, 220
     fx = (W - fw) // 2
     portrait = _cover_fit(photo, fw, fh)
     mask = Image.new("L", (fw, fh), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, fw, fh], radius=44, fill=255)
     d.rounded_rectangle([fx - 8, fy - 8, fx + fw + 8, fy + fh + 8], radius=50, outline=WHITE, width=6)
     canvas.paste(portrait, (fx, fy), mask)
-    hf = heading_font(50)
-    ht = (headline or "Team Spotlight").strip()
-    d.text(((W - d.textlength(ht, font=hf)) // 2, 72), ht, font=hf, fill=CREAM)
+    # caption above the frame — combine headline + subline, shrink so the whole thing fits (≤2 lines)
+    cap = headline or "Team Spotlight"
+    if question:
+        cap = f"{cap} {question}"
+    for s in (50, 44, 38, 32):
+        cf = heading_font(s)
+        clines = _wrap(d, cap, cf, W - 150)
+        if len(clines) <= 2:
+            break
+    clines = clines[:2]
+    ty = 64 if len(clines) == 2 else 96
+    for ln in clines:
+        d.text(((W - d.textlength(ln, font=cf)) // 2, ty), ln, font=cf, fill=CREAM)
+        ty += cf.size + 8
     nm = name or "the Talentrupt team"
-    nf = heading_font(60)
-    d.text(((W - d.textlength(nm, font=nf)) // 2, fy + fh + 32), nm, font=nf, fill=WHITE)
+    nf = heading_font(58)
+    d.text(((W - d.textlength(nm, font=nf)) // 2, fy + fh + 26), nm, font=nf, fill=WHITE)
     if role:
         rf = body_font(32)
         rw = d.textlength(role, font=rf)
-        ry = fy + fh + 32 + 78
+        ry = fy + fh + 26 + 76
         d.rounded_rectangle([(W - rw) // 2 - 30, ry, (W + rw) // 2 + 30, ry + 54], radius=27, fill=RED)
         d.text(((W - rw) // 2, ry + 12), role, font=rf, fill=WHITE)
     paste_logo(canvas, W - 116, H - 116, 74)
