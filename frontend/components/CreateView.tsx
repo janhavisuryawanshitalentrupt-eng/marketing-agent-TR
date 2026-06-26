@@ -33,17 +33,29 @@ export function CreateView() {
     newChat,
     openConversation,
     deleteConversation,
+    attach,
+    attachments,
+    removeAttachment,
+    attaching,
   } = useCreate();
   const [tab, setTab] = useState<"generate" | "past" | "brand">("generate");
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, status]);
 
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    const seen = new Set(attachments.map((a) => a.name));
+    files.forEach((f) => { if (!seen.has(f.name)) attach(f); }); // upload each new file
+    if (fileRef.current) fileRef.current.value = ""; // allow re-picking the same file
+  }
+
   function submit(text: string) {
-    if (busy) return; // a task is already running — don't no-op-send and silently clear the input
+    if (busy || attaching) return; // a task/upload is in flight — don't no-op-send and clear the input
     send(text);
     setInput("");
   }
@@ -227,29 +239,83 @@ export function CreateView() {
 
           <div className="border-t border-[var(--border)] px-6 py-4">
             <div className="mx-auto w-full max-w-3xl">
-              <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  rows={1}
-                  placeholder="Describe the image(s) or presentation to create…"
-                  className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
-                />
-                <button
-                  onClick={() => submit(input)}
-                  disabled={busy || !input.trim()}
-                  className="btn-primary !px-3 !py-2"
-                  aria-label="Send"
-                  title="Send"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                  </svg>
-                </button>
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+                {(attachments.length > 0 || attaching) && (
+                  <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+                    {attachments.map((a) => (
+                      <span
+                        key={a.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-[11px]"
+                        title={a.kind === "image" ? `${a.name} · photo (I'll use this exact face)` : a.name}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                          {a.kind === "image" ? (
+                            <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></>
+                          ) : (
+                            <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" />
+                          )}
+                        </svg>
+                        <span className="max-w-[160px] truncate">{a.name}</span>
+                        <button
+                          onClick={() => removeAttachment(a.id)}
+                          className="text-muted hover:text-[var(--brand-red)]"
+                          aria-label={`Remove ${a.name}`}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                        </button>
+                      </span>
+                    ))}
+                    {attaching && (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-[11px] text-muted">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+                        Reading file…
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    multiple
+                    onChange={onPickFiles}
+                    className="hidden"
+                    accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json"
+                  />
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    disabled={attaching}
+                    className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground disabled:opacity-50"
+                    aria-label="Attach a photo"
+                    title="Attach an employee's photo, then tell me their name"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" />
+                    </svg>
+                  </button>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    rows={1}
+                    placeholder="Describe the image(s) or presentation… or attach a photo and name the person"
+                    className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+                  />
+                  <button
+                    onClick={() => submit(input)}
+                    disabled={busy || attaching || !input.trim()}
+                    className="btn-primary !px-3 !py-2"
+                    aria-label="Send"
+                    title={attaching ? "Finishing upload…" : "Send"}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <p className="mt-2 text-center text-[11px] text-muted">
-                Asks a quick question if the brief is vague, then generates one on-brand asset.
+                Attach an employee&apos;s photo + name them to feature their real face — or just describe an image/deck.
               </p>
             </div>
           </div>

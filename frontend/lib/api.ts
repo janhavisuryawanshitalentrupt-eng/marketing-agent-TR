@@ -603,7 +603,7 @@ export async function streamChat(
   conversationId: number | null,
   handlers: ChatHandlers,
   endpoint: string = "/api/chat/stream",
-  attachments?: { name: string; text: string }[],
+  attachments?: { name: string; text: string; id?: number; kind?: string }[],
   signal?: AbortSignal,
 ): Promise<void> {
   let res: Response;

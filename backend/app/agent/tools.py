@@ -763,11 +763,69 @@ async def exec_team_image(db, state, brand, args) -> dict:
             + " — real photos" + note + tip + ".", "assets": assets}
 
 
+async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
+    """Feature a person from a photo the user JUST ATTACHED, using the name/role they gave — composites
+    their REAL uploaded photo into the brand template. NEVER changes or AI-generates the face. The app
+    doesn't need to 'know' the person: the photo + name come from the user this turn."""
+    imgs = (state or {}).get("attachments") or []
+    if not imgs:
+        return {"summary": "Attach the person's photo first (the 📎 button next to the message box), then "
+                "tell me their name (and the message) — I'll build the post from that exact photo and "
+                "never change the face.", "assets": []}
+    raw = None
+    for img in reversed(imgs):  # most-recent usable image
+        try:
+            with open(img["path"], "rb") as f:
+                raw = f.read()
+            break
+        except Exception:
+            continue
+    if not raw:
+        return {"summary": "I couldn't read the attached photo — please re-attach it and try again.",
+                "assets": []}
+    name = (args.get("name") or "").strip()
+    role = (args.get("role") or "").strip()
+    message = (args.get("message") or "").strip()
+    head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
+    n = max(1, min(int(args.get("count") or 1), 4))
+    style_arg = (args.get("style") or "").strip().lower()
+    if style_arg in teampost.STYLE_NAMES:
+        styles = [style_arg] * n
+    else:
+        styles = random.sample(teampost.STYLE_NAMES, k=min(n, len(teampost.STYLE_NAMES)))
+        while len(styles) < n:
+            styles.append(random.choice(teampost.STYLE_NAMES))
+    assets, used = [], []
+    for i in range(n):
+        try:
+            path, fname, meta = teampost.build_team_image(
+                brand, raw, name=name, role=role, headline=head, question=sub,
+                variant=random.randint(0, 5), style=styles[i])
+        except Exception:
+            continue
+        meta = {**meta, "uploaded": True}
+        title = (name or "Featured") + (f" — {role}" if role else "")
+        a = _save_asset(db, None, "image", title[:380],
+                        body={"person": name, "role": role, "headline": head, "subline": sub,
+                              "kind": "team", "style": styles[i], "uploaded": True},
+                        file_path=path, file_url=meta["url"], meta=meta)
+        assets.append(serialize_asset(a))
+        used.append(styles[i])
+    if not assets:
+        return {"summary": "Couldn't build the post from that photo — please try again.", "assets": []}
+    who = name or "the person in your photo"
+    note = (f" in {len(assets)} formats ({', '.join(dict.fromkeys(used))}) to choose from"
+            if len(assets) > 1 else "")
+    return {"summary": f"Created a post featuring {who}" + (f" ({role})" if role else "")
+            + " from your uploaded photo — real face, unchanged" + note + ".", "assets": assets}
+
+
 EXECUTORS = {
     "create_campaign": exec_create_campaign,
     "generate_posts": exec_generate_posts,
     "generate_image": exec_generate_image,
     "generate_team_image": exec_team_image,
+    "feature_uploaded_person": exec_feature_uploaded_person,
     "build_deck": exec_build_deck,
     "build_pdf": exec_build_pdf,
     "search_brand_knowledge": exec_search_brand_knowledge,
@@ -807,11 +865,12 @@ CHAT_TOOL_NAMES = [
     "generate_posts",
     "generate_image",
     "generate_team_image",
+    "feature_uploaded_person",
     "build_deck",
     "build_pdf",
 ]
-CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "build_deck", "build_pdf",
-                     "regenerate_asset", "animate_asset"]
+CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "feature_uploaded_person", "build_deck",
+                     "build_pdf", "regenerate_asset", "animate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
@@ -826,6 +885,7 @@ STATUS_LABELS = {
     "generate_posts": "Writing on-brand posts",
     "generate_image": "Designing a campaign visual",
     "generate_team_image": "Featuring the team",
+    "feature_uploaded_person": "Featuring your photo",
     "build_deck": "Designing presentation slides",
     "build_pdf": "Preparing the document",
     "search_brand_knowledge": "Reviewing past Talentrupt work",
@@ -916,6 +976,24 @@ TOOL_SCHEMAS = [
                                      "choose from — each comes back in a different format. Defaults to 1."},
         },
         ["person"]),
+    _fn("feature_uploaded_person",
+        "Build an on-brand post around a photo the user JUST ATTACHED this turn (an employee's photo), "
+        "using the name/role the user gave. Use this whenever the user attaches a PERSON'S photo and "
+        "wants a post featuring them (welcome, anniversary, spotlight, congrats). It composites their "
+        "REAL attached photo into the brand template and NEVER changes or AI-generates the face — the "
+        "app does NOT need to already know the person. Prefer this over generate_image whenever a person "
+        "photo is attached. (If the attachment is a style/content reference, not a person to feature, use "
+        "generate_image instead.)",
+        {
+            "name": {"type": "string", "description": "The person's name, exactly as the user gave it."},
+            "role": {"type": "string", "description": "Their role/title if mentioned (e.g. 'Senior Recruiter')."},
+            "message": {"type": "string", "description": "The post message/headline (e.g. 'Welcome to the team!', "
+                        "'Congrats on 5 years!'). Shown as the headline + subline."},
+            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed"],
+                      "description": "Optional format; omit to rotate."},
+            "count": {"type": "integer", "description": "How many posts (1-4); omit for 1."},
+        },
+        ["name"]),
     _fn("build_deck",
         "Build a ready-to-present, designed PowerPoint (.pptx) in Talentrupt's deck style. Pass the "
         "audience/tone/depth gathered from the user so the deck is tailored, not generic.",

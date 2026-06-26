@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 
 from sqlalchemy.orm import Session
 
 from ..knowledge import retrieve
-from ..models import Brand, Message
+from ..models import Brand, Message, SourceFile
 from ..providers import llm
 from . import create_intake
 from .prompts import build_system_prompt
@@ -87,6 +88,16 @@ async def run(
     messages.append({"role": "user", "content": user_text})
 
     state: dict = {}
+    # Make any attached IMAGE available to executors (so an uploaded employee photo can be featured
+    # with their REAL face — never AI-generated). Resolve the persisted upload by its SourceFile id.
+    attached_imgs = []
+    for a in (attachments or []):
+        if (a.get("kind") == "image") and a.get("id"):
+            sf = db.get(SourceFile, a["id"])
+            if sf and sf.path and os.path.exists(sf.path):
+                attached_imgs.append({"id": sf.id, "name": a.get("name") or "photo", "path": sf.path})
+    if attached_imgs:
+        state["attachments"] = attached_imgs
 
     # CREATE intake: a vague NEW request gets a short conversational nudge + tappable quick-picks
     # instead of generating blind. Specific / "your call" / answering / refine fall straight through.

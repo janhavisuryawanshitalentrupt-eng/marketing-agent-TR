@@ -147,7 +147,7 @@ export function makeChatStore(endpoint: string, kind: string) {
             },
           },
           endpoint,
-          attachments.map((a) => ({ name: a.name, text: a.text })),
+          attachments.map((a) => ({ name: a.name, text: a.text, id: a.id, kind: a.kind })),
           ac.signal,
         );
         } catch (e) {
