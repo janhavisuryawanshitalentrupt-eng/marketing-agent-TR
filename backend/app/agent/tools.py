@@ -679,6 +679,16 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
                       "In the Spotlight."]
 
 
+async def _build_one(brand, raw, name, role, headline, subline, style):
+    """Render one featured-person post. style 'ai' -> gpt-image-1 background + real cut-out (async);
+    otherwise the deterministic navy template. Both keep the REAL face."""
+    if style == "ai":
+        return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
+                                             question=subline, variant=random.randint(0, 5))
+    return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
+                                     question=subline, variant=random.randint(0, 5), style=style)
+
+
 async def exec_team_image(db, state, brand, args) -> dict:
     """Feature a REAL Talentrupt person/group: composite their ACTUAL photo (from the brand library's
     Team/ folder) into a branded cut-out post. Never AI-generates a face; if no photo matches, lists
@@ -716,7 +726,7 @@ async def exec_team_image(db, state, brand, args) -> dict:
     style_arg = (args.get("style") or "").strip().lower()
     # A crowd shouldn't be cut out — group posts use the full-photo formats; individuals rotate all.
     style_pool = ["magazine", "split"] if (not specific and not style_arg) else teampost.STYLE_NAMES
-    if style_arg in teampost.STYLE_NAMES:
+    if style_arg in teampost.STYLE_NAMES or style_arg == "ai":
         styles = [style_arg] * n
     else:
         styles = random.sample(style_pool, k=min(n, len(style_pool)))
@@ -738,9 +748,7 @@ async def exec_team_image(db, state, brand, args) -> dict:
         else:
             headline, subline = random.choice(_FEATURE_HEADLINES), ""
         try:
-            path, fname, meta = teampost.build_team_image(
-                brand, raw, name=name, role=role, headline=headline, question=subline,
-                variant=random.randint(0, 5), style=styles[i])
+            path, fname, meta = await _build_one(brand, raw, name, role, headline, subline, styles[i])
         except Exception:
             continue
         meta = {**meta, "team_photo": photo["label"]}
@@ -789,7 +797,7 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     n = max(1, min(int(args.get("count") or 1), 4))
     style_arg = (args.get("style") or "").strip().lower()
-    if style_arg in teampost.STYLE_NAMES:
+    if style_arg in teampost.STYLE_NAMES or style_arg == "ai":
         styles = [style_arg] * n
     else:
         styles = random.sample(teampost.STYLE_NAMES, k=min(n, len(teampost.STYLE_NAMES)))
@@ -798,9 +806,7 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
     assets, used = [], []
     for i in range(n):
         try:
-            path, fname, meta = teampost.build_team_image(
-                brand, raw, name=name, role=role, headline=head, question=sub,
-                variant=random.randint(0, 5), style=styles[i])
+            path, fname, meta = await _build_one(brand, raw, name, role, head, sub, styles[i])
         except Exception:
             continue
         meta = {**meta, "uploaded": True}
@@ -966,11 +972,14 @@ TOOL_SCHEMAS = [
                        "description": "Who to feature, as the user said it (e.g. 'the founder', 'Rushikesh', 'the leadership team', 'the whole team')."},
             "message": {"type": "string",
                         "description": "The headline/message for the post (e.g. 'Meet our founder'). Used as the post headline."},
-            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed"],
+            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed", "ai"],
                       "description": "Optional post FORMAT. Set ONLY when the user picked one: spotlight = "
                                      "person cut out on a designed background; magazine = full real photo + "
                                      "caption band; split = photo beside a text panel; framed = centered "
-                                     "spotlight card. Omit to rotate formats so posts don't all look alike."},
+                                     "spotlight card; ai = real person cut out onto an AI-GENERATED scene "
+                                     "(gpt-image-1 makes the background, the real face/body is unchanged) — "
+                                     "use when the user asks for an 'AI image / AI background / AI scene'. "
+                                     "Omit to rotate the template formats so posts don't all look alike."},
             "count": {"type": "integer",
                       "description": "How many posts to make (1-4). Use 2-4 when the user wants OPTIONS to "
                                      "choose from — each comes back in a different format. Defaults to 1."},
@@ -991,8 +1000,9 @@ TOOL_SCHEMAS = [
             "role": {"type": "string", "description": "Their role/title if mentioned (e.g. 'Senior Recruiter')."},
             "message": {"type": "string", "description": "The post message/headline (e.g. 'Welcome to the team!', "
                         "'Congrats on 5 years!'). Shown as the headline + subline."},
-            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed"],
-                      "description": "Optional format; omit to rotate."},
+            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed", "ai"],
+                      "description": "Optional format; 'ai' = real face/body cut onto an AI-generated "
+                                     "background (use when the user wants an AI image/scene). Omit to rotate."},
             "count": {"type": "integer", "description": "How many posts (1-4); omit for 1."},
         },
         []),

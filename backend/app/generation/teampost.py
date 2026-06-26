@@ -400,6 +400,110 @@ def build_team_image(
     }
 
 
+# --- AI-scene format: gpt-image-1 makes the BACKGROUND, the REAL cut-out person goes on top ----------
+_SCENE_TYPES = [
+    "a clean, empty modern open-plan office interior, soft daylight through large windows, shallow "
+    "depth of field, gentle bokeh",
+    "an abstract premium backdrop: deep navy to warm cream gradient with subtle floating geometric "
+    "shapes and soft volumetric light",
+    "a minimal softly-lit studio backdrop with a gentle vignette, smooth seamless wall, soft bokeh",
+    "a celebratory abstract background with warm golden bokeh and soft out-of-focus confetti",
+]
+
+
+def _scene_prompt(headline: str, question: str, variant: int) -> str:
+    scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
+    return (
+        f"A premium, professional BACKGROUND scene for a corporate social post: {scene}. Brand palette: "
+        "deep navy #0B3559, coral red #F6404C accents, warm cream #EBE9DF. Cinematic depth, soft "
+        "professional lighting, tasteful and editorial. ABSOLUTELY NO people, NO person, NO text, NO "
+        "words, NO letters, NO logos. Keep the LEFT third and the BOTTOM area relatively clean and empty "
+        "for a person and a caption to be placed later. Square 1:1 composition."
+    )
+
+
+def _ai_scrim(canvas: Image.Image) -> Image.Image:
+    """Navy gradient over the AI scene — strong on the left + bottom (for text), clear upper-right."""
+    import numpy as np
+    w, h = canvas.size
+    xs = np.linspace(0, 1, w)[None, :]
+    ys = np.linspace(0, 1, h)[:, None]
+    left = np.clip(1.0 - xs / 0.55, 0, 1)
+    bottom = np.clip((ys - 0.5) / 0.5, 0, 1)
+    a = np.clip(left * 0.9 + bottom * 0.8, 0, 0.96)
+    alpha = Image.fromarray((a * 255).astype("uint8"), "L")
+    layer = Image.new("RGBA", (w, h), (*NAVY, 255))
+    layer.putalpha(alpha)
+    return Image.alpha_composite(canvas.convert("RGBA"), layer).convert("RGB")
+
+
+async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0):
+    """Premium AI background: gpt-image-1 (the OpenAI key) generates an on-brand SCENE, the REAL person
+    is cut out (face + body untouched) and placed on it, then branded text/logo. The face is NEVER
+    AI-generated. Falls back to the navy spotlight template if the image provider is unavailable."""
+    from ..providers import llm
+    try:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+    except Exception:
+        pass
+    photo = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
+    hero = _cutout(photo)
+
+    bg = None
+    if llm.image_provider_available():
+        try:
+            data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
+            if data:
+                bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+        except Exception:
+            bg = None
+    if bg is None:  # provider down -> deterministic navy template (still the real face)
+        return build_team_image(brand, photo_bytes, name, role, headline, question, variant, style="spotlight")
+
+    canvas = _ai_scrim(bg)
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, 0, RAIL_W, H], fill=RED)
+
+    target_h = int(H * 0.82)
+    scale = target_h / hero.height
+    if hero.width * scale > W * 0.6:
+        scale = (W * 0.6) / hero.width
+    hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
+    try:
+        hero = hero.filter(ImageFilter.SHARPEN)
+    except Exception:
+        pass
+    hx, hy = W - hero.width - 30, H - hero.height
+    shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))  # soft drop shadow so it doesn't look pasted
+    shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
+    shadow = shadow.filter(ImageFilter.GaussianBlur(20))
+    canvas.paste(shadow, (hx + 14, hy + 10), shadow)
+    canvas.paste(hero, (hx, hy), hero)
+
+    pad = 70
+    y = _draw_headline(d, pad, 92, headline or "On a Mission!", W - 470, accent_box=(variant % 2 == 0))
+    if question:
+        qf = body_font(34)
+        y += 10
+        for ln in _wrap(d, question, qf, 440):
+            d.text((pad, y), ln, font=qf, fill=CREAM)
+            y += 44
+    _draw_featuring(d, pad, H - 250, name, role)
+    try:
+        paste_logo(canvas, W - 116, H - 116, 74)
+    except Exception:
+        pass
+
+    file_name = unique_name("tr-team", "png")
+    path = storage_subdir("images") / file_name
+    canvas.convert("RGB").save(str(path), "PNG")
+    return str(path), file_name, {
+        "url": public_url("images", file_name), "renderer": "team_ai_scene",
+        "style": "ai", "size": f"{W}x{H}", "kind": "team",
+    }
+
+
 def render_if_person(brand, concept: str, count: int = 1):
     """If `concept` names a real Team person, render up to `count` real-photo posts and return them as
     [(path, file_name, meta)]; else None. The single chokepoint that lets ANY image path refuse to

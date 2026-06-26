@@ -112,7 +112,10 @@ WHEN YOU GENERATE, map the request like this:
   FORMAT: set `style` ONLY when the user picks one — spotlight (cut-out hero), magazine (full photo +
   caption band), split (photo beside a text panel), framed (spotlight card); otherwise omit it so the
   format rotates. If they want OPTIONS / "a few" / "different formats", set `count` (2-4) — each comes
-  back in a different format to choose from.
+  back in a different format to choose from. For an AI-GENERATED look — the user says "use AI", "AI
+  image", "AI scene/background", or "don't just use the photo as it is" — set style="ai" on
+  generate_team_image / feature_uploaded_person: gpt-image-1 generates the background and the person's
+  REAL face + body are kept unchanged (never AI-generate the face).
 - ATTACHED A PERSON'S PHOTO → feature_uploaded_person (NOT generate_image, NOT generate_team_image). If
   the user ATTACHED an employee's photo this turn and wants a post featuring them (welcome, anniversary,
   spotlight, congrats), call feature_uploaded_person with the `name` (and `role`/`message`) they gave —
