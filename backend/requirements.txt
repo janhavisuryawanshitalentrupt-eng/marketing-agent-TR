@@ -16,3 +16,8 @@ pypdf==5.1.0
 pillow-heif==1.4.0
 rembg==2.0.76
 onnxruntime==1.27.0
+# Animate a post into a short motion clip (animate_asset): MP4 via imageio-ffmpeg (bundles a static
+# ffmpeg, ~30MB). Optional — falls back to an animated GIF if imageio-ffmpeg isn't installed.
+imageio==2.37.3
+imageio-ffmpeg==0.6.0
+numpy==2.4.6

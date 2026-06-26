@@ -16,6 +16,8 @@ export function AssetCard({ asset }: { asset: Asset }) {
       return <PostCard asset={asset} />;
     case "image":
       return <ImageCard asset={asset} />;
+    case "video":
+      return <VideoCard asset={asset} />;
     case "deck":
       return <FileCard asset={asset} label="Presentation" ext="PPTX" icon="deck" />;
     case "pdf":
@@ -85,6 +87,26 @@ function ImageCard({ asset }: { asset: Asset }) {
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={asset.title} className="w-full max-w-sm" />
+      <div className="flex items-center justify-between gap-2 p-3">
+        <span className="truncate text-xs text-muted">{asset.title}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <a href={url} target="_blank" rel="noreferrer" title="Preview" aria-label="Preview" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+            <EyeIcon />
+          </a>
+          <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
+            <DownloadIcon />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VideoCard({ asset }: { asset: Asset }) {
+  const url = fileUrl(asset.file_url);
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
+      <video src={url} className="w-full max-w-sm" autoPlay loop muted playsInline />
       <div className="flex items-center justify-between gap-2 p-3">
         <span className="truncate text-xs text-muted">{asset.title}</span>
         <div className="flex shrink-0 items-center gap-1">

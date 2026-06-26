@@ -635,6 +635,38 @@ async def exec_regenerate_asset(db, state, brand, args) -> dict:
             "assets": [serialize_asset(new)]}
 
 
+async def exec_animate_asset(db, state, brand, args) -> dict:
+    """Animate a finished image/team post into a short MOTION clip — a cinematic zoom/pan over the REAL
+    rendered image. The face is NEVER changed (it's the actual post, just animated). Saves a new asset."""
+    from ..generation import animate
+    a = None
+    if args.get("asset_id"):
+        try:
+            a = db.get(Asset, int(args["asset_id"]))
+        except (TypeError, ValueError):
+            a = None
+    if not a:
+        title = (args.get("asset") or args.get("title") or "").strip().lower()
+        if title:
+            a = next((x for x in db.query(Asset).order_by(Asset.id.desc()).all()
+                      if x.type == "image" and title in (x.title or "").lower()), None)
+    if not a:  # default to the most recent still image
+        a = db.query(Asset).filter(Asset.type == "image").order_by(Asset.id.desc()).first()
+    if not a or a.type != "image" or not a.file_path:
+        return {"summary": "Tell me which post to animate — I couldn't find a still image to use.",
+                "assets": []}
+    try:
+        path, fname, meta = animate.build_motion(a.file_path)
+    except Exception:
+        return {"summary": "Couldn't animate that image this time — please try again.", "assets": []}
+    new_type = "video" if meta.get("format") == "mp4" else "image"  # gif animates in an <img>
+    body = {**(a.body or {}), "animated_from": a.id, "kind": (a.body or {}).get("kind", "")}
+    na = _save_asset(db, a.campaign_id, new_type, f"{a.title} (animated)"[:380],
+                     body=body, file_path=path, file_url=meta["url"], meta={**meta, "parent_id": a.id})
+    return {"summary": f"Animated “{a.title}” into a {meta.get('format', 'clip').upper()} motion post — "
+            "a cinematic zoom over the real photo; the face is unchanged.", "assets": [serialize_asset(na)]}
+
+
 # Role suffixes recognised in a Team/ filename label (e.g. "nishant-trivedi-coo" -> role "COO").
 _ROLE_PHRASES = ["account manager", "account executive", "talent acquisition", "co founder",
                  "chief operating officer", "operations head", "team lead", "coo", "ceo", "cto", "cfo",
@@ -751,6 +783,7 @@ EXECUTORS = {
     "update_pipeline": exec_update_pipeline,
     "manage_task": exec_manage_task,
     "regenerate_asset": exec_regenerate_asset,
+    "animate_asset": exec_animate_asset,
 }
 
 # Mode-specific tool sets:
@@ -770,6 +803,7 @@ CHAT_TOOL_NAMES = [
     "update_pipeline",
     "manage_task",
     "regenerate_asset",
+    "animate_asset",
     "create_campaign",
     "generate_posts",
     "generate_image",
@@ -777,7 +811,8 @@ CHAT_TOOL_NAMES = [
     "build_deck",
     "build_pdf",
 ]
-CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "build_deck", "build_pdf", "regenerate_asset"]
+CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "build_deck", "build_pdf",
+                     "regenerate_asset", "animate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
@@ -806,6 +841,7 @@ STATUS_LABELS = {
     "update_pipeline": "Updating the pipeline",
     "manage_task": "Updating your tasks",
     "regenerate_asset": "Regenerating the asset",
+    "animate_asset": "Animating the post",
 }
 
 
@@ -1035,6 +1071,15 @@ TOOL_SCHEMAS = [
             "asset_id": {"type": "integer", "description": "The asset id, if known"},
             "title": {"type": "string", "description": "Or match by the asset's title/topic"},
             "instruction": {"type": "string", "description": "Optional change to apply"},
+        },
+        []),
+    _fn("animate_asset",
+        "Turn a finished image / team post into a short MOTION clip — a premium cinematic zoom-and-pan "
+        "over the REAL rendered image. The person's face is NEVER changed (it's the actual post, just "
+        "animated). Use when the user asks to animate a post, add motion, or make a video/reel of it.",
+        {
+            "asset": {"type": "string", "description": "Which post to animate — the title/topic you "
+                      "named for it. Omit to animate the most recent image."},
         },
         []),
 ]

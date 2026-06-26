@@ -48,6 +48,8 @@ Use your tools to actually do the work:
   the tool returns and ask; if there are none, tell the user to add photos to the Team/ folder. Set
   `style` (spotlight / magazine / split / framed) only if the user picks a format; for "options" or "a
   few", set `count` (2-4) and each comes back in a different format.
+  To ANIMATE a post into a short motion clip (a cinematic zoom over the REAL image — the face is never
+  changed), call animate_asset (by the post's title, or omit for the most recent).
 - ACT ON THE BUSINESS (not just report): you can DO things directly. Draft outreach for a prospect
   (draft_outreach — writes the email + LinkedIn copy and schedules follow-ups); log outreach and
   advance a prospect's pipeline stage when the user says they reached out / got a reply / booked a
@@ -107,6 +109,10 @@ WHEN YOU GENERATE, map the request like this:
   caption band), split (photo beside a text panel), framed (spotlight card); otherwise omit it so the
   format rotates. If they want OPTIONS / "a few" / "different formats", set `count` (2-4) — each comes
   back in a different format to choose from.
+- ANIMATE A POST → animate_asset. When the user asks to animate a post, add motion, or make a video/reel
+  of something already created, call animate_asset — it makes a cinematic zoom/pan MOTION clip over the
+  REAL image (the face is never changed). Reference it by `asset` (the title) or omit to animate the
+  most recent. It's camera motion over the real photo, not AI face motion.
 - LOOK / STYLE the user described (IMAGES) → generate_image's optional `style` when it maps to one of:
   photographic, editorial_collage, infographic, ui_mockup, typographic, decorative (map loosely:
   "photo/real"→photographic, "collage/magazine"→editorial_collage, "stats/data/chart"→infographic,

@@ -1,6 +1,6 @@
 export type Role = "user" | "assistant";
 
-export type AssetType = "post" | "image" | "deck" | "pdf" | "campaign";
+export type AssetType = "post" | "image" | "deck" | "pdf" | "campaign" | "video";
 
 export interface Asset {
   id: number;
