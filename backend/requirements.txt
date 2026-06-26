@@ -10,3 +10,9 @@ Pillow==11.1.0
 python-pptx==1.0.2
 reportlab==4.2.5
 pypdf==5.1.0
+# Team-photo feature (generate_team_image): HEIC decode + offline background removal for cut-out posts.
+# Optional — the composer falls back to a no-cutout cover-fit if these aren't installed. rembg pulls
+# onnxruntime (heavy + a ~176MB model downloaded on first use).
+pillow-heif==1.4.0
+rembg==2.0.76
+onnxruntime==1.27.0

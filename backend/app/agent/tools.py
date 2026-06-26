@@ -634,17 +634,42 @@ async def exec_regenerate_asset(db, state, brand, args) -> dict:
             "assets": [serialize_asset(new)]}
 
 
+# Role suffixes recognised in a Team/ filename label (e.g. "nishant-trivedi-coo" -> role "COO").
+_ROLE_PHRASES = ["account manager", "account executive", "talent acquisition", "co founder",
+                 "chief operating officer", "operations head", "team lead", "coo", "ceo", "cto", "cfo",
+                 "cmo", "vp", "founder", "co-founder", "director", "manager", "lead", "head", "recruiter",
+                 "sourcer", "associate", "executive", "president", "officer", "intern"]
+_ROLE_ACRONYMS = {"coo", "ceo", "cto", "cfo", "cmo", "vp"}
+_FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "Making it Happen!",
+                      "In the Spotlight."]
+
+
+def _parse_team_label(label: str) -> tuple[str, str]:
+    """Split a filename label into (name, role). 'nishant trivedi coo' -> ('Nishant Trivedi', 'COO');
+    'jerry account manager' -> ('Jerry', 'Account Manager'); 'leadership team' -> ('Leadership Team', '')."""
+    toks = label.lower().split()
+    if toks and toks[-1] in ("team", "group", "everyone", "staff"):
+        return label.title(), ""
+    for ph in sorted(_ROLE_PHRASES, key=lambda p: -len(p.split())):
+        pw = ph.split()
+        if len(toks) > len(pw) and toks[-len(pw):] == pw:
+            role = ph.upper() if ph in _ROLE_ACRONYMS else ph.title()
+            return " ".join(toks[:-len(pw)]).title() or label.title(), role
+    return label.title(), ""
+
+
 async def exec_team_image(db, state, brand, args) -> dict:
-    """Feature a REAL Talentrupt person/group: composite their ACTUAL photo (from the brand ZIP's Team/
-    folder) into a branded post. Never AI-generates a face; if no photo matches, lists the options."""
+    """Feature a REAL Talentrupt person/group: composite their ACTUAL photo (from the brand library's
+    Team/ folder) into a branded cut-out post. Never AI-generates a face; if no photo matches, lists
+    the options."""
     person = (args.get("person") or "").strip()
     message = (args.get("message") or "").strip()
     options = retrieve.list_team_photos()
     if not options:
         return {"summary": "There are no team photos on file yet, so I can't feature a real person — and "
-                "I won't invent a face. Add the photos to a 'Team/' folder inside the brand ZIP (named "
-                "descriptively, e.g. Team/rushikesh-founder.jpg), then re-run the knowledge import.",
-                "assets": []}
+                "I won't invent a face. Add the photos to a 'Team/' folder inside the brand library "
+                "(named descriptively, e.g. Team/nishant-trivedi-coo.jpg), then re-run the knowledge "
+                "import.", "assets": []}
     matches = retrieve.match_team_photos(person or message, n=1)
     if not matches:
         labels = ", ".join(sorted({o["label"] for o in options}))
@@ -654,19 +679,21 @@ async def exec_team_image(db, state, brand, args) -> dict:
     chosen = matches[0]
     raw = retrieve.team_reference_bytes(chosen["path"])
     if not raw:
-        return {"summary": "I found the photo but couldn't read it from the brand ZIP — please re-run the "
-                "knowledge import and try again.", "assets": []}
-    headline = message or f"Meet {chosen['label'].title()}"
+        return {"summary": "I found the photo but couldn't read it from the brand library — please re-run "
+                "the knowledge import and try again.", "assets": []}
+    name, role = _parse_team_label(chosen["label"])
+    headline = message or _FEATURE_HEADLINES[sum(ord(c) for c in name) % len(_FEATURE_HEADLINES)]
     try:
-        path, fname, meta = teampost.build_team_image(brand, raw, headline)
+        path, fname, meta = teampost.build_team_image(brand, raw, name=name, role=role, headline=headline)
     except Exception:
         return {"summary": "Couldn't build the team post this time — please try again.", "assets": []}
     meta = {**meta, "team_photo": chosen["label"]}
-    a = _save_asset(db, None, "image", headline[:380],
-                    body={"person": chosen["label"], "headline": headline, "kind": "team"},
+    title = f"{name}" + (f" — {role}" if role else "")
+    a = _save_asset(db, None, "image", title[:380],
+                    body={"person": name, "role": role, "headline": headline, "kind": "team"},
                     file_path=path, file_url=meta["url"], meta=meta)
-    return {"summary": f"Created an on-brand post featuring {chosen['label'].title()} (their real photo).",
-            "assets": [serialize_asset(a)]}
+    return {"summary": f"Created an on-brand post featuring {name}" + (f" ({role})" if role else "")
+            + " — their real photo.", "assets": [serialize_asset(a)]}
 
 
 EXECUTORS = {
