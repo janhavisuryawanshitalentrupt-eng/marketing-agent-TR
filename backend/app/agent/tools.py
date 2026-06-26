@@ -9,6 +9,7 @@ fallback path can call them.
 """
 from __future__ import annotations
 
+import random
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
@@ -646,16 +647,20 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
 
 def _parse_team_label(label: str) -> tuple[str, str]:
     """Split a filename label into (name, role). 'nishant trivedi coo' -> ('Nishant Trivedi', 'COO');
-    'jerry account manager' -> ('Jerry', 'Account Manager'); 'leadership team' -> ('Leadership Team', '')."""
+    'jerry account manager' -> ('Jerry', 'Account Manager'); 'leadership team' -> ('Leadership Team', '').
+    A trailing rotation number ('nishant trivedi coo 2') is dropped so extra shots map to the same name."""
     toks = label.lower().split()
+    while len(toks) > 1 and toks[-1].isdigit():
+        toks.pop()
+    base = " ".join(toks)
     if toks and toks[-1] in ("team", "group", "everyone", "staff"):
-        return label.title(), ""
+        return base.title(), ""
     for ph in sorted(_ROLE_PHRASES, key=lambda p: -len(p.split())):
         pw = ph.split()
         if len(toks) > len(pw) and toks[-len(pw):] == pw:
             role = ph.upper() if ph in _ROLE_ACRONYMS else ph.title()
-            return " ".join(toks[:-len(pw)]).title() or label.title(), role
-    return label.title(), ""
+            return " ".join(toks[:-len(pw)]).title() or base.title(), role
+    return base.title(), ""
 
 
 async def exec_team_image(db, state, brand, args) -> dict:
@@ -670,21 +675,24 @@ async def exec_team_image(db, state, brand, args) -> dict:
                 "I won't invent a face. Add the photos to a 'Team/' folder inside the brand library "
                 "(named descriptively, e.g. Team/nishant-trivedi-coo.jpg), then re-run the knowledge "
                 "import.", "assets": []}
-    matches = retrieve.match_team_photos(person or message, n=1)
-    if not matches:
+    photos = retrieve.person_photos(person or message)
+    if not photos:
         labels = ", ".join(sorted({o["label"] for o in options}))
         return {"summary": f"I couldn't match “{person or message}” to a team photo. Available "
                 f"team photos: {labels}. Who should I feature? (I only use the real photos on file — I "
                 "never invent a face.)", "assets": []}
-    chosen = matches[0]
+    # Rotate across this person's shots + vary the layout so repeats don't look identical.
+    chosen = random.choice(photos)
     raw = retrieve.team_reference_bytes(chosen["path"])
     if not raw:
         return {"summary": "I found the photo but couldn't read it from the brand library — please re-run "
                 "the knowledge import and try again.", "assets": []}
     name, role = _parse_team_label(chosen["label"])
-    headline = message or _FEATURE_HEADLINES[sum(ord(c) for c in name) % len(_FEATURE_HEADLINES)]
+    headline = message or random.choice(_FEATURE_HEADLINES)
+    variant = random.randint(0, 5)
     try:
-        path, fname, meta = teampost.build_team_image(brand, raw, name=name, role=role, headline=headline)
+        path, fname, meta = teampost.build_team_image(brand, raw, name=name, role=role,
+                                                      headline=headline, variant=variant)
     except Exception:
         return {"summary": "Couldn't build the team post this time — please try again.", "assets": []}
     meta = {**meta, "team_photo": chosen["label"]}
@@ -692,8 +700,10 @@ async def exec_team_image(db, state, brand, args) -> dict:
     a = _save_asset(db, None, "image", title[:380],
                     body={"person": name, "role": role, "headline": headline, "kind": "team"},
                     file_path=path, file_url=meta["url"], meta=meta)
+    extra = f" (rotating across {len(photos)} photos on file)" if len(photos) > 1 else \
+            " — add more photos of them (same name, e.g. \"…-2.jpg\") and I'll rotate the look"
     return {"summary": f"Created an on-brand post featuring {name}" + (f" ({role})" if role else "")
-            + " — their real photo.", "assets": [serialize_asset(a)]}
+            + " — their real photo." + extra, "assets": [serialize_asset(a)]}
 
 
 EXECUTORS = {

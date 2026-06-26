@@ -158,6 +158,20 @@ def match_team_photos(query: str, n: int = 1) -> list[dict]:
     return [it for s, it in scored if s > 0][:n]
 
 
+def person_photos(query: str, limit: int = 12) -> list[dict]:
+    """ALL Team/ photos of the same person/group the query names — the rotation set, so repeated
+    'feature X' requests can cycle through different shots instead of reusing one. Keeps the photos
+    that score near the top match (same person; extra shots are named '<base>-2.jpg', '-3.jpg', …).
+    [] when nothing matches — caller lists options rather than inventing a face."""
+    items = list_team_photos()
+    scored = sorted(((_team_score(query, it), it) for it in items), key=lambda t: t[0], reverse=True)
+    scored = [(s, it) for s, it in scored if s > 0]
+    if not scored:
+        return []
+    top = scored[0][0]
+    return [it for s, it in scored if s >= max(0.1, top * 0.5)][:limit]
+
+
 def team_reference_bytes(path: str) -> bytes | None:
     """Full-resolution bytes of one Team/ photo straight from the brand ZIP (no downscale, so the face
     stays crisp). Returns None on any read failure."""

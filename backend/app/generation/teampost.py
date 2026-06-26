@@ -51,25 +51,36 @@ def _wrap(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
     return lines or [""]
 
 
-def _paint_backdrop(canvas: Image.Image, d: ImageDraw.ImageDraw) -> None:
-    for (x, y, w, h, rot) in [(640, 120, 360, 360, 18), (560, 360, 420, 420, -12), (720, 540, 300, 300, 26)]:
+# Background variety: each entry is (ghost rounded-rects, dotted-arc center+start-angle). Picked by
+# `variant` so repeated posts for the same person don't share an identical background.
+_BACKDROPS = [
+    ([(640, 120, 360, 360, 18), (560, 360, 420, 420, -12), (720, 540, 300, 300, 26)], (880, 300, -10)),
+    ([(600, 60, 440, 440, -14), (520, 470, 360, 360, 16), (770, 300, 280, 280, 30)], (300, 250, 100)),
+    ([(680, 200, 380, 380, 10), (560, 560, 420, 420, -20), (810, 70, 300, 300, 24)], (300, 840, 205)),
+]
+
+
+def _paint_backdrop(canvas: Image.Image, d: ImageDraw.ImageDraw, variant: int = 0) -> None:
+    rects, (ax, ay, a0) = _BACKDROPS[variant % len(_BACKDROPS)]
+    for (x, y, w, h, rot) in rects:
         g = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         ImageDraw.Draw(g).rounded_rectangle([0, 0, w, h], radius=40, fill=(*NAVY2, 130))
         gr = g.rotate(rot, expand=True)
         canvas.paste(gr, (x, y), gr)
-    for i in range(26):  # dotted arc, top-right
-        a = math.radians(-10 + i * 7)
-        px, py = int(880 + 150 * math.cos(a)), int(300 + 150 * math.sin(a))
+    for i in range(26):  # dotted arc
+        a = math.radians(a0 + i * 7)
+        px, py = int(ax + 150 * math.cos(a)), int(ay + 150 * math.sin(a))
         d.ellipse([px - 4, py - 4, px + 4, py + 4], fill=WHITE)
     d.rectangle([0, 0, RAIL_W, H], fill=RED)
 
 
 def build_team_image(
     brand: Brand | None, photo_bytes: bytes, name: str, role: str = "",
-    headline: str = "", question: str = "",
+    headline: str = "", question: str = "", variant: int = 0,
 ) -> tuple[str, str, dict]:
-    """Compose a branded feature post around a real photo. Returns (path, file_name, meta) — same shape
-    as images._render. Raises on an unreadable photo (caller surfaces a message; never an AI face)."""
+    """Compose a branded feature post around a real photo. `variant` rotates the background, hero scale
+    and headline accent so repeats look different. Returns (path, file_name, meta) — same shape as
+    images._render. Raises on an unreadable photo (caller surfaces a message; never an AI face)."""
     try:  # team photos may be HEIC (iPhone) — register the opener when available
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -80,10 +91,10 @@ def build_team_image(
 
     canvas = Image.new("RGB", (W, H), NAVY)
     d = ImageDraw.Draw(canvas)
-    _paint_backdrop(canvas, d)
+    _paint_backdrop(canvas, d, variant)
 
     # Hero on the right, anchored bottom; cap width so a wide cut-out (group/scene) can't overflow.
-    target_h = int(H * 0.80)
+    target_h = int(H * (0.80, 0.78, 0.82)[variant % 3])
     scale = target_h / hero.height
     if hero.width * scale > W * 0.62:
         scale = (W * 0.62) / hero.width
@@ -97,17 +108,21 @@ def build_team_image(
     pad = 70
     head = (headline or "On a Mission!").strip()
     hlines = _wrap(d, head, heading_font(104), W - 470)[:3]
-    # render headline lines; highlight the LAST line in a red box (the "Mission!" effect)
     f = heading_font(104 if max(d.textlength(ln, font=heading_font(104)) for ln in hlines) <= (W - 470) else 84)
-    y = 84
+    accent_box = (variant % 2 == 0)  # even: red box on the last line; odd: a red underline bar
+    y, last_tw = 84, 0
     for idx, ln in enumerate(hlines):
         tw = d.textlength(ln, font=f)
-        if idx == len(hlines) - 1:
+        last_tw = tw
+        if accent_box and idx == len(hlines) - 1:
             d.rectangle([pad - 8, y - 4, pad + tw + 26, y + f.size + 14], fill=RED)
             d.text((pad + 6, y + 4), ln, font=f, fill=WHITE)
         else:
             d.text((pad, y + 4), ln, font=f, fill=WHITE)
         y += int(f.size * 1.18) + 10
+    if not accent_box:
+        d.rectangle([pad, y - 2, pad + min(int(last_tw), W - 470), y + 12], fill=RED)
+        y += 18
 
     if question:
         qf = body_font(34)
