@@ -985,7 +985,9 @@ TOOL_SCHEMAS = [
         "photo is attached. (If the attachment is a style/content reference, not a person to feature, use "
         "generate_image instead.)",
         {
-            "name": {"type": "string", "description": "The person's name, exactly as the user gave it."},
+            "name": {"type": "string", "description": "The person's name — exactly as the user gave it, or "
+                     "inferred from the conversation context (e.g. a person just discussed). Omit only if "
+                     "truly unknown; the post then shows just the photo + message."},
             "role": {"type": "string", "description": "Their role/title if mentioned (e.g. 'Senior Recruiter')."},
             "message": {"type": "string", "description": "The post message/headline (e.g. 'Welcome to the team!', "
                         "'Congrats on 5 years!'). Shown as the headline + subline."},
@@ -993,7 +995,7 @@ TOOL_SCHEMAS = [
                       "description": "Optional format; omit to rotate."},
             "count": {"type": "integer", "description": "How many posts (1-4); omit for 1."},
         },
-        ["name"]),
+        []),
     _fn("build_deck",
         "Build a ready-to-present, designed PowerPoint (.pptx) in Talentrupt's deck style. Pass the "
         "audience/tone/depth gathered from the user so the deck is tailored, not generic.",

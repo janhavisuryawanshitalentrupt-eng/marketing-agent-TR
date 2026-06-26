@@ -218,9 +218,11 @@ def _role_badge(d, x, y, role, fill=WHITE, fg=NAVY) -> None:
 
 
 def _draw_featuring(d, x, y, name, role, name_size=58) -> None:
+    if not name:  # no name given (e.g. "use this photo") -> just the headline + photo, no name block
+        return
     d.rectangle([x, y - 16, x + 120, y - 12], fill=WHITE)
     d.text((x, y), "Featuring", font=body_font(32), fill=CREAM)
-    d.text((x, y + 40), name or "the Talentrupt team", font=heading_font(name_size), fill=WHITE)
+    d.text((x, y + 40), name, font=heading_font(name_size), fill=WHITE)
     if role:
         _role_badge(d, x, y + 40 + 72, role)
 
@@ -292,9 +294,10 @@ def _layout_magazine(photo, name, role, headline, question, variant) -> Image.Im
     for ln in cap_lines:
         d.text((pad, cy), ln, font=cf, fill=CREAM)
         cy += cf.size + 6
-    d.text((pad, name_y), name or "the Talentrupt team", font=heading_font(74), fill=WHITE)
-    if role:
-        _role_badge(d, pad, name_y + 92, role)
+    if name:
+        d.text((pad, name_y), name, font=heading_font(74), fill=WHITE)
+        if role:
+            _role_badge(d, pad, name_y + 92, role)
     paste_logo(canvas, W - 116, H - 116, 74)
     return canvas
 
@@ -348,15 +351,15 @@ def _layout_framed(photo, name, role, headline, question, variant) -> Image.Imag
     for ln in clines:
         d.text(((W - d.textlength(ln, font=cf)) // 2, ty), ln, font=cf, fill=CREAM)
         ty += cf.size + 8
-    nm = name or "the Talentrupt team"
-    nf = heading_font(58)
-    d.text(((W - d.textlength(nm, font=nf)) // 2, fy + fh + 26), nm, font=nf, fill=WHITE)
-    if role:
-        rf = body_font(32)
-        rw = d.textlength(role, font=rf)
-        ry = fy + fh + 26 + 76
-        d.rounded_rectangle([(W - rw) // 2 - 30, ry, (W + rw) // 2 + 30, ry + 54], radius=27, fill=RED)
-        d.text(((W - rw) // 2, ry + 12), role, font=rf, fill=WHITE)
+    if name:
+        nf = heading_font(58)
+        d.text(((W - d.textlength(name, font=nf)) // 2, fy + fh + 26), name, font=nf, fill=WHITE)
+        if role:
+            rf = body_font(32)
+            rw = d.textlength(role, font=rf)
+            ry = fy + fh + 26 + 76
+            d.rounded_rectangle([(W - rw) // 2 - 30, ry, (W + rw) // 2 + 30, ry + 54], radius=27, fill=RED)
+            d.text(((W - rw) // 2, ry + 12), role, font=rf, fill=WHITE)
     paste_logo(canvas, W - 116, H - 116, 74)
     return canvas
 
