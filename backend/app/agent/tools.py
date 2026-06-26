@@ -725,14 +725,15 @@ async def exec_team_image(db, state, brand, args) -> dict:
     n = max(1, min(int(args.get("count") or 1), 4))
     style_arg = (args.get("style") or "").strip().lower()
     # A crowd shouldn't be cut out — group posts use the full-photo formats; individuals rotate all.
-    style_pool = ["magazine", "split"] if (not specific and not style_arg) else teampost.STYLE_NAMES
     if style_arg in teampost.STYLE_NAMES or style_arg == "ai":
         styles = [style_arg] * n
-    else:
-        styles = random.sample(style_pool, k=min(n, len(style_pool)))
+    elif not specific:  # group request -> full real-photo formats (don't cut a crowd onto an AI bg)
+        pool = ["magazine", "split"]
+        styles = random.sample(pool, k=min(n, len(pool)))
         while len(styles) < n:
-            styles.append(random.choice(style_pool))
-        random.shuffle(styles)
+            styles.append(random.choice(pool))
+    else:  # a named individual, no explicit style -> default to the designed AI scene (rich background)
+        styles = ["ai"] * n
 
     # Split the user's message into a punchy headline + supporting subline so it's shown in full.
     msg_head, msg_sub = teampost.split_message(message)
@@ -800,9 +801,7 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
     if style_arg in teampost.STYLE_NAMES or style_arg == "ai":
         styles = [style_arg] * n
     else:
-        styles = random.sample(teampost.STYLE_NAMES, k=min(n, len(teampost.STYLE_NAMES)))
-        while len(styles) < n:
-            styles.append(random.choice(teampost.STYLE_NAMES))
+        styles = ["ai"] * n  # default uploaded-person posts to the designed AI scene
     assets, used = [], []
     for i in range(n):
         try:

@@ -402,23 +402,28 @@ def build_team_image(
 
 # --- AI-scene format: gpt-image-1 makes the BACKGROUND, the REAL cut-out person goes on top ----------
 _SCENE_TYPES = [
-    "a clean, empty modern open-plan office interior, soft daylight through large windows, shallow "
-    "depth of field, gentle bokeh",
-    "an abstract premium backdrop: deep navy to warm cream gradient with subtle floating geometric "
-    "shapes and soft volumetric light",
-    "a minimal softly-lit studio backdrop with a gentle vignette, smooth seamless wall, soft bokeh",
-    "a celebratory abstract background with warm golden bokeh and soft out-of-focus confetti",
+    "a bold abstract brand backdrop: deep navy with dynamic flowing coral-red ribbons and soft "
+    "rounded geometric shapes, energetic and celebratory, with depth and a soft glow",
+    "a premium modern office environment, bright and aspirational, floor-to-ceiling windows with "
+    "soft city bokeh, clean editorial composition, warm daylight",
+    "an elegant dark-navy studio backdrop with a gentle spotlight, floating golden particles and "
+    "soft out-of-focus confetti, celebratory and upscale",
+    "a contemporary tech-forward abstract scene: navy gradient with subtle glowing connected-dot "
+    "network lines and coral accents, sleek and professional, soft depth",
+    "a warm congratulatory backdrop, soft bokeh lights, smooth gradient from deep navy to warm cream, "
+    "tasteful sparkle and gentle light rays, magazine-cover feel",
 ]
 
 
 def _scene_prompt(headline: str, question: str, variant: int) -> str:
     scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
     return (
-        f"A premium, professional BACKGROUND scene for a corporate social post: {scene}. Brand palette: "
-        "deep navy #0B3559, coral red #F6404C accents, warm cream #EBE9DF. Cinematic depth, soft "
-        "professional lighting, tasteful and editorial. ABSOLUTELY NO people, NO person, NO text, NO "
-        "words, NO letters, NO logos. Keep the LEFT third and the BOTTOM area relatively clean and empty "
-        "for a person and a caption to be placed later. Square 1:1 composition."
+        f"A richly designed, premium social-media BACKGROUND graphic for a corporate appreciation post: "
+        f"{scene}. Brand palette: deep navy #0B3559, coral red #F6404C accents, warm cream #EBE9DF. "
+        "High-end editorial and cinematic, dynamic and polished like a professional marketing design — "
+        "NOT a plain flat color. ABSOLUTELY NO people, NO person, NO faces, NO text, NO words, NO "
+        "letters, NO logos. Keep the LEFT third and the BOTTOM area clean for a person and a caption to "
+        "be placed later. Square 1:1 composition."
     )
 
 
