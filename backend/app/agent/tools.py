@@ -10,6 +10,7 @@ fallback path can call them.
 from __future__ import annotations
 
 import random
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
@@ -138,8 +139,34 @@ async def exec_generate_posts(db, state, brand, args) -> dict:
     return {"summary": f"Wrote {len(saved)} {args.get('platform', 'LinkedIn')} posts.", "assets": saved}
 
 
+# Tokens that must NEVER be read as "a real person is named" (company / generic / role words).
+_TEAM_STOPWORDS = {"talentrupt", "team", "group", "everyone", "staff", "the", "our", "people",
+                   "coo", "ceo", "cto", "cfo", "cmo", "founder", "leadership", "account", "manager"}
+
+
+def _detect_team_person(text: str) -> str | None:
+    """If `text` names a REAL person who has a photo in the Team library, return that person's name —
+    so we can route to their actual photo instead of EVER AI-generating their face. None otherwise."""
+    toks = {t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2}
+    if not toks:
+        return None
+    for it in retrieve.list_team_photos():
+        name, _role = _parse_team_label(it["label"])
+        name_toks = {t for t in re.findall(r"[a-z0-9]+", name.lower()) if len(t) > 2} - _TEAM_STOPWORDS
+        if name_toks & toks:
+            return name
+    return None
+
+
 async def exec_generate_image(db, state, brand, args) -> dict:
     concept = args.get("concept", "")
+    # HARD GUARD (defense-in-depth): NEVER AI-generate a real team member's face. If the concept names
+    # someone in the Team library, route to the REAL-photo composer no matter what the model chose —
+    # the prompt also says so, but this guarantees it even when the model ignores the prompt.
+    person = _detect_team_person(concept)
+    if person:
+        return await exec_team_image(db, state, brand,
+                                     {"person": person, "message": concept, "count": args.get("count")})
     # Offer variations to pick from. Clamp to 1-3 as a hard cost ceiling regardless of the model's ask.
     try:
         count = max(1, min(int(args.get("count", 1) or 1), 3))
