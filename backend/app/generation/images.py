@@ -551,6 +551,12 @@ async def build_images(
     brand: Brand | None, campaign: Campaign | None, concept: str, count: int = 1,
     style: str | None = None,
 ) -> list[tuple[str, str, dict]]:
+    # HARD FACE GUARD (single chokepoint for every image path — generate/refine/campaign): if the
+    # concept names a real Talentrupt person, render their REAL photo and NEVER reach gpt-image-1.
+    from . import teampost
+    guarded = teampost.render_if_person(brand, concept, count)
+    if guarded is not None:
+        return guarded
     count = max(1, min(count, 4))
     context = await retrieve.brand_context(concept, k=3)
     # `style`, when set (e.g. an explicit Create-intake choice), forces the visual style.

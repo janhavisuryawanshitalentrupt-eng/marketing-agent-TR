@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import math
+import random
 import re
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
@@ -95,6 +96,50 @@ def split_message(message: str) -> tuple[str, str]:
     if len(words) > 6:
         return " ".join(words[:3]), " ".join(words[3:])
     return msg, ""
+
+
+# --- team label parsing & person detection (shared so EVERY image path can refuse a fake face) ------
+_ROLE_PHRASES = ["account manager", "account executive", "talent acquisition", "co founder",
+                 "chief operating officer", "operations head", "team lead", "coo", "ceo", "cto", "cfo",
+                 "cmo", "vp", "founder", "co-founder", "director", "manager", "lead", "head", "recruiter",
+                 "sourcer", "associate", "executive", "president", "officer", "intern"]
+_ROLE_ACRONYMS = {"coo", "ceo", "cto", "cfo", "cmo", "vp"}
+# Tokens that must NEVER be read as "a real person is named" (company / generic / role words).
+_PERSON_STOPWORDS = {"talentrupt", "team", "group", "everyone", "staff", "the", "our", "people",
+                     "coo", "ceo", "cto", "cfo", "cmo", "founder", "leadership", "account", "manager"}
+
+
+def parse_team_label(label: str) -> tuple[str, str]:
+    """'nishant trivedi coo' -> ('Nishant Trivedi', 'COO'); 'jerry account manager' -> ('Jerry',
+    'Account Manager'); 'leadership team' -> ('Leadership Team', ''). A trailing rotation number is
+    dropped so '<base>-2' shots map to the same name/role."""
+    toks = label.lower().split()
+    while len(toks) > 1 and toks[-1].isdigit():
+        toks.pop()
+    base = " ".join(toks)
+    if toks and toks[-1] in ("team", "group", "everyone", "staff"):
+        return base.title(), ""
+    for ph in sorted(_ROLE_PHRASES, key=lambda p: -len(p.split())):
+        pw = ph.split()
+        if len(toks) > len(pw) and toks[-len(pw):] == pw:
+            role = ph.upper() if ph in _ROLE_ACRONYMS else ph.title()
+            return " ".join(toks[:-len(pw)]).title() or base.title(), role
+    return base.title(), ""
+
+
+def detect_team_person(text: str) -> str | None:
+    """If `text` names a REAL person who has a photo in the Team library, return that person's name —
+    so any image path can route to their real photo instead of EVER AI-generating their face."""
+    from ..knowledge import retrieve
+    toks = {t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2}
+    if not toks:
+        return None
+    for it in retrieve.list_team_photos():
+        name, _role = parse_team_label(it["label"])
+        name_toks = {t for t in re.findall(r"[a-z0-9]+", name.lower()) if len(t) > 2} - _PERSON_STOPWORDS
+        if name_toks & toks:
+            return name
+    return None
 
 
 _BACKDROPS = [
@@ -333,3 +378,29 @@ def build_team_image(
         "size": f"{W}x{H}",
         "kind": "team",
     }
+
+
+def render_if_person(brand, concept: str, count: int = 1):
+    """If `concept` names a real Team person, render up to `count` real-photo posts and return them as
+    [(path, file_name, meta)]; else None. The single chokepoint that lets ANY image path refuse to
+    AI-generate a real face — used inside build_images so generate/refine/campaign all stay safe."""
+    from ..knowledge import retrieve
+    if not detect_team_person(concept):
+        return None
+    photos = retrieve.person_photos(detect_team_person(concept))
+    if not photos:
+        return None
+    head, sub = split_message(concept or "")
+    if not head:
+        head = "In the Spotlight."
+    out = []
+    for _ in range(max(1, min(int(count or 1), 4))):
+        ph = random.choice(photos)
+        raw = retrieve.team_reference_bytes(ph["path"])
+        if not raw:
+            continue
+        name, role = parse_team_label(ph["label"])
+        p, fn, m = build_team_image(brand, raw, name=name, role=role, headline=head, question=sub,
+                                    variant=random.randint(0, 5), style=random.choice(STYLE_NAMES))
+        out.append((p, fn, {**m, "team_photo": ph["label"]}))
+    return out or None

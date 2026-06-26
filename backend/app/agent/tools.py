@@ -10,7 +10,6 @@ fallback path can call them.
 from __future__ import annotations
 
 import random
-import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
@@ -139,31 +138,13 @@ async def exec_generate_posts(db, state, brand, args) -> dict:
     return {"summary": f"Wrote {len(saved)} {args.get('platform', 'LinkedIn')} posts.", "assets": saved}
 
 
-# Tokens that must NEVER be read as "a real person is named" (company / generic / role words).
-_TEAM_STOPWORDS = {"talentrupt", "team", "group", "everyone", "staff", "the", "our", "people",
-                   "coo", "ceo", "cto", "cfo", "cmo", "founder", "leadership", "account", "manager"}
-
-
-def _detect_team_person(text: str) -> str | None:
-    """If `text` names a REAL person who has a photo in the Team library, return that person's name —
-    so we can route to their actual photo instead of EVER AI-generating their face. None otherwise."""
-    toks = {t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2}
-    if not toks:
-        return None
-    for it in retrieve.list_team_photos():
-        name, _role = _parse_team_label(it["label"])
-        name_toks = {t for t in re.findall(r"[a-z0-9]+", name.lower()) if len(t) > 2} - _TEAM_STOPWORDS
-        if name_toks & toks:
-            return name
-    return None
-
-
 async def exec_generate_image(db, state, brand, args) -> dict:
     concept = args.get("concept", "")
     # HARD GUARD (defense-in-depth): NEVER AI-generate a real team member's face. If the concept names
     # someone in the Team library, route to the REAL-photo composer no matter what the model chose —
-    # the prompt also says so, but this guarantees it even when the model ignores the prompt.
-    person = _detect_team_person(concept)
+    # the prompt also says so, but this guarantees it even when the model ignores the prompt. (A second
+    # identical guard lives inside images.build_images so refine/campaign paths are covered too.)
+    person = teampost.detect_team_person(concept)
     if person:
         return await exec_team_image(db, state, brand,
                                      {"person": person, "message": concept, "count": args.get("count")})
@@ -694,32 +675,8 @@ async def exec_animate_asset(db, state, brand, args) -> dict:
             "a cinematic zoom over the real photo; the face is unchanged.", "assets": [serialize_asset(na)]}
 
 
-# Role suffixes recognised in a Team/ filename label (e.g. "nishant-trivedi-coo" -> role "COO").
-_ROLE_PHRASES = ["account manager", "account executive", "talent acquisition", "co founder",
-                 "chief operating officer", "operations head", "team lead", "coo", "ceo", "cto", "cfo",
-                 "cmo", "vp", "founder", "co-founder", "director", "manager", "lead", "head", "recruiter",
-                 "sourcer", "associate", "executive", "president", "officer", "intern"]
-_ROLE_ACRONYMS = {"coo", "ceo", "cto", "cfo", "cmo", "vp"}
 _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "Making it Happen!",
                       "In the Spotlight."]
-
-
-def _parse_team_label(label: str) -> tuple[str, str]:
-    """Split a filename label into (name, role). 'nishant trivedi coo' -> ('Nishant Trivedi', 'COO');
-    'jerry account manager' -> ('Jerry', 'Account Manager'); 'leadership team' -> ('Leadership Team', '').
-    A trailing rotation number ('nishant trivedi coo 2') is dropped so extra shots map to the same name."""
-    toks = label.lower().split()
-    while len(toks) > 1 and toks[-1].isdigit():
-        toks.pop()
-    base = " ".join(toks)
-    if toks and toks[-1] in ("team", "group", "everyone", "staff"):
-        return base.title(), ""
-    for ph in sorted(_ROLE_PHRASES, key=lambda p: -len(p.split())):
-        pw = ph.split()
-        if len(toks) > len(pw) and toks[-len(pw):] == pw:
-            role = ph.upper() if ph in _ROLE_ACRONYMS else ph.title()
-            return " ".join(toks[:-len(pw)]).title() or base.title(), role
-    return base.title(), ""
 
 
 async def exec_team_image(db, state, brand, args) -> dict:
@@ -760,7 +717,7 @@ async def exec_team_image(db, state, brand, args) -> dict:
         raw = retrieve.team_reference_bytes(photo["path"])
         if not raw:
             continue
-        name, role = _parse_team_label(photo["label"])
+        name, role = teampost.parse_team_label(photo["label"])
         if message:
             headline, subline = msg_head, msg_sub
         else:
