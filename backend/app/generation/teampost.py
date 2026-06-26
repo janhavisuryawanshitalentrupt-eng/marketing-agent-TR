@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
@@ -71,6 +72,29 @@ def _wrap(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
     if cur:
         lines.append(cur)
     return lines or [""]
+
+
+def split_message(message: str) -> tuple[str, str]:
+    """Split a post message into a punchy (headline, subline) so a longer message is shown in full
+    instead of being truncated into the headline. Splits on the first sentence break, else a
+    colon/dash, else after the first few words for long messages; short messages stay all-headline.
+    'Congrats Nishant! Celebrating 10+ years at Talentrupt' -> ('Congrats Nishant!', 'Celebrating 10+
+    years at Talentrupt')."""
+    msg = " ".join((message or "").split())
+    if not msg:
+        return "", ""
+    m = re.search(r"[.!?]", msg)
+    if m and msg[m.end():].strip():
+        return msg[:m.end()].strip(), msg[m.end():].strip()
+    for sep in (" — ", " - ", ": ", "—", ":"):
+        if sep in msg:
+            a, b = msg.split(sep, 1)
+            if a.strip() and b.strip():
+                return a.strip(), b.strip()
+    words = msg.split()
+    if len(words) > 6:
+        return " ".join(words[:3]), " ".join(words[3:])
+    return msg, ""
 
 
 _BACKDROPS = [

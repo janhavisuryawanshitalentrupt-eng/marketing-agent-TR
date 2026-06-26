@@ -7,8 +7,10 @@ overwrite in place. This is additive — the one-shot generation flow is untouch
 """
 from __future__ import annotations
 
+import random
+
 from ..models import Asset, Brand
-from . import decks, images, pdf, posts
+from . import decks, images, pdf, posts, teampost
 
 
 def _augment(base: str, instruction: str) -> str:
@@ -17,6 +19,23 @@ def _augment(base: str, instruction: str) -> str:
     if not instr:
         return base
     return f"{base}. {instr}".strip(". ").strip()
+
+
+# Refine-instruction keywords -> team post FORMAT (a refine may change layout, never the face).
+_STYLE_CUES = {
+    "magazine": "magazine", "full photo": "magazine", "full-photo": "magazine", "cover": "magazine",
+    "split": "split", "side by side": "split", "side-by-side": "split", "panel": "split",
+    "framed": "framed", "frame": "framed", "card": "framed", "portrait": "framed",
+    "spotlight": "spotlight", "cut out": "spotlight", "cut-out": "spotlight", "cutout": "spotlight",
+}
+
+
+def _team_style_from(instruction: str, default: str) -> str:
+    instr = (instruction or "").lower()
+    for cue, style in _STYLE_CUES.items():
+        if cue in instr:
+            return style
+    return default
 
 
 async def regenerate_asset(
@@ -39,6 +58,35 @@ async def regenerate_asset(
         items = await posts.generate_posts(brand, None, count=1, platform=platform, angle=angle)
         p = items[0] if items else body
         new_body, new_meta, title = p, {"platform": p.get("platform", platform)}, p.get("hook", title)
+    elif a.type == "image" and (body.get("kind") == "team" or meta_in.get("team_photo")):
+        # TEAM image: re-run the REAL-photo composer. NEVER fall through to images.build_images —
+        # that would synthesize a brand-new (wrong) face. We only ever recolor/redesign, never the face.
+        from ..knowledge import retrieve
+        label = meta_in.get("team_photo") or ""
+        photo = next((it for it in retrieve.list_team_photos() if it["label"] == label), None)
+        if photo is None:  # fall back to any real shot of the same person
+            cand = retrieve.person_photos(body.get("person") or a.title)
+            photo = cand[0] if cand else None
+        if photo is None:
+            return None  # no real photo on file -> refuse rather than invent a face
+        raw = retrieve.team_reference_bytes(photo["path"])
+        if not raw:
+            return None
+        name = body.get("person") or a.title
+        role = body.get("role") or ""
+        style = _team_style_from(instruction, body.get("style") or meta_in.get("style") or "spotlight")
+        if instruction.strip():  # an instruction supplies new copy; else keep the original message
+            head, sub = teampost.split_message(instruction)
+        else:
+            head, sub = body.get("headline") or "", body.get("subline") or ""
+        path, _fn, m = teampost.build_team_image(
+            brand, raw, name=name, role=role, headline=head, question=sub,
+            variant=random.randint(0, 5), style=style)
+        file_path, file_url, new_meta = path, m["url"], dict(m)
+        new_meta["team_photo"] = photo["label"]
+        new_body = {"person": name, "role": role, "headline": head, "subline": sub,
+                    "kind": "team", "style": style}
+        title = name + (f" — {role}" if role else "")
     elif a.type == "image":
         concept = _augment(body.get("concept") or a.title, instruction)
         rendered = await images.build_images(brand, None, concept, count=1)
