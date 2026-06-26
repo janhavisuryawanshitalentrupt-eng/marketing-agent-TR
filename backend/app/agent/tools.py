@@ -18,7 +18,7 @@ from ..business import analyze as bd_analyze
 from ..business import discover as bd_discover
 from ..business import outreach as bd_outreach
 from ..business.store import save_opportunity, serialize_opportunity
-from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy
+from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy, teampost
 from ..knowledge import retrieve
 from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Opportunity
 
@@ -634,10 +634,46 @@ async def exec_regenerate_asset(db, state, brand, args) -> dict:
             "assets": [serialize_asset(new)]}
 
 
+async def exec_team_image(db, state, brand, args) -> dict:
+    """Feature a REAL Talentrupt person/group: composite their ACTUAL photo (from the brand ZIP's Team/
+    folder) into a branded post. Never AI-generates a face; if no photo matches, lists the options."""
+    person = (args.get("person") or "").strip()
+    message = (args.get("message") or "").strip()
+    options = retrieve.list_team_photos()
+    if not options:
+        return {"summary": "There are no team photos on file yet, so I can't feature a real person — and "
+                "I won't invent a face. Add the photos to a 'Team/' folder inside the brand ZIP (named "
+                "descriptively, e.g. Team/rushikesh-founder.jpg), then re-run the knowledge import.",
+                "assets": []}
+    matches = retrieve.match_team_photos(person or message, n=1)
+    if not matches:
+        labels = ", ".join(sorted({o["label"] for o in options}))
+        return {"summary": f"I couldn't match “{person or message}” to a team photo. Available "
+                f"team photos: {labels}. Who should I feature? (I only use the real photos on file — I "
+                "never invent a face.)", "assets": []}
+    chosen = matches[0]
+    raw = retrieve.team_reference_bytes(chosen["path"])
+    if not raw:
+        return {"summary": "I found the photo but couldn't read it from the brand ZIP — please re-run the "
+                "knowledge import and try again.", "assets": []}
+    headline = message or f"Meet {chosen['label'].title()}"
+    try:
+        path, fname, meta = teampost.build_team_image(brand, raw, headline)
+    except Exception:
+        return {"summary": "Couldn't build the team post this time — please try again.", "assets": []}
+    meta = {**meta, "team_photo": chosen["label"]}
+    a = _save_asset(db, None, "image", headline[:380],
+                    body={"person": chosen["label"], "headline": headline, "kind": "team"},
+                    file_path=path, file_url=meta["url"], meta=meta)
+    return {"summary": f"Created an on-brand post featuring {chosen['label'].title()} (their real photo).",
+            "assets": [serialize_asset(a)]}
+
+
 EXECUTORS = {
     "create_campaign": exec_create_campaign,
     "generate_posts": exec_generate_posts,
     "generate_image": exec_generate_image,
+    "generate_team_image": exec_team_image,
     "build_deck": exec_build_deck,
     "build_pdf": exec_build_pdf,
     "search_brand_knowledge": exec_search_brand_knowledge,
@@ -674,10 +710,11 @@ CHAT_TOOL_NAMES = [
     "create_campaign",
     "generate_posts",
     "generate_image",
+    "generate_team_image",
     "build_deck",
     "build_pdf",
 ]
-CREATE_TOOL_NAMES = ["generate_image", "build_deck", "build_pdf", "regenerate_asset"]
+CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "build_deck", "build_pdf", "regenerate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
@@ -691,6 +728,7 @@ STATUS_LABELS = {
     "create_campaign": "Planning the campaign strategy",
     "generate_posts": "Writing on-brand posts",
     "generate_image": "Designing a campaign visual",
+    "generate_team_image": "Featuring the team",
     "build_deck": "Designing presentation slides",
     "build_pdf": "Preparing the document",
     "search_brand_knowledge": "Reviewing past Talentrupt work",
@@ -758,6 +796,20 @@ TOOL_SCHEMAS = [
                       "description": "Optional — set ONLY when the user explicitly chose a visual style; otherwise omit and the art director picks the best fit."},
         },
         ["concept"]),
+    _fn("generate_team_image",
+        "Create an on-brand post that features a REAL Talentrupt team member or group using their ACTUAL "
+        "photo (exact faces) composited into the brand template — NOT an AI-generated face. Use this "
+        "whenever the user asks to feature/showcase a specific named person, the founder, the leadership "
+        "team, or 'the team'. The photo must already exist in the brand library's Team/ folder; if none "
+        "matches, the tool returns the available options to relay — NEVER use generate_image for a real "
+        "person and never invent a face.",
+        {
+            "person": {"type": "string",
+                       "description": "Who to feature, as the user said it (e.g. 'the founder', 'Rushikesh', 'the leadership team', 'the whole team')."},
+            "message": {"type": "string",
+                        "description": "The headline/message for the post (e.g. 'Meet our founder'). Used as the post headline."},
+        },
+        ["person"]),
     _fn("build_deck",
         "Build a ready-to-present, designed PowerPoint (.pptx) in Talentrupt's deck style. Pass the "
         "audience/tone/depth gathered from the user so the deck is tailored, not generic.",
