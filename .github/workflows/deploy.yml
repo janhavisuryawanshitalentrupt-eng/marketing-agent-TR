@@ -21,7 +21,8 @@ on:
 
 concurrency:
   group: deploy-droplet
-  cancel-in-progress: true
+  # Never kill a deploy mid-flight — queue the next one behind it instead.
+  cancel-in-progress: false
 
 jobs:
   deploy:
