@@ -133,27 +133,48 @@ Two logins, each with its own private data (conversations, campaigns, assets, op
 
 ---
 
-## Routine redeploys
-**This deploy has no `.git` on the droplet** (the code was shipped as a tarball — see below), so
-`deploy/deploy.sh` (which does `git pull`) will NOT work here. Update by rebuilding the tarball locally
-and copying it up:
+## Routine redeploys — fully automated (build → push → deploy)
+
+**Every release is one command, run from your PC:**
 
 ```powershell
-# on your PC, from the repo root
+./deploy/ship.ps1 "what changed"
+```
+
+That builds the frontend locally (a pre-flight gate), commits, and pushes. The push triggers
+**`.github/workflows/deploy.yml`**, which rebuilds the UI on GitHub's runner (so the 2 GB droplet never
+runs `next build`), ships the code + built UI, runs `pm2 restart myra`, and health-checks
+`/api/health`. **You never touch the droplet.** Extracting the deploy never touches `backend/.env`,
+`talentrupt.db*`, or `storage/` (git-ignored, never in the archive).
+
+Watch a deploy: repo → **Actions** → the latest **Deploy** run.
+
+### Auto-deploy enablement (one-time)
+CI can't bootstrap its own access to a server — someone with droplet access must authorize it once.
+A deploy keypair has already been generated at `~/.ssh/talentrupt_deploy` (private) +
+`~/.ssh/talentrupt_deploy.pub` (public). Then:
+
+1. **Authorize the key on the droplet** (run on your PC; enter the root password once):
+   ```powershell
+   type $env:USERPROFILE\.ssh\talentrupt_deploy.pub | ssh root@206.189.132.167 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+   ```
+2. **Add two GitHub repo secrets** (repo → Settings → Secrets and variables → Actions → New secret):
+   - `DROPLET_HOST` = `206.189.132.167`
+   - `DROPLET_SSH_KEY` = the full contents of `~/.ssh/talentrupt_deploy` (the **private** key file)
+
+After that, `deploy/ship.ps1` (or any push to `feat/create-chip-brief-intake` / `main`) deploys
+automatically — no further manual steps, ever.
+
+### Manual fallback (only if CI is unavailable)
+```powershell
 git archive --format=tar.gz -o "$env:USERPROFILE\Downloads\myra-deploy.tar.gz" feat/create-chip-brief-intake
 scp "$env:USERPROFILE\Downloads\myra-deploy.tar.gz" root@206.189.132.167:/root/myra-deploy.tar.gz
 ```
 ```bash
 # on the droplet
 tar -xzf /root/myra-deploy.tar.gz -C /root/talentrupt-agent
-# backend-only change: just restart (migrations auto-run on startup)
-pm2 restart myra
-# frontend changed too? rebuild the static UI first:
 cd /root/talentrupt-agent/frontend && NEXT_PUBLIC_API_BASE= npm run build && pm2 restart myra
 ```
-Extracting the tarball never touches `backend/.env`, `talentrupt.db`, or `storage/` (they're git-ignored,
-so they're not in the archive). To make redeploys a true one-liner, set up git-on-droplet with a deploy
-token, or a GitHub Actions SSH deploy — then it becomes `git pull && pm2 restart myra`.
 
 ---
 

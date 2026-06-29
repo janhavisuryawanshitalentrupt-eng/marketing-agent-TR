@@ -88,9 +88,15 @@ prod). Also `CORS_ORIGINS`, `STORAGE_DIR`, `KNOWLEDGE_ZIP_PATH`/`BRAND_LOGO_PATH
 
 ## 10. Run & deploy
 - **Dev:** backend `uvicorn app.main:app --port 8000` (in `backend/`, venv); frontend `npm run dev` (`frontend/`, :3000).
-- **Prod:** single PM2 process `myra` on the shared droplet at `myra.htuniverse.com`. First-time setup +
-  redeploy steps: [deploy/DEPLOY.md](deploy/DEPLOY.md). Auto-deploy on push:
-  [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+- **Prod:** single PM2 process `myra` on the shared droplet at `myra.htuniverse.com`.
+- **Release = one command: `deploy/ship.ps1 "what changed"`** — it (1) builds the frontend locally as a
+  pre-flight gate, (2) commits, (3) pushes. The push triggers
+  [.github/workflows/deploy.yml](.github/workflows/deploy.yml), which rebuilds the UI on GitHub's runner
+  (full RAM), ships code + built UI to the droplet, and `pm2 restart myra` — then health-checks `/api/health`.
+  **No manual droplet steps.** `.env`, `talentrupt.db*` and `storage/` on the server are never touched.
+- **One-time enablement** (needed once, by someone with droplet access — CI can't bootstrap server trust
+  itself): authorize a deploy key on the droplet and add two GitHub repo secrets `DROPLET_HOST` +
+  `DROPLET_SSH_KEY`. Steps: [deploy/DEPLOY.md](deploy/DEPLOY.md) → "Auto-deploy enablement".
 
 ## 11. Hard rules (do not break)
 - **Never AI-generate or alter a real person's face** — team posts use real photos only.

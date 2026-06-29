@@ -30,6 +30,11 @@ All notable changes to the app, most recent first. Dates are when the work lande
   level (not over-sharpened).
 
 ## Deployment (2026-06-29)
+- **One-command, fully-automated release** — `deploy/ship.ps1 "what changed"` builds the frontend locally
+  (pre-flight gate), commits, and pushes; the push triggers `.github/workflows/deploy.yml`, which rebuilds
+  the UI on GitHub's runner, ships it to the droplet, restarts `myra`, and health-checks `/api/health`.
+  No manual droplet steps. One-time enablement = authorize a deploy key + add `DROPLET_HOST` /
+  `DROPLET_SSH_KEY` repo secrets (see `deploy/DEPLOY.md` → "Auto-deploy enablement").
 - **Single process** — the Next.js frontend is statically exported (`output: 'export'`) and served by the
   FastAPI/uvicorn process, so the whole app runs as **one** PM2 process (`myra`), no separate Node server.
 - **Deploy artifacts** under `deploy/` — `bootstrap.sh` (one-command first-time setup), `nginx-myra.conf`,
