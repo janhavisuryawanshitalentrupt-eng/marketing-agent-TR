@@ -41,11 +41,14 @@ def serialize_opportunity(o: Opportunity) -> dict:
     }
 
 
-def save_opportunity(db: Session, d: dict) -> Opportunity:
-    """Upsert an opportunity by company name."""
+def save_opportunity(db: Session, d: dict, owner: str = "admin") -> Opportunity:
+    """Upsert an opportunity by company name — SCOPED TO THE OWNER. The owner filter is essential:
+    without it, account A discovering a company already in account B's pipeline would UPDATE B's row
+    (silently merging pipelines + overwriting status/outreach) instead of creating A's own."""
     existing = (
         db.query(Opportunity)
-        .filter(func.lower(Opportunity.company) == d["company"].strip().lower())
+        .filter(func.lower(Opportunity.company) == d["company"].strip().lower(),
+                Opportunity.owner == owner)
         .first()
     )
     why = {
@@ -63,7 +66,7 @@ def save_opportunity(db: Session, d: dict) -> Opportunity:
         "source": d.get("source", ""),
         "pain_points": d.get("pain_points", []),
     }
-    o = existing or Opportunity(company=d["company"][:280], status="new")
+    o = existing or Opportunity(company=d["company"][:280], status="new", owner=owner)
     o.segment = d.get("segment", "")
     o.fit_score = d.get("fit_score", 0.0)
     o.signal = d.get("hiring_signal", "")

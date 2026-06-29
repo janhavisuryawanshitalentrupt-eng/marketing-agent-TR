@@ -69,6 +69,7 @@ ERROR_REPLY = "The assistant hit an error and couldn't finish that — please tr
 async def run(
     db: Session, conversation_id: int, user_text: str, mode: str = "chat",
     attachments: list[dict] | None = None, campaign_id: int | None = None,
+    owner: str = "admin",
 ) -> AsyncIterator[dict]:
     """mode='chat'  -> all-access assistant (knowledge, prospecting, generation tools).
     mode='create' -> visual/document generation (image/deck/pdf tools).
@@ -149,15 +150,20 @@ async def run(
             messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": user_text})
 
-    state: dict = {}
+    # The caller's account scopes everything the agent creates (assets/campaigns/opportunities/tasks)
+    # and reads (prospects/tasks/analytics) — so the two accounts never see each other's data.
+    state: dict = {"owner": owner}
     # Make any attached IMAGE available to executors (so an uploaded employee photo can be featured
-    # with their REAL face — never AI-generated). Resolve the persisted upload by its SourceFile id.
+    # with their REAL face — never AI-generated). Resolve the persisted upload by its SourceFile id —
+    # but ONLY if it's the caller's own upload (or shared), never another account's file.
     attached_imgs = []
     for a in (attachments or []):
         if a.get("kind") == "image" and a.get("id") is not None:
             try:
                 sf = db.get(SourceFile, int(a["id"]))
             except (TypeError, ValueError):
+                sf = None
+            if sf and sf.owner not in (None, owner):  # someone else's upload — refuse it
                 sf = None
             if sf and sf.path and os.path.exists(sf.path):
                 attached_imgs.append({"id": sf.id, "name": a.get("name") or "photo", "path": sf.path})

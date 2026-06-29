@@ -129,7 +129,7 @@ def is_supported_upload(filename: str) -> bool:
     return os.path.splitext(filename or "")[1].lower() in SUPPORTED_UPLOAD_EXTS
 
 
-async def ingest_upload(db, filename: str, data: bytes, folder: str = "Uploads") -> dict:
+async def ingest_upload(db, filename: str, data: bytes, folder: str = "Uploads", owner: str | None = None) -> dict:
     """Ingest ONE user-uploaded file into the brand library.
 
     Extracts text (PDF), a vision caption (image), or decoded text (txt/csv/…),
@@ -180,7 +180,7 @@ async def ingest_upload(db, filename: str, data: bytes, folder: str = "Uploads")
         dest = f"upload:{safe}"
 
     sf = SourceFile(
-        path=dest, folder=folder, file_type=kind, size=len(data),
+        path=dest, folder=folder, file_type=kind, size=len(data), owner=owner,
         analysis={"filename": safe, "chars": len(text), "chunk_count": len(chunks),
                   "preview": " ".join(text.split())[:500]},
     )

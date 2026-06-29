@@ -131,7 +131,7 @@ async def regenerate_asset(
         return a
 
     new = Asset(
-        campaign_id=a.campaign_id, type=a.type, title=title[:380],
+        campaign_id=a.campaign_id, owner=getattr(a, "owner", None) or "admin", type=a.type, title=title[:380],
         body=new_body, file_path=file_path, file_url=file_url, meta=new_meta,
     )
     db.add(new)

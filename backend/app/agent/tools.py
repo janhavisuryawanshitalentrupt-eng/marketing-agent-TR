@@ -39,9 +39,9 @@ def serialize_asset(a: Asset) -> dict:
 
 def _save_asset(db: Session, campaign_id: int | None, type_: str, title: str,
                 body: dict, file_path: str | None = None, file_url: str | None = None,
-                meta: dict | None = None) -> Asset:
+                meta: dict | None = None, owner: str = "admin") -> Asset:
     a = Asset(
-        campaign_id=campaign_id, type=type_, title=title[:380], body=body,
+        campaign_id=campaign_id, owner=owner, type=type_, title=title[:380], body=body,
         file_path=file_path, file_url=file_url, meta=meta or {},
     )
     db.add(a)
@@ -57,13 +57,15 @@ async def _ensure_campaign(db: Session, state: dict, brand: Brand | None, hint: 
     """Return the active campaign. One-off generations (no planned campaign in this
     turn) go into a single shared 'Quick Content' folder instead of spawning a new
     named folder per request."""
+    owner = state.get("owner", "admin")
     if state.get("campaign_id"):
         c = db.get(Campaign, state["campaign_id"])
         if c:
             return c
-    c = db.query(Campaign).filter(Campaign.name == QUICK_CONTENT).first()
+    # Scope the shared "Quick Content" folder by owner so the two accounts never pool into one.
+    c = db.query(Campaign).filter(Campaign.name == QUICK_CONTENT, Campaign.owner == owner).first()
     if not c:
-        c = Campaign(name=QUICK_CONTENT, goal="One-off generated assets", audience="", pillar="")
+        c = Campaign(name=QUICK_CONTENT, owner=owner, goal="One-off generated assets", audience="", pillar="")
         db.add(c)
         db.commit()
         db.refresh(c)
@@ -80,11 +82,13 @@ async def exec_create_campaign(db, state, brand, args) -> dict:
         "audience": args.get("audience", ""),
         "pillar": args.get("pillar", ""),
     }
+    owner = state.get("owner", "admin")
     strat = await strategy.generate_strategy(brand, brief)
-    # Reuse an existing same-named campaign instead of creating a duplicate folder.
+    # Reuse an existing same-named campaign instead of creating a duplicate folder — but only the
+    # caller's own, so it can't adopt the other account's campaign.
     existing = (
         db.query(Campaign)
-        .filter(func.lower(Campaign.name) == name.strip().lower())
+        .filter(func.lower(Campaign.name) == name.strip().lower(), Campaign.owner == owner)
         .first()
     )
     if existing:
@@ -97,7 +101,7 @@ async def exec_create_campaign(db, state, brand, args) -> dict:
         c = existing
     else:
         c = Campaign(
-            name=name[:280], goal=brief["goal"], audience=brief["audience"],
+            name=name[:280], owner=owner, goal=brief["goal"], audience=brief["audience"],
             pillar=brief["pillar"], channels=args.get("channels", []) or [],
             timeline=args.get("timeline", ""), kpis=strat.get("kpis", []),
             strategy=strat, status="active",
@@ -133,6 +137,7 @@ async def exec_generate_posts(db, state, brand, args) -> dict:
         a = _save_asset(
             db, c.id, "post", p.get("hook", "Post"),
             body=p, meta={"platform": p.get("platform") or platform},
+            owner=state.get("owner", "admin"),
         )
         saved.append(serialize_asset(a))
     label = "social media" if platform.lower().startswith("social") else platform
@@ -163,6 +168,7 @@ async def exec_generate_image(db, state, brand, args) -> dict:
             db, state.get("campaign_id"), "image", concept or "Campaign visual",
             body={"concept": concept, "layout": meta.get("layout")},
             file_path=path, file_url=meta["url"], meta=meta,
+            owner=state.get("owner", "admin"),
         )
         saved.append(serialize_asset(a))
     if not saved:  # generation returned nothing (e.g. provider error) — don't claim success
@@ -214,7 +220,8 @@ async def exec_build_deck(db, state, brand, args) -> dict:
     for _ in range(count):  # each build re-plans the outline -> distinct variations
         path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides, brief=brief, **style)
         a = _save_asset(db, state.get("campaign_id"), "deck", topic, body={"topic": topic, **style},
-                        file_path=path, file_url=meta["url"], meta=meta)
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
         saved.append(serialize_asset(a))
     if not saved:
         return {"summary": "Couldn't build the presentation this time — please try again.", "assets": []}
@@ -237,7 +244,8 @@ async def exec_build_pdf(db, state, brand, args) -> dict:
         path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, brief=brief, **style)
         title = (topic or f"Talentrupt — {kind}")[:120]
         a = _save_asset(db, state.get("campaign_id"), "pdf", title, body={"kind": kind, "topic": topic, **style},
-                        file_path=path, file_url=meta["url"], meta=meta)
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
         saved.append(serialize_asset(a))
     if not saved:
         return {"summary": "Couldn't build the document this time — please try again.", "assets": []}
@@ -276,7 +284,7 @@ async def exec_discover_prospects(db, state, brand, args) -> dict:
     if not items:
         return {"summary": "No matching companies surfaced right now — try broadening the criteria.",
                 "assets": []}
-    saved = [save_opportunity(db, it) for it in items]
+    saved = [save_opportunity(db, it, owner=state.get("owner", "admin")) for it in items]
     lines = []
     for o in saved:
         w = o.why or {}
@@ -303,7 +311,7 @@ async def exec_analyze_company(db, state, brand, args) -> dict:
     d = await bd_analyze.analyze_company(company, str(args.get("website", "") or ""))
     if not d:
         return {"summary": f"Couldn't analyze {company} right now.", "assets": []}
-    o = save_opportunity(db, d)
+    o = save_opportunity(db, d, owner=state.get("owner", "admin"))
     w = o.why or {}
     contacts = w.get("contacts") or []
     timing = w.get("timing") or {}
@@ -322,7 +330,8 @@ async def exec_analyze_company(db, state, brand, args) -> dict:
 async def exec_list_prospects(db, state, brand, args) -> dict:
     """READ the prospects in Business Dev. Always reports EXACT counts: the TOTAL prospect count and
     the ★ saved/shortlisted subset — so chat never conflates 'all prospects' with 'saved'."""
-    all_rows = db.query(Opportunity).order_by(Opportunity.fit_score.desc()).all()
+    all_rows = (db.query(Opportunity).filter(Opportunity.owner == state.get("owner", "admin"))
+                .order_by(Opportunity.fit_score.desc()).all())
     total_all = len(all_rows)
     saved_all = sum(1 for o in all_rows if (o.why or {}).get("saved"))
     rows = all_rows
@@ -424,7 +433,8 @@ async def exec_list_assets(db, state, brand, args) -> dict:
 
 async def exec_list_tasks(db, state, brand, args) -> dict:
     """READ the follow-up reminders in the Tasks tab — grouped overdue / today / upcoming."""
-    rows = db.query(CalendarTask).order_by(CalendarTask.due_at).all()
+    rows = (db.query(CalendarTask).filter(CalendarTask.owner == state.get("owner", "admin"))
+            .order_by(CalendarTask.due_at).all())
     status = (args.get("status") or "").strip().lower()
     if status in ("pending", "done", "snoozed"):
         rows = [t for t in rows if (t.status or "") == status]
@@ -466,7 +476,8 @@ async def exec_list_tasks(db, state, brand, args) -> dict:
 async def exec_get_analytics(db, state, brand, args) -> dict:
     """READ the Analytics rollup (pipeline / outreach / campaigns / content / tasks). Read-only;
     mirrors the /api/analytics/summary KPI definitions so chat and the dashboard agree."""
-    opps = db.query(Opportunity).all()
+    _owner = state.get("owner", "admin")
+    opps = db.query(Opportunity).filter(Opportunity.owner == _owner).all()
     by_status = {"new": 0, "contacted": 0, "replied": 0, "meeting": 0}
     saved = sent = replied = 0
     for o in opps:
@@ -479,15 +490,17 @@ async def exec_get_analytics(db, state, brand, args) -> dict:
             sent += 1
         if log.get("replied_at") or o.status in ("replied", "meeting"):
             replied += 1
-    campaigns = db.query(Campaign).all()
+    campaigns = db.query(Campaign).filter(Campaign.owner == _owner).all()
     planning = sum(1 for c in campaigns if c.status == "planning")
-    active_clients = db.query(CampaignProspect).filter(CampaignProspect.status == "active").count()
+    active_clients = (db.query(CampaignProspect)
+                      .join(Campaign, CampaignProspect.campaign_id == Campaign.id)
+                      .filter(CampaignProspect.status == "active", Campaign.owner == _owner).count())
     assets_by_type: dict[str, int] = {}
-    for (t,) in db.query(Asset.type).all():
+    for (t,) in db.query(Asset.type).filter(Asset.owner == _owner).all():
         assets_by_type[t] = assets_by_type.get(t, 0) + 1
     now = datetime.now(timezone.utc)
     overdue = due_soon = pending = 0
-    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending").all():
+    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending", CalendarTask.owner == _owner).all():
         pending += 1
         if tk.due_at:
             due = tk.due_at if tk.due_at.tzinfo else tk.due_at.replace(tzinfo=timezone.utc)
@@ -512,12 +525,12 @@ async def exec_get_analytics(db, state, brand, args) -> dict:
 _PIPELINE_ORDER = ["new", "contacted", "replied", "meeting"]  # mirrors main.py
 
 
-def _find_opp(db, name: str) -> Opportunity | None:
-    """Resolve a saved prospect by company name (exact first, then a contains match)."""
+def _find_opp(db, name: str, owner: str = "admin") -> Opportunity | None:
+    """Resolve a saved prospect by company name (exact first, then a contains match) — own account only."""
     name = (name or "").strip().lower()
     if not name:
         return None
-    rows = db.query(Opportunity).all()
+    rows = db.query(Opportunity).filter(Opportunity.owner == owner).all()
     return (
         next((o for o in rows if (o.company or "").strip().lower() == name), None)
         or next((o for o in rows if name in (o.company or "").lower()), None)
@@ -527,7 +540,7 @@ def _find_opp(db, name: str) -> Opportunity | None:
 async def exec_draft_outreach(db, state, brand, args) -> dict:
     """Generate + save outreach for a saved prospect and schedule follow-ups (mirrors POST .../outreach)."""
     target = args.get("company", "")
-    o = _find_opp(db, target)
+    o = _find_opp(db, target, state.get("owner", "admin"))
     if not o:
         return {"summary": f"No saved prospect matches \"{target}\". Find or analyze it first, then I can draft outreach.", "assets": []}
     outreach = await bd_outreach.generate_outreach(o)
@@ -544,7 +557,8 @@ async def exec_draft_outreach(db, state, brand, args) -> dict:
         except (TypeError, ValueError):
             days = 3
         db.add(CalendarTask(
-            opportunity_id=o.id, title=f"Follow up with {o.company}", kind="followup",
+            opportunity_id=o.id, owner=state.get("owner", "admin"),
+            title=f"Follow up with {o.company}", kind="followup",
             due_at=datetime.now(timezone.utc) + timedelta(days=days),
             payload={"message": fu.get("message", "")},
         ))
@@ -563,7 +577,7 @@ async def exec_draft_outreach(db, state, brand, args) -> dict:
 async def exec_update_pipeline(db, state, brand, args) -> dict:
     """Record outreach activity + advance pipeline forward-only (mirrors POST .../track). Track-only."""
     target = args.get("company", "")
-    o = _find_opp(db, target)
+    o = _find_opp(db, target, state.get("owner", "admin"))
     if not o:
         return {"summary": f"No saved prospect matches \"{target}\".", "assets": []}
     field = {"sent": "sent_at", "contacted": "sent_at", "replied": "replied_at",
@@ -597,7 +611,9 @@ async def exec_manage_task(db, state, brand, args) -> dict:
     hint = (args.get("company") or args.get("task") or "").strip().lower()
     if not hint:
         return {"summary": "Which follow-up? Name the company (or task) it's for.", "assets": []}
-    rows = db.query(CalendarTask).filter(CalendarTask.status != "done").order_by(CalendarTask.due_at).all()
+    rows = (db.query(CalendarTask)
+            .filter(CalendarTask.status != "done", CalendarTask.owner == state.get("owner", "admin"))
+            .order_by(CalendarTask.due_at).all())
     opp_ids = {t.opportunity_id for t in rows if t.opportunity_id}
     companies = (
         {o.id: (o.company or "").lower() for o in db.query(Opportunity).filter(Opportunity.id.in_(opp_ids)).all()}
@@ -675,7 +691,8 @@ async def exec_animate_asset(db, state, brand, args) -> dict:
     new_type = "video" if meta.get("format") == "mp4" else "image"  # gif animates in an <img>
     body = {**(a.body or {}), "animated_from": a.id, "kind": (a.body or {}).get("kind", "")}
     na = _save_asset(db, a.campaign_id or state.get("campaign_id"), new_type, f"{a.title} (animated)"[:380],
-                     body=body, file_path=path, file_url=meta["url"], meta={**meta, "parent_id": a.id})
+                     body=body, file_path=path, file_url=meta["url"], meta={**meta, "parent_id": a.id},
+                     owner=getattr(a, "owner", None) or state.get("owner", "admin"))
     return {"summary": f"Animated “{a.title}” into a {meta.get('format', 'clip').upper()} motion post — "
             "a cinematic zoom over the real photo; the face is unchanged.", "assets": [serialize_asset(na)]}
 
@@ -762,7 +779,8 @@ async def exec_team_image(db, state, brand, args) -> dict:
         a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
                         body={"person": name, "role": role, "headline": headline, "subline": subline,
                               "kind": "team", "style": styles[i]},
-                        file_path=path, file_url=meta["url"], meta=meta)
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
         assets.append(serialize_asset(a))
         used.append(styles[i])
 
@@ -818,7 +836,8 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
         a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
                         body={"person": name, "role": role, "headline": head, "subline": sub,
                               "kind": "team", "style": styles[i], "uploaded": True},
-                        file_path=path, file_url=meta["url"], meta=meta)
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
         assets.append(serialize_asset(a))
         used.append(styles[i])
     if not assets:

@@ -45,6 +45,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     title: Mapped[str] = mapped_column(String(300), default="New conversation")
     kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | create | campaign
     # When this thread belongs to an (internal) campaign, link it so the folder restores its chat.
@@ -73,6 +74,7 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     name: Mapped[str] = mapped_column(String(300))
     # external = client-targeting (sector + prospects + calendar); internal = promote Talentrupt
     # itself via a chat-driven content folder.
@@ -102,6 +104,7 @@ class Asset(Base):
     __tablename__ = "assets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     campaign_id: Mapped[int | None] = mapped_column(ForeignKey("campaigns.id"), nullable=True)
     type: Mapped[str] = mapped_column(String(40))  # post | image | deck | pdf | outreach
     title: Mapped[str] = mapped_column(String(400), default="")
@@ -148,6 +151,7 @@ class Opportunity(Base):
     __tablename__ = "opportunities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     company: Mapped[str] = mapped_column(String(300))
     segment: Mapped[str] = mapped_column(String(200), default="")
     fit_score: Mapped[float] = mapped_column(Float, default=0.0)
@@ -165,6 +169,8 @@ class SourceFile(Base):
     __tablename__ = "source_files"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL = shared brand library (TR ZIP ingest); a role = a user's private upload.
+    owner: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     path: Mapped[str] = mapped_column(String(700))
     folder: Mapped[str] = mapped_column(String(200), default="")
     file_type: Mapped[str] = mapped_column(String(20), default="")  # image | pdf
@@ -193,6 +199,7 @@ class CalendarTask(Base):
     __tablename__ = "calendar_tasks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     opportunity_id: Mapped[int | None] = mapped_column(
         ForeignKey("opportunities.id"), nullable=True
     )

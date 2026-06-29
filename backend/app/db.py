@@ -66,3 +66,12 @@ def _migrate_sqlite() -> None:
         camp_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(campaigns)"))}
         if "type" not in camp_cols:
             conn.execute(text("ALTER TABLE campaigns ADD COLUMN type VARCHAR DEFAULT 'external'"))
+        # Per-account data isolation: every existing row belonged to the admin (the only prior user),
+        # so backfill owner='admin'. source_files default NULL = the SHARED brand library.
+        for tbl in ("conversations", "campaigns", "assets", "opportunities", "calendar_tasks"):
+            cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl})"))}
+            if "owner" not in cols:
+                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN owner VARCHAR DEFAULT 'admin'"))
+        sf_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(source_files)"))}
+        if "owner" not in sf_cols:
+            conn.execute(text("ALTER TABLE source_files ADD COLUMN owner VARCHAR"))

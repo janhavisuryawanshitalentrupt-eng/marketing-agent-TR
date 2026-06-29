@@ -214,9 +214,9 @@ def get_brand(db: Session = Depends(get_db), _: None = Depends(require_auth)) ->
 # --- Conversations --------------------------------------------------------
 @app.get("/api/conversations", response_model=list[ConversationOut])
 def list_conversations(
-    kind: str | None = None, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    kind: str | None = None, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
-    q = db.query(Conversation)
+    q = db.query(Conversation).filter(Conversation.owner == role)
     if kind:
         q = q.filter(Conversation.kind == kind)
     return q.order_by(Conversation.id.desc()).all()
@@ -224,10 +224,10 @@ def list_conversations(
 
 @app.delete("/api/conversations/{conversation_id}")
 def delete_conversation(
-    conversation_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    conversation_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     c = db.get(Conversation, conversation_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Conversation not found")
     db.delete(c)  # cascades to its messages
     db.commit()
@@ -236,8 +236,11 @@ def delete_conversation(
 
 @app.get("/api/conversations/{conversation_id}/messages", response_model=list[MessageOut])
 def list_messages(
-    conversation_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    conversation_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
+    conv = db.get(Conversation, conversation_id)
+    if not conv or conv.owner != role:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     return (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
@@ -247,17 +250,18 @@ def list_messages(
 
 
 # --- Chat / Create (SSE streaming) ----------------------------------------
-def _stream(req: ChatRequest, db: Session, mode: str, campaign_id: int | None = None) -> StreamingResponse:
+def _stream(req: ChatRequest, db: Session, mode: str, campaign_id: int | None = None,
+            role: str = "admin") -> StreamingResponse:
     """Shared SSE handler. mode='chat' -> assistant; mode='create' -> generation;
     mode='campaign' -> internal-campaign studio (campaign_id attaches every asset to that folder).
-    Conversations are tagged with the matching kind so each section lists its own."""
+    Conversations are tagged with the matching kind + owner so each account lists only its own."""
     if req.conversation_id:
         conv = db.get(Conversation, req.conversation_id)
-        if not conv:
+        if not conv or conv.owner != role:  # can't post into another account's thread
             raise HTTPException(status_code=404, detail="Conversation not found")
     else:
         title = req.message.strip()[:60] or "New conversation"
-        conv = Conversation(title=title, kind=mode, campaign_id=campaign_id)
+        conv = Conversation(title=title, kind=mode, campaign_id=campaign_id, owner=role)
         db.add(conv)
         db.commit()
         db.refresh(conv)
@@ -280,7 +284,7 @@ def _stream(req: ChatRequest, db: Session, mode: str, campaign_id: int | None = 
         try:
             async for ev in orchestrator.run(
                 stream_db, conv_id, user_text, mode=mode, attachments=attachments,
-                campaign_id=campaign_id,
+                campaign_id=campaign_id, owner=role,
             ):
                 if ev["event"] == "done":
                     final_text = ev["data"]
@@ -328,34 +332,34 @@ def _stream(req: ChatRequest, db: Session, mode: str, campaign_id: int | None = 
 
 @app.post("/api/chat/stream")
 async def chat_stream(
-    req: ChatRequest, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    req: ChatRequest, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
-    return _stream(req, db, mode="chat")
+    return _stream(req, db, mode="chat", role=role)
 
 
 @app.post("/api/create/stream")
 async def create_stream(
-    req: ChatRequest, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    req: ChatRequest, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
-    return _stream(req, db, mode="create")
+    return _stream(req, db, mode="create", role=role)
 
 
 @app.post("/api/campaigns/{campaign_id}/stream")
 async def campaign_stream(
-    campaign_id: int, req: ChatRequest, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    campaign_id: int, req: ChatRequest, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Internal-campaign chat: generate posts/visuals/decks/PDFs straight into this campaign folder."""
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
-    return _stream(req, db, mode="campaign", campaign_id=campaign_id)
+    return _stream(req, db, mode="campaign", campaign_id=campaign_id, role=role)
 
 
 @app.post("/api/chat/attach")
 async def chat_attach(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: None = Depends(require_auth),
+    role: str = Depends(require_auth),
 ):
     """Accept a user-uploaded file, extract its text/caption, embed it into the brand
     library (folder='Uploads'), and return an excerpt the chat can use immediately."""
@@ -377,14 +381,14 @@ async def chat_attach(
     data = b"".join(parts)
     if not data:
         raise HTTPException(status_code=400, detail="The file is empty.")
-    return await ingest_upload(db, name, data)
+    return await ingest_upload(db, name, data, owner=role)
 
 
 @app.post("/api/knowledge/upload-brand-file")
 async def upload_brand_file(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: None = Depends(require_auth),
+    role: str = Depends(require_auth),
 ):
     """Add a brand asset (PDF/image/text) to the library under folder='Brand Kit' so it IS used for
     grounding (unlike chat attachments, which go to 'Uploads' and are excluded). Mirrors chat_attach."""
@@ -405,7 +409,7 @@ async def upload_brand_file(
     data = b"".join(parts)
     if not data:
         raise HTTPException(status_code=400, detail="The file is empty.")
-    return await ingest_upload(db, name, data, folder="Brand Kit")
+    return await ingest_upload(db, name, data, folder="Brand Kit", owner=role)
 
 
 # --- Campaigns ------------------------------------------------------------
@@ -430,12 +434,12 @@ def _campaign_detail(c: Campaign) -> dict:
 @app.get("/api/campaigns")
 def list_campaigns(
     status: str | None = None, type: str | None = None,
-    db: Session = Depends(get_db), _: None = Depends(require_auth)
+    db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     # Folder rail shows names only (product rule). The Campaigns planner passes
     # status=planning so old/test campaigns don't clutter the view. `type` splits the rail into
     # internal (promote Talentrupt) vs external (client-targeting) folders.
-    q = db.query(Campaign)
+    q = db.query(Campaign).filter(Campaign.owner == role)
     if status:
         q = q.filter(Campaign.status == status)
     if type in ("internal", "external"):
@@ -455,7 +459,7 @@ def list_campaigns(
 
 @app.post("/api/campaigns")
 def create_campaign_endpoint(
-    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Create an internal campaign SHELL (no strategy/prospects) + its chat thread. The campaign
     chat (POST /api/campaigns/{id}/stream) then drives all content generation into this folder, all
@@ -463,11 +467,11 @@ def create_campaign_endpoint(
     name = (payload.get("name") or "Untitled Campaign").strip()[:280] or "Untitled Campaign"
     ctype = payload.get("type") if payload.get("type") in ("internal", "external") else "internal"
     description = (payload.get("description") or "").strip()
-    c = Campaign(name=name, type=ctype, goal=description, status="active")
+    c = Campaign(name=name, type=ctype, goal=description, status="active", owner=role)
     db.add(c)
     db.commit()
     db.refresh(c)
-    conv = Conversation(title=name[:60], kind="campaign", campaign_id=c.id)
+    conv = Conversation(title=name[:60], kind="campaign", campaign_id=c.id, owner=role)
     db.add(conv)
     db.commit()
     db.refresh(conv)
@@ -476,9 +480,12 @@ def create_campaign_endpoint(
 
 @app.get("/api/campaigns/{campaign_id}/messages")
 def campaign_messages(
-    campaign_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    campaign_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """The campaign chat thread (so reopening the folder restores its conversation)."""
+    c = db.get(Campaign, campaign_id)
+    if not c or c.owner != role:
+        return {"conversation_id": None, "messages": []}
     conv = (
         db.query(Conversation).filter(Conversation.campaign_id == campaign_id)
         .order_by(Conversation.id).first()
@@ -511,10 +518,10 @@ def _serialize_item(it: CampaignItem, db: Session) -> dict:
 
 @app.get("/api/campaigns/{campaign_id}")
 def get_campaign(
-    campaign_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    campaign_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
     assets = (
         db.query(Asset)
@@ -540,7 +547,7 @@ def get_campaign(
     }
 
 
-async def _build_planned_campaign(db: Session, brand, brief: dict, start_date=None) -> dict:
+async def _build_planned_campaign(db: Session, brand, brief: dict, start_date=None, owner: str = "admin") -> dict:
     """Plan + persist a campaign (Campaign + dated CampaignItems). Returns its detail."""
     name = (brief.get("name") or brief.get("goal") or "New Campaign").strip()[:280]
     result = await plan_campaign(brand, brief)
@@ -556,7 +563,7 @@ async def _build_planned_campaign(db: Session, brand, brief: dict, start_date=No
             log.info("campaign plan: ignoring invalid sector %r", sector)
 
     c = Campaign(
-        name=name, goal=brief.get("goal", ""), audience=brief.get("audience", ""),
+        name=name, owner=owner, goal=brief.get("goal", ""), audience=brief.get("audience", ""),
         pillar=(strat.get("pillars") or [""])[0] if strat.get("pillars") else "",
         channels=brief.get("channels") or ["LinkedIn"], timeline=brief.get("timeframe", "4 weeks"),
         kpis=strat.get("kpis", []), strategy=strat, status="planning",
@@ -588,7 +595,7 @@ async def _build_planned_campaign(db: Session, brand, brief: dict, start_date=No
 
 @app.post("/api/campaigns/plan")
 async def plan_campaign_endpoint(
-    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     brand = db.query(Brand).first()
     brief = {
@@ -599,19 +606,19 @@ async def plan_campaign_endpoint(
         "channels": payload.get("channels") or ["LinkedIn"],
         "timeframe": payload.get("timeframe", "4 weeks"),
     }
-    return await _build_planned_campaign(db, brand, brief, payload.get("start_date"))
+    return await _build_planned_campaign(db, brand, brief, payload.get("start_date"), owner=role)
 
 
 @app.post("/api/campaigns/plan-chat")
 async def plan_campaign_chat(
-    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Conversational intake: interpret the chat → either ask a follow-up or plan + save."""
     messages = payload.get("messages") or []
     brand = db.query(Brand).first()
     intent = await interpret_intent(brand, messages)
     if intent.get("action") == "plan":
-        detail = await _build_planned_campaign(db, brand, intent)
+        detail = await _build_planned_campaign(db, brand, intent, owner=role)
         return {
             "done": True,
             "reply": f"Done — I've planned “{detail['name']}” with a brief and a "
@@ -623,13 +630,15 @@ async def plan_campaign_chat(
 
 @app.post("/api/campaign-items/{item_id}/generate")
 async def generate_campaign_item(
-    item_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    item_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     it = db.get(CampaignItem, item_id)
     if not it:
         raise HTTPException(status_code=404, detail="Item not found")
     brand = db.query(Brand).first()
     campaign = db.get(Campaign, it.campaign_id)
+    if not campaign or campaign.owner != role:  # the item's campaign must be the caller's
+        raise HTTPException(status_code=404, detail="Item not found")
     concept = it.topic or (it.hook or (campaign.name if campaign else "Talentrupt"))
 
     asset = None
@@ -638,21 +647,24 @@ async def generate_campaign_item(
         if rendered:
             path, _fn, meta = rendered[0]
             asset = _save_asset(db, it.campaign_id, "image", concept,
-                                body={"concept": concept}, file_path=path, file_url=meta["url"], meta=meta)
+                                body={"concept": concept}, file_path=path, file_url=meta["url"], meta=meta,
+                                owner=role)
     elif it.format == "deck":
         path, _fn, meta = await gen_decks.build_deck(brand, campaign, concept, slides=6)
         asset = _save_asset(db, it.campaign_id, "deck", concept,
-                            body={"topic": concept}, file_path=path, file_url=meta["url"], meta=meta)
+                            body={"topic": concept}, file_path=path, file_url=meta["url"], meta=meta,
+                            owner=role)
     elif it.format == "pdf":
         path, _fn, meta = gen_pdf.build_pdf(brand, campaign, kind="one-pager")
         asset = _save_asset(db, it.campaign_id, "pdf", concept,
-                            body={"kind": "one-pager"}, file_path=path, file_url=meta["url"], meta=meta)
+                            body={"kind": "one-pager"}, file_path=path, file_url=meta["url"], meta=meta,
+                            owner=role)
     else:  # post (text)
         items = await gen_posts.generate_posts(brand, campaign, count=1,
                                                platform=it.channel or "LinkedIn", angle=concept)
         body = items[0] if items else {"hook": concept}
         asset = _save_asset(db, it.campaign_id, "post", body.get("hook", concept),
-                            body=body, meta={"platform": it.channel or "LinkedIn"})
+                            body=body, meta={"platform": it.channel or "LinkedIn"}, owner=role)
 
     if asset:
         it.asset_id = asset.id
@@ -664,11 +676,12 @@ async def generate_campaign_item(
 
 @app.patch("/api/campaign-items/{item_id}")
 def update_campaign_item(
-    item_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    item_id: int, payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Reschedule a content-calendar item / set its status. Does NOT generate or touch the asset."""
     it = db.get(CampaignItem, item_id)
-    if not it:
+    _camp = db.get(Campaign, it.campaign_id) if it else None
+    if not it or not _camp or _camp.owner != role:
         raise HTTPException(status_code=404, detail="Item not found")
     if payload.get("scheduled_date"):
         try:
@@ -945,12 +958,12 @@ async def _ensure_campaign_prospects(
 @app.get("/api/campaigns/{campaign_id}/prospects")
 async def list_campaign_prospects(
     campaign_id: int, status: str = "active",
-    db: Session = Depends(get_db), _: None = Depends(require_auth),
+    db: Session = Depends(get_db), role: str = Depends(require_auth),
 ):
     """Scored target clients for this campaign. status='active' tops the list up to TARGET
     (cooldown-gated); status='done' returns the worked-through history (newest first, no fill)."""
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
     if getattr(c, "type", "external") == "internal":
         return []  # internal campaigns promote Talentrupt itself — no client prospecting
@@ -974,11 +987,12 @@ async def list_campaign_prospects(
 
 @app.post("/api/campaign-prospects/{cp_id}/done")
 async def campaign_prospect_done(
-    cp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    cp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Mark a client handled and pull in one fresh replacement (idempotent)."""
     cp = db.get(CampaignProspect, cp_id)
-    if not cp:
+    _camp = db.get(Campaign, cp.campaign_id) if cp else None
+    if not cp or not _camp or _camp.owner != role:
         raise HTTPException(status_code=404, detail="Prospect not found")
     if cp.status == "done":  # idempotent — a repeated Done must not over-fill
         return {"done_id": cp_id, "replacements": []}
@@ -992,12 +1006,13 @@ async def campaign_prospect_done(
 
 @app.post("/api/campaign-prospects/{cp_id}/revoke")
 def campaign_prospect_revoke(
-    cp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    cp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Undo a Done — move a client from the history back into the active list. Does not trigger
     a fill (so it never removes a replacement that was pulled in when the client was marked done)."""
     cp = db.get(CampaignProspect, cp_id)
-    if not cp:
+    _camp = db.get(Campaign, cp.campaign_id) if cp else None
+    if not cp or not _camp or _camp.owner != role:
         raise HTTPException(status_code=404, detail="Prospect not found")
     if cp.status == "done":
         cp.status = "active"
@@ -1008,12 +1023,13 @@ def campaign_prospect_revoke(
 
 @app.delete("/api/campaign-prospects/{cp_id}")
 def delete_campaign_prospect(
-    cp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    cp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Remove a single campaign target client (used to clear an entry from the Done history).
     Active clients are topped back up to TARGET on the next read; this never auto-refills."""
     cp = db.get(CampaignProspect, cp_id)
-    if not cp:
+    _camp = db.get(Campaign, cp.campaign_id) if cp else None
+    if not cp or not _camp or _camp.owner != role:
         raise HTTPException(status_code=404, detail="Prospect not found")
     db.delete(cp)
     db.commit()
@@ -1022,11 +1038,12 @@ def delete_campaign_prospect(
 
 @app.post("/api/campaign-prospects/{cp_id}/strategy")
 async def campaign_prospect_strategy(
-    cp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    cp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """A real, grounded 'how to win this client' strategy. Generated once and cached on the row."""
     cp = db.get(CampaignProspect, cp_id)
-    if not cp:
+    _camp = db.get(Campaign, cp.campaign_id) if cp else None
+    if not cp or not _camp or _camp.owner != role:
         raise HTTPException(status_code=404, detail="Prospect not found")
     data = dict(cp.data or {})
     if not data.get("strategy"):
@@ -1041,10 +1058,10 @@ async def campaign_prospect_strategy(
 
 @app.patch("/api/campaigns/{campaign_id}")
 def update_campaign(
-    campaign_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    campaign_id: int, payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
     name = (payload.get("name") or "").strip()
     if name:
@@ -1082,10 +1099,10 @@ def update_campaign(
 
 @app.delete("/api/campaigns/{campaign_id}")
 def delete_campaign(
-    campaign_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    campaign_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
     # Drop the linked chat thread(s) too (Conversation.campaign_id isn't an ORM cascade).
     for conv in db.query(Conversation).filter(Conversation.campaign_id == campaign_id).all():
@@ -1099,10 +1116,10 @@ def delete_campaign(
 
 @app.get("/api/campaigns/{campaign_id}/export")
 def export_campaign(
-    campaign_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    campaign_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
     assets = db.query(Asset).filter(Asset.campaign_id == campaign_id).all()
 
@@ -1138,11 +1155,11 @@ def export_campaign(
 @app.get("/api/campaigns/{campaign_id}/prospects/export")
 def export_campaign_prospects(
     campaign_id: int, status: str = "active",
-    db: Session = Depends(get_db), _: None = Depends(require_auth),
+    db: Session = Depends(get_db), role: str = Depends(require_auth),
 ):
     """Download a campaign's target clients as CSV. READ-ONLY — never triggers a fill."""
     c = db.get(Campaign, campaign_id)
-    if not c:
+    if not c or c.owner != role:
         raise HTTPException(status_code=404, detail="Campaign not found")
     q = db.query(CampaignProspect).filter(CampaignProspect.campaign_id == campaign_id)
     if status in ("active", "done"):
@@ -1176,9 +1193,9 @@ def export_campaign_prospects(
 def list_assets(
     type: str | None = None,
     db: Session = Depends(get_db),
-    _: None = Depends(require_auth),
+    role: str = Depends(require_auth),
 ):
-    q = db.query(Asset)
+    q = db.query(Asset).filter(Asset.owner == role)
     if type:
         q = q.filter(Asset.type == type)
     return [serialize_asset(a) for a in q.order_by(Asset.id.desc()).all()]
@@ -1186,10 +1203,10 @@ def list_assets(
 
 @app.delete("/api/assets/{asset_id}")
 def delete_asset(
-    asset_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    asset_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     a = db.get(Asset, asset_id)
-    if not a:
+    if not a or a.owner != role:
         raise HTTPException(status_code=404, detail="Asset not found")
     # Remove the on-disk file too (avoid orphaned files), then the row.
     if a.file_path:
@@ -1206,9 +1223,12 @@ def delete_asset(
 
 @app.post("/api/assets/{asset_id}/regenerate")
 async def regenerate_asset_endpoint(
-    asset_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    asset_id: int, payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Regenerate / refine an existing asset. Saves a NEW asset (original kept) unless replace=true."""
+    _orig = db.get(Asset, asset_id)
+    if not _orig or _orig.owner != role:  # can't refine another account's asset
+        raise HTTPException(status_code=404, detail="Asset not found or not regeneratable")
     a = await gen_refine.regenerate_asset(
         db, asset_id, (payload.get("instruction") or "").strip(), bool(payload.get("replace"))
     )
@@ -1265,22 +1285,22 @@ def business_profiles(_: None = Depends(require_auth)):
 
 @app.post("/api/business/discover")
 async def business_discover(
-    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
-    # Exclude companies already in the pipeline so a repeat search surfaces DIFFERENT firms
-    # (discover() already supports this; the campaign-fill path uses it too).
-    known = [c for (c,) in db.query(Opportunity.company).all() if c]
+    # Exclude companies already in THIS account's pipeline so a repeat search surfaces DIFFERENT firms
+    # (and so one account's pipeline never suppresses the other's discoveries).
+    known = [c for (c,) in db.query(Opportunity.company).filter(Opportunity.owner == role).all() if c]
     items = await bd_discover.discover(
         payload.get("profile_key"), payload.get("query", ""),
         payload.get("count", 8), payload.get("filters"), exclude=known,
     )
-    saved = [serialize_opportunity(_save_opp(db, d)) for d in items]
+    saved = [serialize_opportunity(_save_opp(db, d, owner=role)) for d in items]
     return {"count": len(saved), "opportunities": saved}
 
 
 @app.post("/api/business/intake")
 async def business_intake(
-    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     company = (payload.get("company") or "").strip()
     if not company:
@@ -1288,14 +1308,14 @@ async def business_intake(
     d = await bd_analyze.analyze_company(company, payload.get("website", ""))
     if not d:
         raise HTTPException(status_code=502, detail="Analysis unavailable")
-    return serialize_opportunity(_save_opp(db, d))
+    return serialize_opportunity(_save_opp(db, d, owner=role))
 
 
 @app.get("/api/opportunities")
 def list_opportunities(
-    status: str | None = None, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    status: str | None = None, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
-    q = db.query(Opportunity)
+    q = db.query(Opportunity).filter(Opportunity.owner == role)
     if status:
         q = q.filter(Opportunity.status == status)
     # Newest first (just-generated clients on top), fit score as the tiebreaker.
@@ -1308,10 +1328,10 @@ def list_opportunities(
 @app.get("/api/opportunities/export")
 def export_opportunities(
     status: str | None = None, saved: str | None = None,
-    db: Session = Depends(get_db), _: None = Depends(require_auth),
+    db: Session = Depends(get_db), role: str = Depends(require_auth),
 ):
     """Download the prospect list as CSV (read-only). Mirrors the list's status/saved filters."""
-    q = db.query(Opportunity)
+    q = db.query(Opportunity).filter(Opportunity.owner == role)
     if status:
         q = q.filter(Opportunity.status == status)
     rows = q.order_by(
@@ -1350,12 +1370,15 @@ def export_opportunities(
 
 @app.post("/api/opportunities/bulk")
 def bulk_opportunities(
-    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Apply one action to many prospects in a single commit. Mirrors the single-item endpoints."""
     ids = [int(i) for i in (payload.get("ids") or []) if str(i).strip().lstrip("-").isdigit()]
     action = (payload.get("action") or "").strip()
-    rows = db.query(Opportunity).filter(Opportunity.id.in_(ids)).all() if ids else []
+    # owner filter: can't mutate/delete the other account's prospects by guessing ids.
+    rows = (db.query(Opportunity).filter(Opportunity.id.in_(ids), Opportunity.owner == role).all()
+            if ids else [])
+    ids = [o.id for o in rows]  # restrict cascade deletes (below) to the caller's own rows
     deleted: list[int] = []
     if action == "delete":
         if ids:
@@ -1382,10 +1405,10 @@ def bulk_opportunities(
 
 @app.patch("/api/opportunities/{opp_id}")
 def update_opportunity(
-    opp_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    opp_id: int, payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     o = db.get(Opportunity, opp_id)
-    if not o:
+    if not o or o.owner != role:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     if payload.get("status"):
         o.status = payload["status"]
@@ -1398,9 +1421,10 @@ def update_opportunity(
 
 
 @app.delete("/api/opportunities")
-def clear_opportunities(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def clear_opportunities(db: Session = Depends(get_db), role: str = Depends(require_auth)):
     """Clear UNSAVED prospects (and their follow-up tasks). Saved/shortlisted ones are kept."""
-    unsaved = [o for o in db.query(Opportunity).all() if not (o.why or {}).get("saved")]
+    unsaved = [o for o in db.query(Opportunity).filter(Opportunity.owner == role).all()
+               if not (o.why or {}).get("saved")]
     ids = [o.id for o in unsaved]
     if ids:
         db.query(CalendarTask).filter(CalendarTask.opportunity_id.in_(ids)).delete(
@@ -1414,10 +1438,10 @@ def clear_opportunities(db: Session = Depends(get_db), _: None = Depends(require
 
 @app.delete("/api/opportunities/{opp_id}")
 def delete_opportunity(
-    opp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    opp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     o = db.get(Opportunity, opp_id)
-    if not o:
+    if not o or o.owner != role:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     # Clean up the prospect's follow-up tasks too (avoids orphans + id-reuse cross-talk).
     db.query(CalendarTask).filter(CalendarTask.opportunity_id == opp_id).delete(
@@ -1430,10 +1454,10 @@ def delete_opportunity(
 
 @app.post("/api/opportunities/{opp_id}/outreach")
 async def opportunity_outreach(
-    opp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    opp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     o = db.get(Opportunity, opp_id)
-    if not o:
+    if not o or o.owner != role:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     outreach = await bd_outreach.generate_outreach(o)
     why = dict(o.why or {})
@@ -1449,7 +1473,7 @@ async def opportunity_outreach(
         except (TypeError, ValueError):
             days = 3
         db.add(CalendarTask(
-            opportunity_id=o.id,
+            opportunity_id=o.id, owner=role,
             title=f"Follow up with {o.company}",
             kind="followup",
             due_at=datetime.now(timezone.utc) + timedelta(days=days),
@@ -1465,12 +1489,12 @@ _PIPELINE_ORDER = ["new", "contacted", "replied", "meeting"]
 
 @app.post("/api/opportunities/{opp_id}/track")
 def track_opportunity(
-    opp_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    opp_id: int, payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Record outreach activity (track-only — the app never sends). Stamps sent/replied/meeting
     dates + notes into why['outreach_log'] and only ADVANCES the pipeline status forward."""
     o = db.get(Opportunity, opp_id)
-    if not o:
+    if not o or o.owner != role:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     why = dict(o.why or {})
     log = dict(why.get("outreach_log") or {})
@@ -1502,12 +1526,12 @@ def track_opportunity(
 
 @app.post("/api/opportunities/{opp_id}/enrich")
 async def enrich_opportunity(
-    opp_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    opp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Fetch REAL, provider-verified contacts on demand (no-op if enrichment is unconfigured).
     Results go to why['verified_contacts'] — NEVER into the sanitized why['contacts']."""
     o = db.get(Opportunity, opp_id)
-    if not o:
+    if not o or o.owner != role:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     if settings.enrichment_available():
         why = dict(o.why or {})
@@ -1523,9 +1547,9 @@ async def enrich_opportunity(
 
 @app.get("/api/tasks")
 def list_tasks(
-    status: str | None = None, db: Session = Depends(get_db), _: None = Depends(require_admin)
+    status: str | None = None, db: Session = Depends(get_db), role: str = Depends(require_admin)
 ):
-    q = db.query(CalendarTask)
+    q = db.query(CalendarTask).filter(CalendarTask.owner == role)
     if status:  # optional filter; no param = byte-identical to before
         q = q.filter(CalendarTask.status == status)
     rows = q.order_by(CalendarTask.due_at).all()
@@ -1534,11 +1558,11 @@ def list_tasks(
 
 @app.patch("/api/tasks/{task_id}")
 def update_task(
-    task_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)
+    task_id: int, payload: dict, db: Session = Depends(get_db), role: str = Depends(require_admin)
 ):
     """Complete / snooze / reschedule a follow-up task. State rides CalendarTask.status + payload."""
     t = db.get(CalendarTask, task_id)
-    if not t:
+    if not t or t.owner != role:
         raise HTTPException(status_code=404, detail="Task not found")
     pay = dict(t.payload or {})
     new_status = payload.get("status")
@@ -1571,11 +1595,11 @@ def update_task(
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(
-    task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)
+    task_id: int, db: Session = Depends(get_db), role: str = Depends(require_admin)
 ):
     """Remove a follow-up task entirely."""
     t = db.get(CalendarTask, task_id)
-    if not t:
+    if not t or t.owner != role:
         raise HTTPException(status_code=404, detail="Task not found")
     db.delete(t)
     db.commit()
@@ -1583,9 +1607,9 @@ def delete_task(
 
 
 @app.get("/api/analytics/summary")
-def analytics_summary(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+def analytics_summary(db: Session = Depends(get_db), role: str = Depends(require_admin)):
     """Read-only pipeline rollup for the Analytics dashboard. Pure aggregation — no writes/LLM/web."""
-    opps = db.query(Opportunity).all()
+    opps = db.query(Opportunity).filter(Opportunity.owner == role).all()
     by_status = {s: 0 for s in ("new", "contacted", "replied", "meeting")}
     by_sector: dict[str, int] = {}
     saved = sent = replied = 0
@@ -1605,17 +1629,19 @@ def analytics_summary(db: Session = Depends(get_db), _: None = Depends(require_a
         sector = next((s for s in _KNOWN_SECTORS if s in secs), "Other")
         by_sector[sector] = by_sector.get(sector, 0) + 1
 
-    campaigns = db.query(Campaign).all()
+    campaigns = db.query(Campaign).filter(Campaign.owner == role).all()
     planning = sum(1 for c in campaigns if c.status == "planning")
-    active_clients = db.query(CampaignProspect).filter(CampaignProspect.status == "active").count()
+    active_clients = (db.query(CampaignProspect)
+                      .join(Campaign, CampaignProspect.campaign_id == Campaign.id)
+                      .filter(CampaignProspect.status == "active", Campaign.owner == role).count())
 
     assets_by_type: dict[str, int] = {}
-    for (t,) in db.query(Asset.type).all():
+    for (t,) in db.query(Asset.type).filter(Asset.owner == role).all():
         assets_by_type[t] = assets_by_type.get(t, 0) + 1
 
     now = datetime.now(timezone.utc)
     overdue = due_soon = pending = 0
-    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending").all():
+    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending", CalendarTask.owner == role).all():
         pending += 1
         if tk.due_at:
             due = tk.due_at if tk.due_at.tzinfo else tk.due_at.replace(tzinfo=timezone.utc)
@@ -1656,12 +1682,15 @@ def _is_deck_chrome(text: str) -> bool:
 
 
 @app.get("/api/files/decks/{file_name}/preview")
-def preview_deck(file_name: str, _: None = Depends(require_auth)):
+def preview_deck(file_name: str, db: Session = Depends(get_db), role: str = Depends(require_auth)):
     """Return slide titles + text extracted from a .pptx file so the UI can show an in-app preview."""
     from pptx import Presentation  # already in requirements; import locally to keep startup lean
     base = storage_subdir("decks").resolve()
     target = (base / file_name).resolve()
     if target.parent != base or not target.exists():  # flat dir — reject traversal & subpaths
+        raise HTTPException(status_code=404, detail="Not found")
+    asset = db.query(Asset).filter(Asset.file_url.like(f"%/decks/{file_name}")).first()
+    if asset and asset.owner != role:  # don't preview another account's deck
         raise HTTPException(status_code=404, detail="Not found")
     try:
         prs = Presentation(str(target))
