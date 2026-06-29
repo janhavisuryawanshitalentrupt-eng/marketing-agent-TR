@@ -9,7 +9,7 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The frontend bakes this in at build time; must match the public origin Nginx serves.
-WEB_ORIGIN="${WEB_ORIGIN:-https://marketing.htuniverse.com}"
+WEB_ORIGIN="${WEB_ORIGIN:-https://myra.htuniverse.com}"
 cd "$APP_DIR"
 
 echo "==> [1/4] git pull"
@@ -28,4 +28,4 @@ echo "==> [4/4] restart PM2"
 pm2 restart talentrupt-api talentrupt-web --update-env
 pm2 save
 
-echo "==> Done. Check: pm2 status && curl -s https://marketing.htuniverse.com/api/health"
+echo "==> Done. Check: pm2 status && curl -s https://myra.htuniverse.com/api/health"

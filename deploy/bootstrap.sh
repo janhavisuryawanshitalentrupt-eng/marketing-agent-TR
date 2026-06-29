@@ -6,7 +6,7 @@
 # RUN AS ROOT ON THE DROPLET, from the cloned repo:
 #   git clone <repo-url> /root/talentrupt-agent
 #   cd /root/talentrupt-agent
-#   DOMAIN=marketing.htuniverse.com LE_EMAIL=surajit@talentrupt.com ./deploy/bootstrap.sh
+#   DOMAIN=myra.htuniverse.com LE_EMAIL=surajit@talentrupt.com ./deploy/bootstrap.sh
 #
 # PREREQUISITE: the DNS A record  DOMAIN -> this droplet  must already resolve (certbot needs it).
 # It is SAFE for the other 6 apps: it only writes its OWN sites-available file + its OWN cert, and
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DOMAIN="${DOMAIN:-marketing.htuniverse.com}"
+DOMAIN="${DOMAIN:-myra.htuniverse.com}"
 LE_EMAIL="${LE_EMAIL:-surajit@talentrupt.com}"
 API_PORT="${API_PORT:-8100}"
 WEB_PORT="${WEB_PORT:-4600}"
@@ -66,10 +66,10 @@ EOF
 fi
 
 echo "==> [7/8] Nginx site (proxy /api -> :$API_PORT with SSE, / -> :$WEB_PORT)"
-sed -e "s/marketing\.htuniverse\.com/$DOMAIN/g" \
+sed -e "s/myra\.htuniverse\.com/$DOMAIN/g" \
     -e "s/127\.0\.0\.1:8100/127.0.0.1:$API_PORT/g" \
     -e "s/127\.0\.0\.1:4600/127.0.0.1:$WEB_PORT/g" \
-    deploy/nginx-marketing.conf > "/etc/nginx/sites-available/$SITE"
+    deploy/nginx-myra.conf > "/etc/nginx/sites-available/$SITE"
 ln -sf "/etc/nginx/sites-available/$SITE" "/etc/nginx/sites-enabled/$SITE"
 nginx -t && systemctl reload nginx
 

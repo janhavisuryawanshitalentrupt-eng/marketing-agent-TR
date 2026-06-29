@@ -8,12 +8,12 @@ stack as the other apps — **PM2 → shared Nginx → Let's Encrypt** — but t
 | `talentrupt-web` | Next.js UI (`next start`) | `4600` | from `ecosystem.config.js` |
 | `talentrupt-api` | FastAPI/uvicorn — REST + SSE + generated files (`/api/...`) | `8100` | from `ecosystem.config.js` |
 
-- **Public host:** `marketing.htuniverse.com` (pick your own; **not** `trstudio.*`, which is a different app).
-- **One Nginx host** routes `/api/ → :8100` and `/ → :4600` (see `deploy/nginx-marketing.conf`).
+- **Public host:** `myra.htuniverse.com` (pick your own; **not** `trstudio.*`, which is a different app).
+- **One Nginx host** routes `/api/ → :8100` and `/ → :4600` (see `deploy/nginx-myra.conf`).
 - **Ports stay localhost-only** (not added to UFW) — Nginx is the only public entry point.
 
 > Pick ports that are free on the droplet. In use per the brief: `4200, 4500, 4001, 8001, 4400, 8080`.
-> If you change ports/host, update them in `ecosystem.config.js`, `deploy/nginx-marketing.conf`,
+> If you change ports/host, update them in `ecosystem.config.js`, `deploy/nginx-myra.conf`,
 > `deploy/deploy.sh` (`WEB_ORIGIN`), and `backend/.env` (`CORS_ORIGINS`).
 
 ---
@@ -29,7 +29,7 @@ can't affect the other 6 apps.
 # on the droplet, as root
 git clone <repo-url> /root/talentrupt-agent
 cd /root/talentrupt-agent
-DOMAIN=marketing.htuniverse.com LE_EMAIL=surajit@talentrupt.com ./deploy/bootstrap.sh
+DOMAIN=myra.htuniverse.com LE_EMAIL=surajit@talentrupt.com ./deploy/bootstrap.sh
 # first run stops after creating backend/.env — fill it in, then re-run the same command
 ```
 
@@ -67,7 +67,7 @@ cp .env.example .env
 nano .env   # fill it in — see "Environment" below. AT MINIMUM:
             #   LLM_PROVIDER=openai  IMAGE_PROVIDER=openai  OPENAI_API_KEY=sk-...
             #   ADMIN_PASSWORD / MEMBER_PASSWORD / ADMIN_TOKEN / MEMBER_TOKEN
-            #   CORS_ORIGINS=https://marketing.htuniverse.com
+            #   CORS_ORIGINS=https://myra.htuniverse.com
             #   STORAGE_DIR=/root/talentrupt-agent/storage
 ```
 The DB tables and storage folders are created automatically on first start.
@@ -75,8 +75,8 @@ The DB tables and storage folders are created automatically on first start.
 ### 5. Frontend (the API base is baked in at BUILD time)
 ```bash
 cd /root/talentrupt-agent/frontend
-NEXT_PUBLIC_API_BASE=https://marketing.htuniverse.com npm ci
-NEXT_PUBLIC_API_BASE=https://marketing.htuniverse.com npm run build
+NEXT_PUBLIC_API_BASE=https://myra.htuniverse.com npm ci
+NEXT_PUBLIC_API_BASE=https://myra.htuniverse.com npm run build
 ```
 > ⚠️ `next build` is memory-heavy and the droplet is small (1.9 GB RAM, 6 apps). If the build OOMs,
 > either add swap temporarily, stop a process during the build, or **build locally and rsync** the
@@ -92,14 +92,14 @@ pm2 status
 
 ### 7. Nginx
 ```bash
-cp deploy/nginx-marketing.conf /etc/nginx/sites-available/marketing
-ln -s /etc/nginx/sites-available/marketing /etc/nginx/sites-enabled/marketing
+cp deploy/nginx-myra.conf /etc/nginx/sites-available/talentrupt-agent
+ln -s /etc/nginx/sites-available/talentrupt-agent /etc/nginx/sites-enabled/talentrupt-agent
 nginx -t && systemctl reload nginx
 ```
 
 ### 8. TLS (its own cert, like avasupport, so it can never affect the shared cert)
 ```bash
-certbot certonly --nginx -d marketing.htuniverse.com
+certbot certonly --nginx -d myra.htuniverse.com
 systemctl reload nginx
 ```
 Auto-renews via the existing `certbot.timer`.
@@ -109,9 +109,9 @@ Do **nothing** — leave `8100`/`4600` out of UFW so they stay localhost-only (s
 
 ### 10. Verify
 ```bash
-curl -s https://marketing.htuniverse.com/api/health      # {"status":"ok", "llm_ready":true, ...}
+curl -s https://myra.htuniverse.com/api/health      # {"status":"ok", "llm_ready":true, ...}
 ```
-Open `https://marketing.htuniverse.com`, sign in, generate one image (confirms the OpenAI key + SSE).
+Open `https://myra.htuniverse.com`, sign in, generate one image (confirms the OpenAI key + SSE).
 
 ---
 
@@ -131,7 +131,7 @@ Full template + comments live in `backend/.env.example`. The ones that matter mo
   deterministic fallback (no real AI). This is the #1 thing people miss.
 - **`ADMIN_PASSWORD` / `MEMBER_PASSWORD`** and **`ADMIN_TOKEN` / `MEMBER_TOKEN`** — replace the dev
   defaults; make the tokens long random strings (`openssl rand -hex 24`).
-- **`CORS_ORIGINS=https://marketing.htuniverse.com`**.
+- **`CORS_ORIGINS=https://myra.htuniverse.com`**.
 - **`STORAGE_DIR`** — a persistent path (default `…/storage`); holds generated assets + uploads.
 - **`KNOWLEDGE_ZIP_PATH` / `KNOWLEDGE_EXTRA_PDFS` / `BRAND_LOGO_PATH`** — these ground generation in
   Talentrupt's real brand. They default to **Windows** paths that don't exist on Linux. Copy the files

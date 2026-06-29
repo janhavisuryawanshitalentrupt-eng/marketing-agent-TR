@@ -5,7 +5,7 @@
 // Prerequisites (done once — see deploy/DEPLOY.md):
 //   - backend/.venv exists:  python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt
 //   - backend/.env is filled in (LLM_PROVIDER=openai, IMAGE_PROVIDER=openai, OPENAI_API_KEY, ...)
-//   - frontend is built:     cd frontend && NEXT_PUBLIC_API_BASE=https://marketing.htuniverse.com npm ci && npm run build
+//   - frontend is built:     cd frontend && NEXT_PUBLIC_API_BASE=https://myra.htuniverse.com npm ci && npm run build
 const path = require("path");
 const ROOT = __dirname;
 
