@@ -1,0 +1,72 @@
+# Auto-deploy to the droplet on every push.
+#
+# ONE-TIME SETUP (see APPLICATION.md / DEPLOY.md):
+#   1. On the droplet, authorize a deploy key:
+#        ssh-keygen -t ed25519 -f deploykey -N ""        # run on YOUR PC; creates deploykey + deploykey.pub
+#        # paste the contents of deploykey.pub into the droplet's /root/.ssh/authorized_keys
+#   2. In GitHub repo → Settings → Secrets and variables → Actions, add:
+#        DROPLET_HOST    = 206.189.132.167
+#        DROPLET_SSH_KEY = <the full contents of the PRIVATE key file `deploykey`>
+#
+# After that, every push to the branches below redeploys automatically. The frontend is built HERE
+# (GitHub's runner has plenty of RAM) so the 2 GB droplet never has to run `next build`. Only the
+# code + built UI are shipped; the droplet's .env, talentrupt.db and storage/ are never touched.
+
+name: Deploy
+
+on:
+  push:
+    branches: [feat/create-chip-brief-intake, main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-droplet
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend (static export, relative API base)
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE: ""
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package code + built UI (no node_modules / venv / data)
+        run: |
+          tar --exclude='**/node_modules' --exclude='**/.next' --exclude='**/__pycache__' \
+              -czf /tmp/deploy.tar.gz backend frontend ecosystem.config.js deploy
+
+      - name: Copy to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: root
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: /tmp/deploy.tar.gz
+          target: /root/
+
+      - name: Extract, install deps, restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: root
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -e
+            tar -xzf /root/deploy.tar.gz -C /root/talentrupt-agent
+            cd /root/talentrupt-agent
+            ./backend/.venv/bin/pip install -q -r backend/requirements.txt
+            pm2 restart myra --update-env
+            pm2 save
+            sleep 2
+            curl -fsS http://127.0.0.1:8100/api/health >/dev/null && echo "deploy OK" || (pm2 logs myra --lines 20 --nostream; exit 1)
