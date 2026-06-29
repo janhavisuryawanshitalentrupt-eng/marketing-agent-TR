@@ -118,12 +118,42 @@ Open `https://myra.htuniverse.com`, sign in, generate one image (confirms the Op
 
 ---
 
+## Accounts & data isolation
+Two logins, each with its own private data (conversations, campaigns, assets, opportunities, tasks):
+
+| Login | Role | Sees |
+|---|---|---|
+| `Admin@talentrupt.com` | admin | everything, incl. **Tasks** & **Analytics** |
+| `nishant@talentrupt.com` | member | Chat / Create / Campaigns / Business Dev — **no** Tasks/Analytics |
+
+- Passwords + tokens come from `backend/.env` (`ADMIN_PASSWORD`/`MEMBER_PASSWORD`, `ADMIN_TOKEN`/`MEMBER_TOKEN`).
+- Role is derived server-side from the token; Tasks/Analytics are enforced admin-only at the API, not just the UI.
+- Every record is scoped by `owner`; one account can't see or touch the other's data. A one-time migration
+  (auto-runs on startup) assigns all pre-existing data to **admin**.
+
+---
+
 ## Routine redeploys
-```bash
-ssh root@206.189.132.167
-cd /root/talentrupt-agent && ./deploy/deploy.sh        # pull -> deps -> rebuild -> pm2 restart
+**This deploy has no `.git` on the droplet** (the code was shipped as a tarball — see below), so
+`deploy/deploy.sh` (which does `git pull`) will NOT work here. Update by rebuilding the tarball locally
+and copying it up:
+
+```powershell
+# on your PC, from the repo root
+git archive --format=tar.gz -o "$env:USERPROFILE\Downloads\myra-deploy.tar.gz" feat/create-chip-brief-intake
+scp "$env:USERPROFILE\Downloads\myra-deploy.tar.gz" root@206.189.132.167:/root/myra-deploy.tar.gz
 ```
-(Override the host with `WEB_ORIGIN=https://your.host ./deploy/deploy.sh`.)
+```bash
+# on the droplet
+tar -xzf /root/myra-deploy.tar.gz -C /root/talentrupt-agent
+# backend-only change: just restart (migrations auto-run on startup)
+pm2 restart myra
+# frontend changed too? rebuild the static UI first:
+cd /root/talentrupt-agent/frontend && NEXT_PUBLIC_API_BASE= npm run build && pm2 restart myra
+```
+Extracting the tarball never touches `backend/.env`, `talentrupt.db`, or `storage/` (they're git-ignored,
+so they're not in the archive). To make redeploys a true one-liner, set up git-on-droplet with a deploy
+token, or a GitHub Actions SSH deploy — then it becomes `git pull && pm2 restart myra`.
 
 ---
 
@@ -145,9 +175,24 @@ Full template + comments live in `backend/.env.example`. The ones that matter mo
 ---
 
 ## What persists vs. what's rebuilt
-- **Persists on the server (never in git):** `backend/.env`, `backend/talentrupt.db*`, `storage/`. A
-  `git pull` / redeploy does not touch them.
+- **Persists on the server (never in the tarball):** `backend/.env`, `backend/talentrupt.db*`, `storage/`.
+  Extracting a redeploy tarball does not touch them.
 - **Rebuilt every deploy:** `frontend/out` (static export), `frontend/node_modules`, `backend/.venv` deps.
+
+## Restore pre-deployment dev data (optional)
+The droplet started with an **empty** database, so the campaigns/images/decks generated locally during
+development are not live. To load them onto the server:
+
+1. Stop the app: `pm2 stop myra`
+2. Copy the dev DB up (from your PC):
+   `scp "<repo>\backend\talentrupt.db" root@206.189.132.167:/root/talentrupt-agent/backend/talentrupt.db`
+3. Copy the media so the gallery resolves (large — ~300 MB):
+   `scp -r "<repo>\storage\*" root@206.189.132.167:/root/talentrupt-agent/storage/`
+   (`serve_file` looks files up by name under `STORAGE_DIR`, so the Windows `file_path` mismatch is harmless.)
+4. `pm2 start myra` — the startup migration assigns all imported rows to **admin**.
+
+A readable export of that data (campaigns, posts, conversations, opportunities) is in
+`talentrupt-predeploy-export.json`; the raw DB copy is `talentrupt-predeploy.db`.
 
 ## Gotchas
 - **RAM** — `next build` + uvicorn on a 2 GB box with 6 other apps is tight. The team-photo cut-out deps
