@@ -419,10 +419,12 @@ def create_campaign_endpoint(
     payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
 ):
     """Create an internal campaign SHELL (no strategy/prospects) + its chat thread. The campaign
-    chat (POST /api/campaigns/{id}/stream) then drives all content generation into this folder."""
+    chat (POST /api/campaigns/{id}/stream) then drives all content generation into this folder, all
+    grounded in the campaign's description/brief (stored in `goal`)."""
     name = (payload.get("name") or "Untitled Campaign").strip()[:280] or "Untitled Campaign"
     ctype = payload.get("type") if payload.get("type") in ("internal", "external") else "internal"
-    c = Campaign(name=name, type=ctype, status="active")
+    description = (payload.get("description") or "").strip()
+    c = Campaign(name=name, type=ctype, goal=description, status="active")
     db.add(c)
     db.commit()
     db.refresh(c)

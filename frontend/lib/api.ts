@@ -297,12 +297,13 @@ export async function getCampaign(id: number): Promise<CampaignDetail> {
   return res.json();
 }
 
-/** Create an INTERNAL campaign shell (folder + its chat thread). */
-export async function createInternalCampaign(name: string): Promise<CampaignDetail> {
+/** Create an INTERNAL campaign shell (folder + its chat thread). The description is the brief that
+ * grounds everything generated in that folder. */
+export async function createInternalCampaign(name: string, description: string): Promise<CampaignDetail> {
   const res = await fetch(`${API_BASE}/api/campaigns`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ name, type: "internal" }),
+    body: JSON.stringify({ name, description, type: "internal" }),
   });
   if (!res.ok) throw new Error("Failed to create campaign");
   return res.json();

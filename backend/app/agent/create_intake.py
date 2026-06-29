@@ -81,8 +81,9 @@ def _detect_format(messages: list[dict]) -> str:
     return "image"
 
 
-async def interpret_create_intent(brand: Brand | None, messages: list[dict]) -> dict:
-    """Triage the latest Create turn. Returns one of:
+async def interpret_create_intent(brand: Brand | None, messages: list[dict], context: str = "") -> dict:
+    """Triage the latest Create turn. `context` (e.g. an internal campaign's brief) is treated as
+    already-known so the intake never re-asks the topic. Returns one of:
       {action:'ask', message:str, chips:[str]} — gather the next part of the brief, conversationally
       {action:'generate'}                       — enough is known / 'your call' / capped: just make it
       {action:'answer'}                         — a question or feedback
@@ -130,6 +131,13 @@ async def interpret_create_intent(brand: Brand | None, messages: list[dict]) -> 
         "'thanks, perfect!'→answer. 'hi'→answer.\n\n"
         'Return ONLY JSON: {"action":"ask"|"generate"|"answer","message":"...","chips":["...","..."]}.'
     )
+    if context:
+        sys += (
+            f"\n\nCAMPAIGN BRIEF (already known — do NOT ask about the topic/goal, it's given): {context}\n"
+            "Only ask about what's still missing for THIS asset (look/style, audience, tone, length, "
+            "format or how many) — never re-ask what the brief already tells you. If the brief plus the "
+            "request already make the asset clear, GENERATE."
+        )
     if capped:
         sys += ("\n\nNOTE: You have already asked several questions in this conversation — do NOT choose "
                 "'ask' again. Choose 'generate' (an asset request or an answer to act on) or 'answer' (a "

@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import type {
   Asset,
+  Attachment,
   CampaignDetail,
   CampaignItem,
   CampaignProspect,
@@ -959,35 +960,42 @@ function StratBullets({ items }: { items: string[] }) {
 // --- Internal campaign: name it, then chat to generate the content folder -------------------------
 function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => void }) {
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   async function create() {
     const n = name.trim();
     if (!n || busy) return;
     setBusy(true);
     try {
-      onCreated(await createInternalCampaign(n));
+      onCreated(await createInternalCampaign(n, description.trim()));
     } catch {
       setBusy(false);
     }
   }
   return (
-    <div className="mx-auto max-w-md pt-16 text-center">
-      <h2 className="font-heading text-2xl font-semibold">New internal campaign</h2>
-      <p className="mt-2 text-sm text-muted">
-        Name it (e.g. &ldquo;Magazine Launch&rdquo;, &ldquo;Q3 Hiring Push&rdquo;). Then describe it in
-        chat and I&apos;ll generate the posts, visuals, decks and PDFs into its folder.
+    <div className="mx-auto max-w-lg pt-12">
+      <h2 className="text-center font-heading text-2xl font-semibold">New internal campaign</h2>
+      <p className="mt-2 text-center text-sm text-muted">
+        Name it and describe what it&apos;s about. That brief grounds everything you generate in this
+        folder — posts, visuals, decks and PDFs.
       </p>
-      <div className="mt-6 flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+      <div className="mt-6 space-y-3">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") create(); }}
           autoFocus
-          placeholder="Campaign name…"
-          className="flex-1 bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+          placeholder="Campaign name (e.g. Cricket Tournament, Magazine Launch)"
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
         />
-        <button onClick={create} disabled={busy || !name.trim()} className="btn-primary !px-4 !py-2">
-          {busy ? "Creating…" : "Create"}
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={4}
+          placeholder="What's this campaign about? e.g. “Promote Talentrupt's internal cricket tournament — fun, team-spirited posts for LinkedIn & Instagram celebrating our culture.”"
+          className="w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+        />
+        <button onClick={create} disabled={busy || !name.trim()} className="btn-primary w-full">
+          {busy ? "Creating…" : "Create campaign"}
         </button>
       </div>
     </div>
@@ -997,17 +1005,30 @@ function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => 
 const CAMPAIGN_GREETING: ChatMessage = {
   role: "assistant",
   content:
-    "**What's this campaign about?** Tell me the goal, the audience, the channels (LinkedIn / Instagram / Email), and what you'd like — a few posts, some visuals, a deck, a PDF — and I'll generate it all into this campaign's folder.",
+    "I've got this campaign's brief. Tell me what to make — a few posts, a visual, a deck, a PDF — and I'll generate it into this folder, all grounded in the campaign. Or tap a starter below.",
 };
+
+const CAMPAIGN_STARTERS = [
+  "3 LinkedIn posts about it",
+  "An on-brand announcement image",
+  "A short launch deck",
+  "A one-page teaser PDF",
+  "The works — a full content pack",
+];
 
 function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const campaignId = detail.id;
+  const [tab, setTab] = useState<"chat" | "gallery">("chat");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<number | null>(detail.conversation_id ?? null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [assets, setAssets] = useState<Asset[]>(detail.assets ?? []);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attaching, setAttaching] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const genRef = useRef(0);
 
   // Restore the saved thread (with its asset cards); seed a greeting when the folder is new.
@@ -1032,11 +1053,40 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, status]);
 
+  function refreshGallery() {
+    getCampaign(campaignId).then((d) => setAssets(d.assets ?? [])).catch(() => {});
+  }
+
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    const seen = new Set(attachments.map((a) => a.name));
+    for (const f of files) {
+      if (seen.has(f.name)) continue;
+      seen.add(f.name);
+      setAttaching((n) => n + 1);
+      try {
+        const meta = await uploadAttachment(f);
+        setAttachments((a) =>
+          a.some((x) => x.name === meta.filename)
+            ? a
+            : [...a, { id: meta.id, name: meta.filename, text: meta.text, kind: meta.kind, chars: meta.chars }],
+        );
+      } catch {
+        /* ignore one bad file */
+      } finally {
+        setAttaching((n) => n - 1);
+      }
+    }
+    e.target.value = "";
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || attaching > 0) return;
     const myGen = (genRef.current += 1);
     const live = () => genRef.current === myGen;
+    const atts = attachments.map((a) => ({ name: a.name, text: a.text, id: a.id, kind: a.kind }));
+    let gotAsset = false;
     setBusy(true);
     setStatus("");
     setInput("");
@@ -1062,10 +1112,21 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
           },
           onAsset: (a: Asset) => {
             if (!live()) return;
+            gotAsset = true;
+            setAssets((prev) => [a, ...prev.filter((x) => x.id !== a.id)]);
             setMessages((m) => {
               const last = m[m.length - 1];
               if (last?.role !== "assistant") return m;
               return [...m.slice(0, -1), { ...last, assets: [...(last.assets ?? []), a] }];
+            });
+          },
+          onChips: (items) => {
+            if (!live()) return;
+            setStatus("");
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              return [...m.slice(0, -1), { ...last, chips: items, pending: false }];
             });
           },
           onDone: (final) => {
@@ -1089,11 +1150,14 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
           },
         },
         `/api/campaigns/${campaignId}/stream`,
+        atts,
       );
     } finally {
       if (live()) {
         setBusy(false);
         setStatus("");
+        setAttachments([]);
+        if (gotAsset) refreshGallery();
       }
     }
   }
@@ -1105,73 +1169,137 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
     }
   }
 
+  const onlyGreeting = messages.length === 1 && messages[0] === CAMPAIGN_GREETING;
+
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3">
-        <h2 className="font-heading text-lg font-semibold">{detail.name}</h2>
-        <p className="text-xs text-muted">
-          Internal campaign · everything you generate is saved to this folder
-        </p>
-      </div>
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4"
-      >
-        <div className="mx-auto w-full max-w-2xl space-y-5">
-          {messages.map((m, i) =>
-            m.role === "user" ? (
-              <div key={i} className="flex justify-end">
-                <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
-                  {m.content}
-                </div>
-              </div>
-            ) : (
-              <div key={i} className="flex flex-col items-start gap-2">
-                {(m.content || m.pending) && (
-                  <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
-                    {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
-                  </div>
-                )}
-                {m.assets && m.assets.length > 0 && (
-                  <div className="grid w-full gap-2">
-                    {m.assets.map((a, j) => (
-                      <AssetCard key={`${a.type}-${a.id}-${j}`} asset={a} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          )}
-          {status && (
-            <div className="flex items-center gap-2 px-1 text-xs text-muted">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
-              {status}…
-            </div>
-          )}
+      {/* Header: campaign name + brief + Chat / Generated content tabs */}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-heading text-lg font-semibold">{detail.name}</h2>
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted">
+            {detail.goal || "Internal campaign · everything is saved to this folder"}
+          </p>
         </div>
-      </div>
-      <div className="mt-3">
-        <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={1}
-            placeholder="Describe the campaign, or ask for more posts / a visual / a deck…"
-            className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
-          />
+        <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
           <button
-            onClick={() => send(input)}
-            disabled={busy || !input.trim()}
-            className="btn-primary !px-3 !py-2"
-            aria-label="Send"
+            onClick={() => setTab("chat")}
+            className={`rounded-md px-3 py-1.5 transition ${tab === "chat" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-            </svg>
+            Chat
+          </button>
+          <button
+            onClick={() => { setTab("gallery"); refreshGallery(); }}
+            className={`rounded-md px-3 py-1.5 transition ${tab === "gallery" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+          >
+            Generated content{assets.length ? ` (${assets.length})` : ""}
           </button>
         </div>
       </div>
+
+      {tab === "gallery" ? (
+        <div className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          {assets.length === 0 ? (
+            <p className="pt-10 text-center text-sm text-muted">
+              Nothing generated yet — switch to Chat and describe what you want.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {assets.map((a) => <AssetCard key={`${a.type}-${a.id}`} asset={a} />)}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <div className="mx-auto w-full max-w-2xl space-y-5">
+              {messages.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={i} className="flex justify-end">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
+                      {m.content}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={i} className="flex flex-col items-start gap-2">
+                    {(m.content || m.pending) && (
+                      <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
+                        {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
+                      </div>
+                    )}
+                    {m.chips && m.chips.length > 0 && !busy && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {m.chips.map((c) => (
+                          <button key={c} onClick={() => send(c)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {m.assets && m.assets.length > 0 && (
+                      <div className="grid w-full gap-2">
+                        {m.assets.map((a, j) => <AssetCard key={`${a.type}-${a.id}-${j}`} asset={a} />)}
+                      </div>
+                    )}
+                  </div>
+                ),
+              )}
+              {onlyGreeting && (
+                <div className="flex flex-wrap gap-1.5 pl-1">
+                  {CAMPAIGN_STARTERS.map((s) => (
+                    <button key={s} onClick={() => send(s)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {status && (
+                <div className="flex items-center gap-2 px-1 text-xs text-muted">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+                  {status}…
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+              {(attachments.length > 0 || attaching > 0) && (
+                <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+                  {attachments.map((a) => (
+                    <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-[11px]" title={a.name}>
+                      <span className="max-w-[160px] truncate">{a.name}</span>
+                      <button onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))} className="text-muted hover:text-[var(--brand-red)]" aria-label={`Remove ${a.name}`}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                      </button>
+                    </span>
+                  ))}
+                  {attaching > 0 && <span className="text-[11px] text-muted">Reading file…</span>}
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <input ref={fileRef} type="file" multiple onChange={onPickFiles} className="hidden" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json" />
+                <button onClick={() => fileRef.current?.click()} disabled={attaching > 0} className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground disabled:opacity-50" aria-label="Attach a photo" title="Attach a photo (to feature a real person)">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" /></svg>
+                </button>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  rows={1}
+                  placeholder="Ask for posts, an image, a deck, a PDF… (grounded in this campaign)"
+                  className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+                />
+                <button onClick={() => send(input)} disabled={busy || attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

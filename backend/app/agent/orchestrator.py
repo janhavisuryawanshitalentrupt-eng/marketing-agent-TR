@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator
 from sqlalchemy.orm import Session
 
 from ..knowledge import retrieve
-from ..models import Brand, Message, SourceFile
+from ..models import Brand, Campaign, Message, SourceFile
 from ..providers import llm
 from . import create_intake
 from .prompts import build_system_prompt
@@ -59,6 +59,18 @@ async def run(
             ctx = ""
         if ctx:
             system += "\n\n" + ctx
+    # Internal-campaign studio: the campaign's brief/description grounds EVERYTHING generated here.
+    campaign_ctx = ""
+    if campaign_id is not None:
+        camp = db.get(Campaign, campaign_id)
+        if camp:
+            desc = (camp.goal or "").strip()
+            campaign_ctx = (f"{camp.name} — {desc}" if desc else camp.name)
+            system += (
+                f"\n\nTHIS CAMPAIGN — \"{camp.name}\". What it's about (the brief the user gave): "
+                f"{desc or '(not specified yet — ask them)'}.\nGround EVERYTHING you generate in this "
+                "campaign's topic and brief — every post, image, deck and PDF must be about it."
+            )
     # Inject any attached files as primary context for this turn.
     blocks = []
     for a in (attachments or [])[:5]:
@@ -114,13 +126,14 @@ async def run(
     if campaign_id is not None:  # campaign mode -> every generated asset lands in this folder
         state["campaign_id"] = campaign_id
 
-    # CREATE intake: a vague NEW request gets a short conversational nudge + tappable quick-picks
-    # instead of generating blind. Specific / "your call" / answering / refine fall straight through.
-    # SKIP the intake entirely when a photo is attached — generate on THIS turn so the attachment (which
-    # rides only one message) isn't lost to a follow-up question.
-    if mode == "create" and not attached_imgs:
+    # CREATE / CAMPAIGN intake: a vague NEW request gets a short conversational nudge + tappable
+    # quick-picks instead of generating blind. Specific / "your call" / answering / refine fall straight
+    # through. SKIP the intake when a photo is attached — generate on THIS turn so the attachment (which
+    # rides only one message) isn't lost to a follow-up question. In campaign mode the campaign brief is
+    # passed as context so the intake never re-asks the topic.
+    if mode in ("create", "campaign") and not attached_imgs:
         try:
-            intent = await create_intake.interpret_create_intent(brand, messages)
+            intent = await create_intake.interpret_create_intent(brand, messages, context=campaign_ctx)
         except Exception:
             intent = {"action": "generate"}
         if intent.get("action") == "ask" and intent.get("message"):
