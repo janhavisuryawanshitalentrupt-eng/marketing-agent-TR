@@ -45,9 +45,11 @@ jobs:
         run: echo "${GITHUB_SHA::7}" > backend/app/_version.txt
 
       - name: Package code + built UI (no node_modules / venv / data)
+        # NOTE: write the tarball INTO the workspace — scp-action runs in a container that only
+        # mounts /github/workspace, so a /tmp path is invisible to it ("tar: empty archive").
         run: |
           tar --exclude='**/node_modules' --exclude='**/.next' --exclude='**/__pycache__' \
-              -czf /tmp/deploy.tar.gz backend frontend ecosystem.config.js deploy
+              -czf deploy.tar.gz backend frontend ecosystem.config.js deploy
 
       - name: Copy to droplet
         uses: appleboy/scp-action@v0.1.7
@@ -55,7 +57,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          source: /tmp/deploy.tar.gz
+          source: deploy.tar.gz
           target: /root/
 
       - name: Extract, install deps, restart

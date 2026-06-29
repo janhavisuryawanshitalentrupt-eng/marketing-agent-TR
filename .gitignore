@@ -23,6 +23,9 @@ storage/
 # CI-stamped deploy marker (written by .github/workflows/deploy.yml)
 backend/app/_version.txt
 
+# CI deploy tarball (written into the workspace by the deploy workflow)
+/deploy.tar.gz
+
 # Logs
 *.log
 
