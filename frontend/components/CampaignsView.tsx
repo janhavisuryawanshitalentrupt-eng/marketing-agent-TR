@@ -7,6 +7,7 @@ import {
   deleteCampaign,
   deleteCampaignProspect,
   exportCampaignProspects,
+  deleteAsset,
   fileUrl,
   generateCampaignItem,
   getCampaign,
@@ -1022,6 +1023,26 @@ const CAMPAIGN_SEED =
 // Campaign ids already auto-seeded this session (module-level so a dev remount can't double-fire it).
 const _seededCampaigns = new Set<number>();
 
+// An AssetCard with a small delete (trash) control overlaid in the corner — used in the campaign folder.
+function DeletableAsset({ asset, onDelete }: { asset: Asset; onDelete: (a: Asset) => void }) {
+  return (
+    <div className="relative">
+      <button
+        onClick={() => onDelete(asset)}
+        type="button"
+        title="Delete"
+        aria-label="Delete"
+        className="absolute right-2 top-2 z-10 rounded-lg border border-[var(--border)] bg-[var(--surface)]/90 p-1.5 text-muted shadow-sm backdrop-blur transition hover:border-[var(--brand-red)] hover:text-[var(--brand-red)]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6" />
+        </svg>
+      </button>
+      <AssetCard asset={asset} />
+    </div>
+  );
+}
+
 function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const campaignId = detail.id;
   const [tab, setTab] = useState<"chat" | "gallery">("chat");
@@ -1071,6 +1092,20 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
 
   function refreshGallery() {
     getCampaign(campaignId).then((d) => setAssets(d.assets ?? [])).catch(() => {});
+  }
+
+  async function handleDeleteAsset(a: Asset) {
+    if (!window.confirm("Delete this from the campaign? This can't be undone.")) return;
+    try {
+      await deleteAsset(a.id);
+    } catch {
+      return; // leave it in place if the delete failed
+    }
+    // Drop it from the folder AND from any chat message that showed it.
+    setAssets((prev) => prev.filter((x) => x.id !== a.id));
+    setMessages((prev) =>
+      prev.map((m) => (m.assets ? { ...m, assets: m.assets.filter((x) => x.id !== a.id) } : m)),
+    );
   }
 
   async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1193,9 +1228,6 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-heading text-lg font-semibold">{detail.name}</h2>
-          <p className="mt-0.5 line-clamp-2 text-xs text-muted">
-            {detail.goal || "Internal campaign · everything is saved to this folder"}
-          </p>
         </div>
         <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
           <button
@@ -1221,7 +1253,9 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {assets.map((a) => <AssetCard key={`${a.type}-${a.id}`} asset={a} />)}
+              {assets.map((a) => (
+                <DeletableAsset key={`${a.type}-${a.id}`} asset={a} onDelete={handleDeleteAsset} />
+              ))}
             </div>
           )}
         </div>
@@ -1254,7 +1288,9 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                     )}
                     {m.assets && m.assets.length > 0 && (
                       <div className="grid w-full gap-2">
-                        {m.assets.map((a, j) => <AssetCard key={`${a.type}-${a.id}-${j}`} asset={a} />)}
+                        {m.assets.map((a, j) => (
+                          <DeletableAsset key={`${a.type}-${a.id}-${j}`} asset={a} onDelete={handleDeleteAsset} />
+                        ))}
                       </div>
                     )}
                   </div>
