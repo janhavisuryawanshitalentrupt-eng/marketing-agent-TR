@@ -124,18 +124,20 @@ async def exec_create_campaign(db, state, brand, args) -> dict:
 
 async def exec_generate_posts(db, state, brand, args) -> dict:
     c = await _ensure_campaign(db, state, brand, args.get("angle") or "Quick Content")
+    platform = args.get("platform") or "Social"
     items = await posts.generate_posts(
-        brand, c, count=args.get("count", 3),
-        platform=args.get("platform", "LinkedIn"), angle=args.get("angle", ""),
+        brand, c, count=args.get("count", 3), platform=platform, angle=args.get("angle", ""),
     )
     saved = []
     for p in items:
         a = _save_asset(
             db, c.id, "post", p.get("hook", "Post"),
-            body=p, meta={"platform": p.get("platform", "LinkedIn")},
+            body=p, meta={"platform": p.get("platform") or platform},
         )
         saved.append(serialize_asset(a))
-    return {"summary": f"Wrote {len(saved)} {args.get('platform', 'LinkedIn')} posts.", "assets": saved}
+    label = "social media" if platform.lower().startswith("social") else platform
+    return {"summary": f"Wrote {len(saved)} {label} post" + ("s" if len(saved) != 1 else "") + ".",
+            "assets": saved}
 
 
 async def exec_generate_image(db, state, brand, args) -> dict:
@@ -943,11 +945,13 @@ TOOL_SCHEMAS = [
         },
         ["name"]),
     _fn("generate_posts",
-        "Generate social/marketing posts (LinkedIn, Instagram, email). Attaches to the "
-        "current campaign.",
+        "Write social/marketing post COPY (caption + hashtags + CTA). Attaches to the current "
+        "campaign. This is the text/caption only — for a visual use generate_image.",
         {
             "count": {"type": "integer", "description": "How many posts (1-8)"},
-            "platform": {"type": "string", "enum": ["LinkedIn", "Instagram", "Email", "Blog"]},
+            "platform": {"type": "string", "enum": ["Social", "LinkedIn", "Instagram", "Email", "Blog"],
+                         "description": "Default 'Social' = a platform-agnostic post (works anywhere). "
+                                        "Only set a specific network if the user names one."},
             "angle": {"type": "string", "description": "Theme/angle for the posts"},
         },
         ["count"]),

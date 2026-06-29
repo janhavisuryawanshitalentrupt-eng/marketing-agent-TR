@@ -27,6 +27,39 @@ from .tools import STATUS_LABELS, tools_for
 
 log = logging.getLogger("talentrupt")
 MAX_STEPS = 6
+
+# Campaign studio: keep the model from over-producing. When a message clearly asks for ONE category,
+# expose only that category's tools this turn so a "caption" request can't also spit out an image, etc.
+_CAMPAIGN_FOCUS_TOOLS = {
+    "caption": {"generate_posts", "regenerate_asset"},
+    "visual": {"generate_image", "generate_team_image", "feature_uploaded_person", "regenerate_asset",
+               "animate_asset"},
+    "deck": {"build_deck", "regenerate_asset"},
+    "pdf": {"build_pdf", "regenerate_asset"},
+}
+_CAP_KW = ("caption", "copy", "wording", "what should it say", "what to say", "the text", "write the",
+           "write a post", "write me a post", "post text")
+_VIS_KW = ("image", "visual", "graphic", "design", "picture", "photo", "poster", "banner", "creative",
+           "scene", "thumbnail")
+_DECK_KW = ("deck", "slide", "presentation", "ppt", "keynote")
+_PDF_KW = ("pdf", "one-pager", "one pager", "report", "document", "brochure", "teaser", "white paper",
+           "whitepaper")
+
+
+def _restrict_campaign_tools(text: str, executors: dict, schemas: list):
+    """If the message clearly asks for ONE asset category, expose only that category's tools."""
+    t = (text or "").lower()
+    cap = any(k in t for k in _CAP_KW)
+    vis = any(k in t for k in _VIS_KW) or ("post" in t and not cap)
+    deck = any(k in t for k in _DECK_KW)
+    pdf = any(k in t for k in _PDF_KW)
+    cats = [c for c, on in (("caption", cap), ("visual", vis), ("deck", deck), ("pdf", pdf)) if on]
+    if len(cats) != 1:  # ambiguous or multiple -> let the model choose (prompt still guides it)
+        return executors, schemas
+    allow = _CAMPAIGN_FOCUS_TOOLS[cats[0]]
+    ex = {n: f for n, f in executors.items() if n in allow}
+    sc = [s for s in schemas if s["function"]["name"] in allow]
+    return (ex, sc) if ex else (executors, schemas)
 # User-facing error shown/persisted when an LLM/tool call fails — never leak raw exception text
 # into the transcript or the next turn's replayed history (raw details are logged server-side).
 ERROR_REPLY = "The assistant hit an error and couldn't finish that — please try again."
@@ -42,6 +75,8 @@ async def run(
     attachments    -> [{name, text}] files the user attached this turn, used as context."""
     brand = db.query(Brand).first()
     executors, schemas = tools_for(mode)
+    if mode == "campaign":  # one asset category per turn -> no over-producing
+        executors, schemas = _restrict_campaign_tools(user_text, executors, schemas)
 
     yield {"event": "status", "data": "Understanding your request"}
 

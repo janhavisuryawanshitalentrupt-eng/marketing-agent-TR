@@ -1005,15 +1005,15 @@ function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => 
 const CAMPAIGN_GREETING: ChatMessage = {
   role: "assistant",
   content:
-    "I've got this campaign's brief. Tell me what to make — a few posts, a visual, a deck, a PDF — and I'll generate it into this folder, all grounded in the campaign. Or tap a starter below.",
+    "I've got this campaign's brief. Tell me what to make — a post image, captions, a deck, a PDF — one thing at a time, and it lands in this folder. Tap a starter or just ask.",
 };
 
 const CAMPAIGN_STARTERS = [
-  "3 LinkedIn posts about it",
-  "An on-brand announcement image",
-  "A short launch deck",
+  "An on-brand post image",
+  "A social post caption",
+  "An announcement graphic",
+  "A short deck",
   "A one-page teaser PDF",
-  "The works — a full content pack",
 ];
 
 function InternalCampaignView({ detail }: { detail: CampaignDetail }) {

@@ -10,7 +10,7 @@ async def generate_posts(
     brand: Brand | None,
     campaign: Campaign | None,
     count: int = 3,
-    platform: str = "LinkedIn",
+    platform: str = "Social",
     angle: str = "",
 ) -> list[dict]:
     """Return a list of post dicts: platform, content_type, hook, caption, cta,
@@ -36,8 +36,14 @@ async def generate_posts(
             "visual_concept. Make hooks scroll-stopping, captions tight and proof-driven, "
             "CTAs specific. No fluff, no emojis-as-bullets."
         )
+        plat_line = (
+            "platform-agnostic SOCIAL MEDIA posts (work on any network — do not name or tailor to a "
+            "specific platform; set each post's \"platform\" field to \"Social\")"
+            if platform.lower() in ("social", "social media", "")
+            else f"{platform} posts"
+        )
         usr = (
-            f"{ctx}Write {count} {platform} posts"
+            f"{ctx}Write {count} {plat_line}"
             + (f" with this angle: {angle}." if angle else ".")
         )
         data = await llm.chat_json(
