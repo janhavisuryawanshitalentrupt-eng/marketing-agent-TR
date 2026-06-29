@@ -41,9 +41,10 @@ _CAP_KW = ("caption", "copy", "wording", "what should it say", "what to say", "t
            "write a post", "write me a post", "post text")
 _VIS_KW = ("image", "visual", "graphic", "design", "picture", "photo", "poster", "banner", "creative",
            "scene", "thumbnail")
-_DECK_KW = ("deck", "slide", "presentation", "ppt", "keynote")
+_DECK_KW = ("deck", "slide", "presentation", "ppt", "keynote", "pitch deck")
 _PDF_KW = ("pdf", "one-pager", "one pager", "report", "document", "brochure", "teaser", "white paper",
-           "whitepaper")
+           "whitepaper", "magazine", "newsletter", "flyer", "booklet", "zine", "ebook", "e-book",
+           "leaflet", "catalogue", "catalog")
 
 
 def _restrict_campaign_tools(text: str, executors: dict, schemas: list):

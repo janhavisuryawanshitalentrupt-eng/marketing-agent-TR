@@ -303,7 +303,7 @@ export function CampaignsView() {
             )
           ) : detail ? (
             detail.type === "internal" ? (
-              <InternalCampaignView detail={detail} />
+              <InternalCampaignView key={detail.id} detail={detail} />
             ) : (
               <CampaignDetailView
                 detail={detail}
