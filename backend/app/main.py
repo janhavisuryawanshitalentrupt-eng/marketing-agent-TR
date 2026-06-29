@@ -120,10 +120,24 @@ def require_admin(role: str = Depends(require_auth)) -> str:
 
 
 # --- Health ---------------------------------------------------------------
+def _app_version() -> str:
+    """The deployed commit SHA, written by CI into _version.txt at package time.
+
+    Lets us confirm from the outside (`curl /api/health`) exactly which commit is live.
+    Falls back to "dev" for local runs where the file isn't present.
+    """
+    try:
+        return (Path(__file__).with_name("_version.txt").read_text(encoding="utf-8").strip()
+                or "dev")
+    except OSError:
+        return "dev"
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
         "status": "ok",
+        "version": _app_version(),
         "llm_provider": settings.llm_provider,
         "llm_ready": llm.provider_available(),
         "enrichment_ready": settings.enrichment_available(),

@@ -30,6 +30,8 @@ All notable changes to the app, most recent first. Dates are when the work lande
   level (not over-sharpened).
 
 ## Deployment (2026-06-29)
+- **Deploy verification** — `GET /api/health` now returns the live `version` (the deployed commit SHA,
+  stamped by CI). Confirms from the outside exactly which commit is live after a deploy.
 - **One-command, fully-automated release** — `deploy/ship.ps1 "what changed"` builds the frontend locally
   (pre-flight gate), commits, and pushes; the push triggers `.github/workflows/deploy.yml`, which rebuilds
   the UI on GitHub's runner, ships it to the droplet, restarts `myra`, and health-checks `/api/health`.

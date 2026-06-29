@@ -20,6 +20,9 @@ npm-debug.log*
 # Generated assets / storage
 storage/
 
+# CI-stamped deploy marker (written by .github/workflows/deploy.yml)
+backend/app/_version.txt
+
 # Logs
 *.log
 

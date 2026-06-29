@@ -41,6 +41,9 @@ jobs:
           npm ci
           npm run build
 
+      - name: Stamp the deployed commit (surfaced at /api/health -> version)
+        run: echo "${GITHUB_SHA::7}" > backend/app/_version.txt
+
       - name: Package code + built UI (no node_modules / venv / data)
         run: |
           tar --exclude='**/node_modules' --exclude='**/.next' --exclude='**/__pycache__' \
