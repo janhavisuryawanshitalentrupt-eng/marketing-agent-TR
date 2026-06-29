@@ -97,10 +97,14 @@ async def run(
             system += "\n\n" + ctx
     # Internal-campaign studio: the campaign's brief/description grounds EVERYTHING generated here.
     campaign_ctx = ""
+    campaign_brief = ""
+    campaign_name = ""
     if campaign_id is not None:
         camp = db.get(Campaign, campaign_id)
         if camp:
             desc = (camp.goal or "").strip()
+            campaign_brief = desc
+            campaign_name = camp.name
             campaign_ctx = (f"{camp.name} — {desc}" if desc else camp.name)
             system += (
                 f"\n\nTHIS CAMPAIGN — \"{camp.name}\". What it's about (the brief the user gave): "
@@ -161,6 +165,10 @@ async def run(
         state["attachments"] = attached_imgs
     if campaign_id is not None:  # campaign mode -> every generated asset lands in this folder
         state["campaign_id"] = campaign_id
+        # The brief grounds EVERY generator (image/post/deck/pdf), not just the chat prompt — without
+        # this, renderers fall back to generic RPO framing + the RPO/holiday past-post corpus.
+        state["campaign_brief"] = campaign_brief
+        state["campaign_name"] = campaign_name
 
     # CREATE / CAMPAIGN intake: a vague NEW request gets a short conversational nudge + tappable
     # quick-picks instead of generating blind. Specific / "your call" / answering / refine fall straight

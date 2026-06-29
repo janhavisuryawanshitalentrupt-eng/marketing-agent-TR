@@ -77,23 +77,41 @@ def _directives(audience: str, tone: str, depth: str) -> str:
 
 # --- Outline / design plan ------------------------------------------------
 async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n: int, *,
-                   audience: str = "", tone: str = "", depth: str = "", design_theme: str = "editorial") -> list[dict]:
+                   audience: str = "", tone: str = "", depth: str = "", design_theme: str = "editorial",
+                   brief: str = "") -> list[dict]:
+    brief = (brief or "").strip()
     if llm.provider_available():
         pillars = ", ".join(brand.pillars) if brand and brand.pillars else ""
         proof = "; ".join(brand.proof_points) if brand and brand.proof_points else ""
         services = ", ".join(brand.services) if brand and brand.services else ""
-        context = await retrieve.brand_context(topic, k=6)
-        sys = (
-            "You are Talentrupt's strategy deck designer (offshore RPO selling into the US market, "
-            f"'RPO Done Right'). Brand pillars: {pillars}. Services: {services}. "
-            f"Proof points — these are the ONLY real numbers you may ever state: {proof}.\n"
-            + (f"\n{context}\n\n" if context else "")
-            + _directives(audience, tone, depth)
-            + f"Design a {n}-slide deck built SPECIFICALLY around the topic below — its own narrative "
-            "arc, not a generic company overview. Lead with the audience's problem or the topic's core "
-            "idea, then show how Talentrupt's services solve it. Reference the audience/client and topic "
-            "by name where natural, and weave in real Talentrupt services and proof so it feels tailored, "
-            "not boilerplate.\n"
+        # CAMPAIGN deck: ground in the brief; do NOT pull the generic RPO past-post corpus.
+        context = "" if brief else await retrieve.brand_context(topic, k=6)
+        if brief:
+            sys = (
+                "You are a presentation designer for ONE specific Talentrupt INTERNAL campaign. Talentrupt's "
+                f"brand look is navy/red/cream, premium and modern.\n\nCAMPAIGN BRIEF (authoritative — the "
+                f"WHOLE deck MUST be about this theme):\n{brief[:1500]}\n\n"
+                "Build the deck strictly around the campaign above. Do NOT turn it into a generic Talentrupt "
+                "RPO/recruiting sales pitch, do NOT add recruiting services, proof points, metrics or 'RPO "
+                "Done Right' messaging UNLESS the brief is itself about recruiting. Match the brief's tone.\n"
+                + _directives(audience, tone, depth)
+                + f"Design a {n}-slide deck with its own narrative arc for THIS campaign — announcement, "
+                "build-up, the experience, and a celebratory/closing slide as the theme suggests.\n"
+            )
+        else:
+            sys = (
+                "You are Talentrupt's strategy deck designer (offshore RPO selling into the US market, "
+                f"'RPO Done Right'). Brand pillars: {pillars}. Services: {services}. "
+                f"Proof points — these are the ONLY real numbers you may ever state: {proof}.\n"
+                + (f"\n{context}\n\n" if context else "")
+                + _directives(audience, tone, depth)
+                + f"Design a {n}-slide deck built SPECIFICALLY around the topic below — its own narrative "
+                "arc, not a generic company overview. Lead with the audience's problem or the topic's core "
+                "idea, then show how Talentrupt's services solve it. Reference the audience/client and topic "
+                "by name where natural, and weave in real Talentrupt services and proof so it feels tailored, "
+                "not boilerplate.\n"
+            )
+        sys += (
             "EVERY slide must be SUBSTANTIVE — no near-empty slides. Fill each with real, specific content "
             "(not one line floating in space).\n"
             "ANTI-FABRICATION (critical): do NOT state ANY percentage, multiple, count or dollar figure "
@@ -126,8 +144,8 @@ async def _outline(brand: Brand | None, campaign: Campaign | None, topic: str, n
             "helps) → metric(one real proof) → timeline(Source/Screen/Submit/Place, each with a desc) → "
             "closing(CTA)."
         )
-        usr = f"Topic: {topic}" + (
-            f" | Campaign: {campaign.name}, audience: {campaign.audience}" if campaign else ""
+        usr = (f"Campaign theme (the deck must be about this): {brief[:600]}\n" if brief else "") + (
+            f"Topic: {topic}" + (f" | Campaign: {campaign.name}, audience: {campaign.audience}" if campaign else "")
         )
         # Slightly higher temperature so repeated requests on a topic diverge rather than repeat.
         try:
@@ -270,16 +288,22 @@ def _footer(slide, idx, total, color=NAVY):
 
 
 # --- AI cover background --------------------------------------------------
-async def _ai_cover(brand: Brand | None, topic: str) -> str | None:
+async def _ai_cover(brand: Brand | None, topic: str, brief: str = "") -> str | None:
     if not llm.image_provider_available():
         return None
+    brief = (brief or "").strip()
     try:
         from . import images
-        refs = images._load_references(await retrieve.image_references(topic, n=2))
+        # For a campaign cover, NEVER attach past-post references (they leak RPO/holiday/cricket subjects).
+        refs = [] if brief else images._load_references(await retrieve.image_references(topic, n=2))
+        evoke = (f"the theme of THIS campaign: {brief[:400]}" if brief else topic)
+        firm_line = ("a premium, abstract presentation COVER background for a Talentrupt internal campaign"
+                     if brief else
+                     "A premium, abstract presentation COVER background for Talentrupt, an offshore RPO "
+                     "(recruitment) firm")
         prompt = (
-            "A premium, abstract presentation COVER background for Talentrupt, an offshore RPO "
-            "(recruitment) firm. Brand colors: deep navy #0B3559, coral red #F6404C accents, warm "
-            f"cream #EBE9DF. Modern editorial/magazine feel evoking: {topic}. Subtle geometric shapes, "
+            f"{firm_line}. Brand colors: deep navy #0B3559, coral red #F6404C accents, warm "
+            f"cream #EBE9DF. Modern editorial/magazine feel evoking: {evoke}. Subtle geometric shapes, "
             "soft depth, professional. Leave the lower-left area relatively clear. NO text, NO words, "
             "NO logos. Wide 3:2."
             + ("\nMatch the brand palette and finish of the attached Talentrupt references, original composition." if refs else "")
@@ -501,12 +525,14 @@ def _r_closing(slide, s, th):
 async def build_deck(
     brand: Brand | None, campaign: Campaign | None, topic: str, slides: int = 6, *,
     audience: str = "", tone: str = "", depth: str = "", design_theme: str = "editorial",
+    brief: str = "",
 ) -> tuple[str, str, dict]:
     slides = max(3, min(slides, 12))
     th = _deck_theme(design_theme)
     outline = await _outline(brand, campaign, topic, slides,
-                             audience=audience, tone=tone, depth=depth, design_theme=design_theme)
-    cover_img = await _ai_cover(brand, topic)
+                             audience=audience, tone=tone, depth=depth, design_theme=design_theme,
+                             brief=brief)
+    cover_img = await _ai_cover(brand, topic, brief=brief)
 
     prs = Presentation()
     prs.slide_width = SW

@@ -62,7 +62,7 @@ def _wrap(draw, text, font, max_width):
 
 # --- Content planning -----------------------------------------------------
 async def _plan(brand: Brand | None, concept: str, count: int, context: str = "",
-                force_style: str | None = None) -> list[dict]:
+                force_style: str | None = None, brief: str = "") -> list[dict]:
     proof = ", ".join(brand.proof_points) if brand and brand.proof_points else ""
     # Per-variation style: an explicit user choice applies to all; for MULTIPLE options with no chosen
     # style, spread DISTINCT styles so the variations look genuinely different (not the same archetype);
@@ -74,9 +74,20 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
     else:
         assigned = [None]
     if llm.provider_available():
+        ident = (
+            (
+                "You are an art director for a TALENTRUPT INTERNAL CAMPAIGN. Talentrupt's brand look is "
+                "navy/red/cream, modern and premium. THIS content is for the campaign brief below — the "
+                "headline, subtext, subject and visual MUST be about THAT theme. Do NOT use 'RPO Done "
+                "Right', recruiting / offshore-staffing copy, or any recruiting metric UNLESS the brief "
+                f"is itself about recruiting.\nCAMPAIGN BRIEF (authoritative topic): {brief[:700]}\n\n"
+            )
+            if brief else
+            "You are an art director for Talentrupt (offshore RPO, 'RPO Done Right'; navy/red/cream brand). "
+        )
         sys = (
-            "You are an art director for Talentrupt (offshore RPO, 'RPO Done Right'; "
-            "navy/red/cream brand). Return ONLY JSON: {\"variations\": [...]} with EXACTLY "
+            ident
+            + "Return ONLY JSON: {\"variations\": [...]} with EXACTLY "
             f"{count} variation(s). Each variation object:\n"
             '- "layout": one of "metric","statement","steps","comparison"\n'
             '- "style": one of "photographic" (a cinematic real-world photo hero), '
@@ -131,7 +142,7 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             "or estimate a statistic to fill a card. Do NOT default to a 'hand holding a card/phone' "
             "image or a plain cream card with a navy heading. Match the topic; NEVER force healthcare/"
             "recruiting metrics onto unrelated topics (holidays, culture); do NOT invent statistics.\n"
-            + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if proof else "")
+            + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if (proof and not brief) else "")
             + (f"\n{context}\n" if context else "")
         )
         diversity = ""
@@ -145,7 +156,10 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
                          f"Use these styles IN ORDER: {spread}. Give each a different scene, composition, "
                          "framing and bg, and write its content to suit its style. They must look like "
                          "genuinely different options to choose from — NOT the same image reworded.")
-        usr = f"Topic/concept: {concept}\nProduce {count} variation(s).{diversity}"
+        usr = (
+            (f"Campaign theme (what every variation must be about): {brief[:700]}\n" if brief else "")
+            + f"Topic/concept: {concept}\nProduce {count} variation(s).{diversity}"
+        )
         try:
             data = await llm.chat_json(
                 [{"role": "system", "content": sys}, {"role": "user", "content": usr}]
@@ -160,10 +174,12 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             pass  # transient provider/parse error -> degrade to the deterministic fallback below
 
     # Fallback: distinct styles + alternating bg so multiple options still differ (no fabricated metric).
+    # Brief-aware fallback: a campaign image must never fall back to the RPO tagline.
+    fb_sub = "" if brief else (brand.tagline if brand else "RPO Done Right")
     return [
         _coerce(
             {"layout": "statement", "bg": "navy" if i % 2 == 0 else "cream",
-             "headline": concept, "subtext": brand.tagline if brand else "RPO Done Right"},
+             "headline": concept, "subtext": fb_sub},
             concept, brand, force_style=assigned[i],
         )
         for i in range(count)
@@ -440,7 +456,7 @@ _COMPOSITION_DIRECTION = {
 }
 
 
-def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> str:
+def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief: str = "") -> str:
     metric_line = f'Feature this statistic prominently: "{plan["metric"]}" ({plan.get("metric_label") or ""}).' if plan.get("metric") else ""
     extra = "Steps to show: " + "; ".join(plan["points"]) + "." if (plan["layout"] == "steps" and plan.get("points")) else ""
     comp = _COMPOSITION_DIRECTION.get(plan.get("composition", ""), _LAYOUT_DIRECTION.get(plan["layout"], _LAYOUT_DIRECTION["statement"]))
@@ -456,9 +472,22 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
         "framing, props, or wording. Reach their finish, invent your own picture.\n"
         if has_refs else ""
     )
+    if brief:
+        subject_line = (
+            "A polished, premium SQUARE (1:1) social-media marketing graphic for a TALENTRUPT INTERNAL "
+            "CAMPAIGN. THE SUBJECT of this graphic is the campaign described below — depict ONLY that. "
+            "It is NOT about RPO / recruitment / offshore staffing, and must NOT show the tagline 'RPO "
+            "Done Right' or any recruiting copy, metrics, or messaging UNLESS the campaign brief itself "
+            "is about recruiting. Stay strictly on the campaign's theme.\n"
+            f"CAMPAIGN BRIEF (authoritative — the image MUST be about this): {brief[:700]}\n\n"
+        )
+    else:
+        subject_line = (
+            "A polished, premium SQUARE (1:1) social-media marketing graphic for Talentrupt, an "
+            "offshore RPO (recruitment process outsourcing) company; tagline 'RPO Done Right'.\n\n"
+        )
     return (
-        "A polished, premium SQUARE (1:1) social-media marketing graphic for Talentrupt, an "
-        "offshore RPO (recruitment process outsourcing) company; tagline 'RPO Done Right'.\n\n"
+        subject_line
         + ref_line
         + "BRAND SYSTEM — follow precisely:\n"
         "- Colors: deep navy #0B3559, coral red #F6404C (accent), warm cream #EBE9DF, white.\n"
@@ -524,9 +553,9 @@ def _load_references(paths: list[str]) -> list[bytes]:
 
 
 async def _openai_image(
-    plan: dict, concept: str, context: str, refs: list[bytes]
+    plan: dict, concept: str, context: str, refs: list[bytes], brief: str = ""
 ) -> tuple[str, str, dict] | None:
-    prompt = _openai_prompt(plan, concept, context, bool(refs))
+    prompt = _openai_prompt(plan, concept, context, bool(refs), brief=brief)
     try:
         if refs:
             data = await llm.generate_image_edit(prompt, refs)
@@ -549,7 +578,7 @@ async def _openai_image(
 # --- Public API -----------------------------------------------------------
 async def build_images(
     brand: Brand | None, campaign: Campaign | None, concept: str, count: int = 1,
-    style: str | None = None,
+    style: str | None = None, brief: str = "",
 ) -> list[tuple[str, str, dict]]:
     # HARD FACE GUARD (single chokepoint for every image path — generate/refine/campaign): if the
     # concept names a real Talentrupt person, render their REAL photo and NEVER reach gpt-image-1.
@@ -558,21 +587,28 @@ async def build_images(
     if guarded is not None:
         return guarded
     count = max(1, min(count, 4))
-    context = await retrieve.brand_context(concept, k=3)
+    brief = (brief or "").strip()
+    # CAMPAIGN images must be grounded in the campaign BRIEF — NOT Talentrupt's generic RPO corpus.
+    # retrieve.brand_context/image_references pull from one shared RPO/holiday past-post library, so
+    # for a non-RPO campaign (cricket, football) they bleed "RPO Done Right" taglines and cross-topic
+    # imagery (cricket bats, an Independence-Day team shot) into the picture. With a brief present we
+    # ground in the brief and skip that retrieval entirely; the brand look still comes from the prompt.
+    context = "" if brief else await retrieve.brand_context(concept, k=3)
     # `style`, when set (e.g. an explicit Create-intake choice), forces the visual style.
-    plans = await _plan(brand, concept, count, context, force_style=style)
+    plans = await _plan(brand, concept, count, context, force_style=style, brief=brief)
 
     use_openai = llm.image_provider_available()
     results: list[tuple[str, str, dict]] = []
 
     if use_openai:
-        # References only help the rich styles; they flatten clean infographic/typographic.
+        # References only help the rich styles; they flatten clean infographic/typographic. NEVER attach
+        # past-post images for a campaign image (they leak off-theme/RPO subjects).
         needs_refs = any(p.get("style") in RICH_STYLES for p in plans)
-        refs = _load_references(await retrieve.image_references(concept, n=3)) if needs_refs else []
+        refs = [] if brief else (_load_references(await retrieve.image_references(concept, n=3)) if needs_refs else [])
 
         async def one(p: dict):
             use_refs = refs if p.get("style") in RICH_STYLES else []
-            res = await _openai_image(p, concept, context, use_refs)
+            res = await _openai_image(p, concept, context, use_refs, brief=brief)
             if res is None:  # API failed -> compositor fallback (never fake)
                 try:
                     return _render(p)

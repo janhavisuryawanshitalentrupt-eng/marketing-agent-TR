@@ -315,7 +315,8 @@ def _paint_cover(canvas, doc):
                 yy -= 17
         c.setFillColor(CREAM)
         c.setFont("Helvetica", 9)
-        c.drawString(0.92 * inch, 0.7 * inch, f"{cov.get('date', '')}   ·   RPO Done Right")
+        c.drawString(0.92 * inch, 0.7 * inch, f"{cov.get('date', '')}"
+                     + (f"   ·   {cov.get('tagline')}" if cov.get("tagline") else ""))
     except Exception:
         pass
     c.restoreState()
@@ -342,7 +343,8 @@ def _paint_body_chrome(canvas, doc):
         c.line(0.9 * inch, 0.62 * inch, W - 0.9 * inch, 0.62 * inch)
         c.setFillColor(NAVY)
         c.setFont("Helvetica", 8)
-        c.drawString(0.9 * inch, 0.46 * inch, "Talentrupt · RPO Done Right")
+        _tag = getattr(doc, "_cover", {}).get("tagline", "RPO Done Right")
+        c.drawString(0.9 * inch, 0.46 * inch, "Talentrupt" + (f" · {_tag}" if _tag else ""))
         c.drawRightString(W - 0.9 * inch, 0.46 * inch, str(c.getPageNumber()))
     except Exception:
         pass
@@ -370,16 +372,18 @@ def _pdf_directives(audience: str, tone: str) -> str:
 
 async def generate_pdf_outline(brand: Brand | None, topic: str, kind: str, *,
                                audience: str = "", tone: str = "", depth: str = "",
-                               design_theme: str = "editorial") -> dict | None:
+                               design_theme: str = "editorial", brief: str = "") -> dict | None:
     """LLM-write a tailored, brand-grounded outline. Returns a dict with title/subtitle/kicker/metrics/
     callout/sections/cta, or ``None`` when no provider is available / nothing usable (caller falls back)."""
-    if not llm.provider_available() or not (topic or "").strip():
+    brief = (brief or "").strip()
+    if not llm.provider_available() or not ((topic or "").strip() or brief):
         return None
     pillars = ", ".join(brand.pillars) if brand and brand.pillars else ""
     proofs_list = list(brand.proof_points) if brand and brand.proof_points else []
     proof = "; ".join(proofs_list)
     services = ", ".join(brand.services) if brand and brand.services else ""
-    context = await retrieve.brand_context(topic, k=6)
+    # CAMPAIGN document: ground in the brief; do NOT pull the generic RPO past-post corpus.
+    context = "" if brief else await retrieve.brand_context(topic, k=6)
     sec_target = {"concise": "3-4", "standard": "4-6", "in-depth": "6-7"}.get(depth, "4-6")
     kind_guide = {
         "proposal": ("a persuasive CLIENT PROPOSAL: the prospect's situation/problem, Talentrupt's "
@@ -389,19 +393,35 @@ async def generate_pdf_outline(brand: Brand | None, topic: str, kind: str, *,
         "report": ("an EXECUTIVE BRIEFING / REPORT: the context, the key insight, Talentrupt's approach, "
                    "the evidence, and a recommendation."),
     }.get(kind, "an executive document.")
-    sys = (
-        "You are Talentrupt's senior marketing writer (offshore RPO selling into the US market, "
-        f"'RPO Done Right'). Brand pillars: {pillars}. Services: {services}. "
-        f"Proof points — the ONLY real numbers you may ever state: {proof}.\n"
-        "ANTI-FABRICATION (critical): do NOT state ANY percentage, multiple, count or dollar figure "
-        "ANYWHERE (title, subtitle, headings, bodies, bullets, callout, cta) UNLESS it is copied EXACTLY "
-        f"from this list: {proof or 'none'}. Otherwise describe benefits QUALITATIVELY (write 'faster "
-        "time-to-fill', NEVER '40% faster'). Inventing a number is a serious error.\n"
-        + (f"\n{context}\n\n" if context else "")
-        + _pdf_directives(audience, tone)
-        + f"Write {kind_guide} Reference the reader/client and topic by name where natural, and weave in "
-        "real Talentrupt services so it reads tailored, not boilerplate.\n"
-        'Return ONLY JSON: {"title": str, "subtitle": str, "kicker": str (2-4 word eyebrow), '
+    if brief:
+        sys = (
+            "You are a marketing writer for ONE specific Talentrupt INTERNAL campaign. Talentrupt's brand "
+            f"look is navy/red/cream, premium and modern.\n\nCAMPAIGN BRIEF (authoritative — the WHOLE "
+            f"document MUST be about this theme):\n{brief[:1500]}\n\n"
+            "Write the document strictly around the campaign above. Do NOT turn it into a generic "
+            "Talentrupt RPO/recruiting pitch and do NOT add recruiting services, proof points, metrics or "
+            "'RPO Done Right' messaging UNLESS the brief is itself about recruiting. Match the brief's tone.\n"
+            "ANTI-FABRICATION: do NOT invent statistics or numbers; describe things qualitatively.\n"
+            + _pdf_directives(audience, tone)
+            + f"Shape it as {kind_guide}\n"
+            'Return ONLY JSON: {"title": str, "subtitle": str, "kicker": str (2-4 word eyebrow), '
+        )
+    else:
+        sys = (
+            "You are Talentrupt's senior marketing writer (offshore RPO selling into the US market, "
+            f"'RPO Done Right'). Brand pillars: {pillars}. Services: {services}. "
+            f"Proof points — the ONLY real numbers you may ever state: {proof}.\n"
+            "ANTI-FABRICATION (critical): do NOT state ANY percentage, multiple, count or dollar figure "
+            "ANYWHERE (title, subtitle, headings, bodies, bullets, callout, cta) UNLESS it is copied EXACTLY "
+            f"from this list: {proof or 'none'}. Otherwise describe benefits QUALITATIVELY (write 'faster "
+            "time-to-fill', NEVER '40% faster'). Inventing a number is a serious error.\n"
+            + (f"\n{context}\n\n" if context else "")
+            + _pdf_directives(audience, tone)
+            + f"Write {kind_guide} Reference the reader/client and topic by name where natural, and weave in "
+            "real Talentrupt services so it reads tailored, not boilerplate.\n"
+            'Return ONLY JSON: {"title": str, "subtitle": str, "kicker": str (2-4 word eyebrow), '
+        )
+    sys += (
         '"metrics": [str], "callout": str (one punchy key insight or client-outcome line), '
         '"sections": [{"heading": str, "body": str, "bullets": [str], "layout": "single"|"two_column"}], '
         '"cta": {"headline": str, "subtext": str}} '
@@ -413,7 +433,8 @@ async def generate_pdf_outline(brand: Brand | None, topic: str, kind: str, *,
         "Open with the reader's problem/context, keep everything specific, and make 'cta' a concrete "
         "next step. Professional US B2B tone."
     )
-    usr = f"Document type: {kind}. Topic / brief: {topic}"
+    usr = (f"Document type: {kind}. " + (f"Campaign theme (the document must be about this): {brief[:600]}. " if brief else "")
+           + (f"Topic / brief: {topic}" if topic else ""))
     try:
         data = await llm.chat_json(
             [{"role": "system", "content": sys}, {"role": "user", "content": usr}], temperature=0.7
@@ -543,7 +564,9 @@ def build_pdf(
     tone: str = "",
     depth: str = "",
     design_theme: str = "editorial",
+    brief: str = "",
 ) -> tuple[str, str, dict]:
+    brief = (brief or "").strip()
     theme = _theme(design_theme)
     st = _styles(theme, tone)
     kind_label = KIND_LABELS.get(kind, "Executive Report")
@@ -563,11 +586,13 @@ def build_pdf(
     has_cover = has_outline and kind != "one-pager"  # one-pagers stay a single dense page
 
     title = (outline.get("title") if outline else "") or topic or (campaign.name if campaign else "Talentrupt")
+    # For a campaign document, never fall back to the RPO tagline as the subtitle or footer chrome.
     doc._cover = {
         "title": title,
         "kicker": (outline.get("kicker") if outline else "") or kind_label,
-        "subtitle": (outline.get("subtitle") if outline else "") or "RPO Done Right",
+        "subtitle": (outline.get("subtitle") if outline else "") or ("" if brief else "RPO Done Right"),
         "date": date.today().strftime("%B %Y"),
+        "tagline": "" if brief else "RPO Done Right",
     }
 
     cover_frame = Frame(0, 0, W, H, id="cover", leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)

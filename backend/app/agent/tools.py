@@ -155,7 +155,8 @@ async def exec_generate_image(db, state, brand, args) -> dict:
         count = max(1, min(int(args.get("count", 1) or 1), 3))
     except (TypeError, ValueError):
         count = 1
-    rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"))
+    rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"),
+                                         brief=state.get("campaign_brief", ""))
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
@@ -209,8 +210,9 @@ async def exec_build_deck(db, state, brand, args) -> dict:
     slides = args.get("slides") or _DEPTH_SLIDES.get(style.get("depth", ""), 6)
     count = _variation_count(args)
     saved = []
+    brief = state.get("campaign_brief", "")
     for _ in range(count):  # each build re-plans the outline -> distinct variations
-        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides, **style)
+        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides, brief=brief, **style)
         a = _save_asset(db, state.get("campaign_id"), "deck", topic, body={"topic": topic, **style},
                         file_path=path, file_url=meta["url"], meta=meta)
         saved.append(serialize_asset(a))
@@ -227,11 +229,12 @@ async def exec_build_pdf(db, state, brand, args) -> dict:
     topic = (args.get("topic") or "").strip()
     style = _doc_style(args)
     count = _variation_count(args)
+    brief = state.get("campaign_brief", "")
     saved = []
     for _ in range(count):
         # Write tailored, brand-grounded content for the topic (None -> template fallback in build_pdf).
-        outline = await pdf.generate_pdf_outline(brand, topic, kind, **style) if topic else None
-        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, **style)
+        outline = await pdf.generate_pdf_outline(brand, topic, kind, brief=brief, **style) if (topic or brief) else None
+        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, brief=brief, **style)
         title = (topic or f"Talentrupt — {kind}")[:120]
         a = _save_asset(db, state.get("campaign_id"), "pdf", title, body={"kind": kind, "topic": topic, **style},
                         file_path=path, file_url=meta["url"], meta=meta)
