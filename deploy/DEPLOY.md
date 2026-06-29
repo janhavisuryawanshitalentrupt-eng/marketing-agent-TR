@@ -18,7 +18,26 @@ stack as the other apps — **PM2 → shared Nginx → Let's Encrypt** — but t
 
 ---
 
-## First-time setup
+## Fast path (one command)
+
+After DNS is live and the repo is cloned, `deploy/bootstrap.sh` does the entire server-side setup
+(packages → venv+deps → frontend build → PM2 → own Nginx file → own cert → verify). It's isolated —
+it only writes its own `sites-available/talentrupt-agent` and its own cert, and leaves UFW alone, so it
+can't affect the other 6 apps.
+
+```bash
+# on the droplet, as root
+git clone <repo-url> /root/talentrupt-agent
+cd /root/talentrupt-agent
+DOMAIN=marketing.htuniverse.com LE_EMAIL=surajit@talentrupt.com ./deploy/bootstrap.sh
+# first run stops after creating backend/.env — fill it in, then re-run the same command
+```
+
+The manual, step-by-step version below explains exactly what that script does.
+
+---
+
+## First-time setup (manual / reference)
 
 ### 1. DNS (GoDaddy)
 Add an A record: `marketing → 206.189.132.167` (per `dns/godaddy-htuniverse.md` in the infra repo).
