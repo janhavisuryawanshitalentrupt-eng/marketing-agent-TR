@@ -461,6 +461,10 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
             data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
             if data:
                 bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+                try:  # crisp up any soft/hazy gpt-image-1 background (matches the generate_image path)
+                    bg = bg.filter(ImageFilter.UnsharpMask(radius=2, percent=130, threshold=2))
+                except Exception:
+                    pass
         except Exception:
             bg = None
     if bg is None:  # provider down -> deterministic navy template (still the real face)

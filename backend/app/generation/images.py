@@ -12,7 +12,7 @@ import io
 import re
 import zipfile
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from ..brand.brand_kit import CREAM, NAVY, RED, WHITE
 from ..config import settings
@@ -536,6 +536,23 @@ def _downscale_jpeg(data: bytes, max_side: int = 1024) -> bytes:
     return buf.getvalue()
 
 
+def _crispen(data: bytes) -> bytes:
+    """gpt-image-1 sometimes returns a soft / hazy frame. Recover crisp edges and clear the washed-out
+    'glow' so a blurry image NEVER ships (Create or Campaign). UnsharpMask (with a threshold) sharpens
+    soft renders while barely touching already-crisp ones; the small contrast/sharpness nudge removes
+    the haze. Best-effort — never block delivery on a post-process hiccup."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        im = im.filter(ImageFilter.UnsharpMask(radius=2.2, percent=155, threshold=2))
+        im = ImageEnhance.Contrast(im).enhance(1.06)
+        im = ImageEnhance.Sharpness(im).enhance(1.12)
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return data
+
+
 def _load_references(paths: list[str]) -> list[bytes]:
     if not paths:
         return []
@@ -563,6 +580,7 @@ async def _openai_image(
             data = await llm.generate_image_bytes(prompt)
     except Exception:
         return None
+    data = _crispen(data)  # crisp up any soft/hazy gpt-image-1 frame so a blurry image never ships
     data = composite_logo_bytes(data)  # stamp the real Talentrupt logo so it's always present & correct
     file_name = unique_name("tr-image", "png")
     path = storage_subdir("images") / file_name
