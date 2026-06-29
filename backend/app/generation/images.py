@@ -537,15 +537,13 @@ def _downscale_jpeg(data: bytes, max_side: int = 1024) -> bytes:
 
 
 def _crispen(data: bytes) -> bytes:
-    """gpt-image-1 sometimes returns a soft / hazy frame. Recover crisp edges and clear the washed-out
-    'glow' so a blurry image NEVER ships (Create or Campaign). UnsharpMask (with a threshold) sharpens
-    soft renders while barely touching already-crisp ones; the small contrast/sharpness nudge removes
-    the haze. Best-effort — never block delivery on a post-process hiccup."""
+    """gpt-image-1 sometimes returns a soft / hazy frame. Apply a GENTLE unsharp pass to recover edges
+    without making already-crisp renders look over-processed (the threshold means flat areas are left
+    alone). Deliberately light — strong sharpening reads as harsh/crunchy. Best-effort; never blocks."""
     try:
         im = Image.open(io.BytesIO(data)).convert("RGB")
-        im = im.filter(ImageFilter.UnsharpMask(radius=2.2, percent=155, threshold=2))
-        im = ImageEnhance.Contrast(im).enhance(1.06)
-        im = ImageEnhance.Sharpness(im).enhance(1.12)
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.6, percent=85, threshold=3))
+        im = ImageEnhance.Contrast(im).enhance(1.02)
         buf = io.BytesIO()
         im.save(buf, format="PNG")
         return buf.getvalue()
