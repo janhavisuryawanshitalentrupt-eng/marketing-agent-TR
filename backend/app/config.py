@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     admin_username: str = "Admin@talentrupt.com"
     admin_password: str = "Admin123"
     admin_token: str = "dev-talentrupt-admin-token"
+    # A second, NON-admin team member. This role does NOT see the Tasks or Analytics sections (the
+    # nav is hidden AND those APIs are admin-only). Override via env (MEMBER_PASSWORD) in production.
+    member_username: str = "nishant@talentrupt.com"
+    member_password: str = "NT@tr@2026"
+    member_token: str = "dev-talentrupt-member-token"
 
     # --- Email / password reset (optional) ------------------------------
     # SMTP is used to deliver the 'forgot password' reset code to the admin email. Until host+from are

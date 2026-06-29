@@ -29,6 +29,8 @@ export class ApiError extends Error {
 }
 
 const TOKEN_KEY = "tr_token";
+const ROLE_KEY = "tr_role";
+const USER_KEY = "tr_user";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -39,8 +41,39 @@ export function setToken(token: string): void {
   window.localStorage.setItem(TOKEN_KEY, token);
 }
 
+/** Cached role/username for an instant (flash-free) render; the server (/auth/me) is authoritative. */
+export function getRole(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(ROLE_KEY) || "";
+}
+
+export function getUsername(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(USER_KEY) || "";
+}
+
+/** Persist the full session (token + role + username) after a successful sign-in. */
+export function setSession(token: string, role: string, username: string): void {
+  setToken(token);
+  try {
+    window.localStorage.setItem(ROLE_KEY, role);
+    window.localStorage.setItem(USER_KEY, username);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function clearToken(): void {
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(ROLE_KEY);
+  window.localStorage.removeItem(USER_KEY);
+}
+
+/** The current session's identity — role is derived server-side from the token (can't be spoofed). */
+export async function getMe(): Promise<{ username: string; role: string }> {
+  const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, "Failed to load session");
+  return res.json();
 }
 
 function authHeaders(): Record<string, string> {
@@ -51,7 +84,7 @@ function authHeaders(): Record<string, string> {
 export async function login(
   username: string,
   password: string,
-): Promise<{ token: string; username: string }> {
+): Promise<{ token: string; username: string; role: string }> {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -80,7 +113,7 @@ export async function resetPassword(
   email: string,
   code: string,
   new_password: string,
-): Promise<{ token: string; username: string }> {
+): Promise<{ token: string; username: string; role: string }> {
   const res = await fetch(`${API_BASE}/api/auth/reset`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

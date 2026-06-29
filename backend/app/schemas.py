@@ -12,6 +12,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     token: str
     username: str
+    role: str = "admin"
 
 
 class ForgotRequest(BaseModel):

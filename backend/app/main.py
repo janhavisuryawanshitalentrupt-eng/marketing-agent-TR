@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import re
+import secrets
 import time
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -91,10 +92,29 @@ def on_startup() -> None:
 
 
 # --- Auth -----------------------------------------------------------------
-def require_auth(authorization: str = Header(default="")) -> None:
+def _role_for_token(token: str) -> str | None:
+    """Map a bearer token to its role. Admin and member each have a distinct token."""
+    if token and secrets.compare_digest(token, settings.admin_token):
+        return "admin"
+    if token and secrets.compare_digest(token, settings.member_token):
+        return "member"
+    return None
+
+
+def require_auth(authorization: str = Header(default="")) -> str:
+    """Validate the bearer token and RETURN the caller's role ('admin' | 'member')."""
     token = authorization.replace("Bearer ", "").strip()
-    if token != settings.admin_token:
+    role = _role_for_token(token)
+    if role is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    return role
+
+
+def require_admin(role: str = Depends(require_auth)) -> str:
+    """Gate admin-only endpoints (Tasks, Analytics). Members get a 403."""
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+    return role
 
 
 # --- Health ---------------------------------------------------------------
@@ -114,13 +134,30 @@ def _is_admin_email(email: str) -> bool:
     return (email or "").strip().lower() == settings.admin_username.strip().lower()
 
 
+def _is_member_login(username: str, password: str) -> bool:
+    return (
+        (username or "").strip().lower() == settings.member_username.strip().lower()
+        and bool(password)
+        and secrets.compare_digest(password, settings.member_password)
+    )
+
+
 @app.post("/api/auth/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
     # Password may have been changed via 'forgot password' (DB override); verify_password falls back
     # to the configured default until then, so existing credentials keep working.
     if _is_admin_email(req.username) and auth_reset.verify_password(db, req.password):
-        return LoginResponse(token=settings.admin_token, username=settings.admin_username)
+        return LoginResponse(token=settings.admin_token, username=settings.admin_username, role="admin")
+    if _is_member_login(req.username, req.password):
+        return LoginResponse(token=settings.member_token, username=settings.member_username, role="member")
     raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.get("/api/auth/me")
+def whoami(role: str = Depends(require_auth)) -> dict:
+    """The current session's identity — role is derived from the token (can't be spoofed client-side)."""
+    username = settings.admin_username if role == "admin" else settings.member_username
+    return {"username": username, "role": role}
 
 
 @app.post("/api/auth/forgot", response_model=ForgotResponse)
@@ -1484,7 +1521,7 @@ async def enrich_opportunity(
 
 @app.get("/api/tasks")
 def list_tasks(
-    status: str | None = None, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    status: str | None = None, db: Session = Depends(get_db), _: None = Depends(require_admin)
 ):
     q = db.query(CalendarTask)
     if status:  # optional filter; no param = byte-identical to before
@@ -1495,7 +1532,7 @@ def list_tasks(
 
 @app.patch("/api/tasks/{task_id}")
 def update_task(
-    task_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    task_id: int, payload: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)
 ):
     """Complete / snooze / reschedule a follow-up task. State rides CalendarTask.status + payload."""
     t = db.get(CalendarTask, task_id)
@@ -1532,7 +1569,7 @@ def update_task(
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(
-    task_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)
 ):
     """Remove a follow-up task entirely."""
     t = db.get(CalendarTask, task_id)
@@ -1544,7 +1581,7 @@ def delete_task(
 
 
 @app.get("/api/analytics/summary")
-def analytics_summary(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def analytics_summary(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     """Read-only pipeline rollup for the Analytics dashboard. Pure aggregation — no writes/LLM/web."""
     opps = db.query(Opportunity).all()
     by_status = {s: 0 for s in ("new", "contacted", "replied", "meeting")}

@@ -12,18 +12,24 @@ import { BusinessView } from "./BusinessView";
 import { TasksView } from "./TasksView";
 import { AnalyticsView } from "./AnalyticsView";
 
-const NAV = [
+type NavItem = { href: string; label: string; icon: string; adminOnly?: boolean };
+
+// Tasks & Analytics are ADMIN-ONLY — hidden for non-admin members (and their APIs are admin-gated too).
+const NAV: NavItem[] = [
   { href: "/", label: "Chat", icon: "M4 4h16v12H7l-3 3V4z" },
   { href: "/create", label: "Create", icon: "M4 5h16v14H4zM4 14l4-4 4 4 3-3 5 5" },
   { href: "/campaigns", label: "Campaigns", icon: "M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" },
   { href: "/business", label: "Business Dev", icon: "M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" },
-  { href: "/tasks", label: "Tasks", icon: "M9 11l3 3L20 6M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7" },
-  { href: "/analytics", label: "Analytics", icon: "M4 20V10M10 20V4M16 20v-7M3 20h18" },
+  { href: "/tasks", label: "Tasks", icon: "M9 11l3 3L20 6M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7", adminOnly: true },
+  { href: "/analytics", label: "Analytics", icon: "M4 20V10M10 20V4M16 20v-7M3 20h18", adminOnly: true },
 ];
 
 export function Shell() {
   const pathname = usePathname();
-  const { logout } = useAuth();
+  const { logout, role, username } = useAuth();
+  const isAdmin = role === "admin";
+  const nav = NAV.filter((item) => !item.adminOnly || isAdmin);
+  const displayName = (username.split("@")[0] || "User").replace(/^\w/, (c) => c.toUpperCase());
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -53,8 +59,13 @@ export function Shell() {
     { key: "/create", active: pathname.startsWith("/create"), node: <CreateView /> },
     { key: "/campaigns", active: pathname.startsWith("/campaigns"), node: <CampaignsView /> },
     { key: "/business", active: pathname.startsWith("/business"), node: <BusinessView /> },
-    { key: "/tasks", active: pathname.startsWith("/tasks"), node: <TasksView /> },
-    { key: "/analytics", active: pathname.startsWith("/analytics"), node: <AnalyticsView /> },
+    // Tasks & Analytics are mounted only for admins; a member who deep-links here sees the fallback.
+    ...(isAdmin
+      ? [
+          { key: "/tasks", active: pathname.startsWith("/tasks"), node: <TasksView /> },
+          { key: "/analytics", active: pathname.startsWith("/analytics"), node: <AnalyticsView /> },
+        ]
+      : []),
   ];
 
   return (
@@ -77,7 +88,7 @@ export function Shell() {
 
         {/* Primary nav (centered) */}
         <nav className="flex items-center justify-center gap-1">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active =
               item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             return (
@@ -120,10 +131,10 @@ export function Shell() {
           </button>
 
           <div className="flex items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-[var(--surface-2)]">
-            <Avatar name="Admin" size={32} />
+            <Avatar name={displayName} size={32} />
             <div className="hidden min-w-0 leading-tight lg:block">
-              <div className="truncate text-sm font-medium">Admin</div>
-              <div className="truncate text-[11px] text-muted">Admin@talentrupt.com</div>
+              <div className="truncate text-sm font-medium">{displayName}</div>
+              <div className="truncate text-[11px] text-muted">{username || ""}</div>
             </div>
             <button
               onClick={logout}
@@ -146,6 +157,11 @@ export function Shell() {
             {v.node}
           </div>
         ))}
+        {!views.some((v) => v.active) && (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted">
+            This section isn&apos;t available for your account.
+          </div>
+        )}
       </main>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { login, forgotPassword, resetPassword, setToken } from "@/lib/api";
+import { login, forgotPassword, resetPassword, setSession } from "@/lib/api";
 
 function EyeIcon({ off }: { off?: boolean }) {
   return off ? (
@@ -92,7 +92,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setLoading(true);
     try {
       const res = await login(email, password);
-      setToken(res.token);
+      setSession(res.token, res.role, res.username);
       onAuthed();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -124,7 +124,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setLoading(true);
     try {
       const res = await resetPassword(email, code.trim(), newPassword);
-      setToken(res.token); // reset signs you straight in
+      setSession(res.token, res.role, res.username); // reset signs you straight in
       onAuthed();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reset failed");
