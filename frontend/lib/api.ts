@@ -279,8 +279,11 @@ export async function planCampaignChat(
   return res.json();
 }
 
-export async function getCampaigns(status?: string): Promise<CampaignSummary[]> {
-  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+export async function getCampaigns(status?: string, type?: string): Promise<CampaignSummary[]> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (type) params.set("type", type);
+  const q = params.toString() ? `?${params.toString()}` : "";
   const res = await fetch(`${API_BASE}/api/campaigns${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load campaigns");
   return res.json();
@@ -291,6 +294,26 @@ export async function getCampaign(id: number): Promise<CampaignDetail> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error("Failed to load campaign");
+  return res.json();
+}
+
+/** Create an INTERNAL campaign shell (folder + its chat thread). */
+export async function createInternalCampaign(name: string): Promise<CampaignDetail> {
+  const res = await fetch(`${API_BASE}/api/campaigns`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name, type: "internal" }),
+  });
+  if (!res.ok) throw new Error("Failed to create campaign");
+  return res.json();
+}
+
+/** The internal campaign's chat thread (restores the conversation when reopening the folder). */
+export async function getCampaignMessages(
+  id: number,
+): Promise<{ conversation_id: number | null; messages: { role: string; content: string; assets: Asset[] }[] }> {
+  const res = await fetch(`${API_BASE}/api/campaigns/${id}/messages`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load campaign chat");
   return res.json();
 }
 

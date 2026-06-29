@@ -58,6 +58,11 @@ def _migrate_sqlite() -> None:
     from sqlalchemy import text
 
     with engine.begin() as conn:
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(conversations)"))}
-        if "kind" not in cols:
+        conv_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(conversations)"))}
+        if "kind" not in conv_cols:
             conn.execute(text("ALTER TABLE conversations ADD COLUMN kind VARCHAR DEFAULT 'chat'"))
+        if "campaign_id" not in conv_cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN campaign_id INTEGER"))
+        camp_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(campaigns)"))}
+        if "type" not in camp_cols:
+            conn.execute(text("ALTER TABLE campaigns ADD COLUMN type VARCHAR DEFAULT 'external'"))

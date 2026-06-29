@@ -46,7 +46,9 @@ class Conversation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(300), default="New conversation")
-    kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | create
+    kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | create | campaign
+    # When this thread belongs to an (internal) campaign, link it so the folder restores its chat.
+    campaign_id: Mapped[int | None] = mapped_column(ForeignKey("campaigns.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     messages: Mapped[list["Message"]] = relationship(
@@ -72,6 +74,9 @@ class Campaign(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(300))
+    # external = client-targeting (sector + prospects + calendar); internal = promote Talentrupt
+    # itself via a chat-driven content folder.
+    type: Mapped[str] = mapped_column(String(20), default="external")
     goal: Mapped[str] = mapped_column(Text, default="")
     audience: Mapped[str] = mapped_column(Text, default="")
     pillar: Mapped[str] = mapped_column(String(200), default="")

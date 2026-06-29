@@ -38,6 +38,7 @@ export interface Conversation {
 export interface CampaignSummary {
   id: number;
   name: string;
+  type?: string; // "internal" (promote Talentrupt) | "external" (client-targeting)
   created_at: string | null;
   sector?: string; // resolved target sector — used to avoid creating a duplicate same-sector folder
 }
@@ -90,6 +91,7 @@ export interface CampaignDetail extends CampaignSummary {
   strategy: Record<string, unknown>;
   status: string;
   resolved_sector?: string;
+  conversation_id?: number | null; // the internal campaign's chat thread
   items?: CampaignItem[];
   assets: Asset[];
 }

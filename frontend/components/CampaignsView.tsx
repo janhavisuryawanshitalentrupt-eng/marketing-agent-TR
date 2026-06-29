@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  createInternalCampaign,
   deleteCampaign,
   deleteCampaignProspect,
   exportCampaignProspects,
   fileUrl,
   generateCampaignItem,
   getCampaign,
+  getCampaignMessages,
   getCampaignProspects,
   getCampaignProspectStrategy,
   getCampaigns,
@@ -18,17 +20,25 @@ import {
   revokeCampaignProspect,
   setCampaignSector,
   setCampaignStatus,
+  streamChat,
   updateCampaignItem,
+  uploadAttachment,
 } from "@/lib/api";
 import type {
+  Asset,
   CampaignDetail,
   CampaignItem,
   CampaignProspect,
   CampaignSummary,
+  ChatMessage,
   ClientStrategy,
 } from "@/lib/types";
+import { AssetCard } from "./AssetCard";
 import { Avatar } from "./Avatar";
 import { EmptyState } from "./EmptyState";
+import { Markdown } from "./Markdown";
+
+type CampaignTab = "internal" | "external";
 
 // Real-time campaign quick-starts by sector — each builds a context-grounded campaign whose
 // Target clients are real companies discovered for that vertical.
@@ -73,6 +83,7 @@ const VERTICALS = [
 ];
 
 export function CampaignsView() {
+  const [tab, setTab] = useState<CampaignTab>("internal");
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
@@ -80,14 +91,33 @@ export function CampaignsView() {
   const [busyVertical, setBusyVertical] = useState<string | null>(null);
 
   const loadList = useCallback(async () => {
-    const c = await getCampaigns("planning"); // only real planned campaigns in the rail
+    // Internal = promote-Talentrupt folders (any status); External = the planned client campaigns.
+    const c =
+      tab === "internal"
+        ? await getCampaigns(undefined, "internal")
+        : await getCampaigns("planning", "external");
     setCampaigns(c);
     return c;
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  function switchTab(next: CampaignTab) {
+    if (next === tab) return;
+    setTab(next);
+    setSelected(null);
+    setDetail(null);
+    setCreating(false);
+  }
+
+  async function onInternalCreated(c: CampaignDetail) {
+    setCreating(false);
+    await loadList();
+    setSelected(c.id);
+    setDetail(c);
+  }
 
   useEffect(() => {
     if (selected == null) {
@@ -188,28 +218,44 @@ export function CampaignsView() {
         {/* Rail */}
         <div className="flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
           <div className="space-y-3 p-3">
+            {/* Internal (promote Talentrupt) vs External (client-targeting) folders */}
+            <div className="flex rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+              {(["internal", "external"] as CampaignTab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => switchTab(t)}
+                  className={`flex-1 rounded-md px-2 py-1.5 capitalize transition ${
+                    tab === t ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
             <button onClick={openNew} className="btn-primary w-full">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
               New campaign
             </button>
-            <div>
-              <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-muted">
-                Quick-start by sector
+            {tab === "external" && (
+              <div>
+                <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-muted">
+                  Quick-start by sector
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {VERTICALS.map((v) => (
+                    <button
+                      key={v.label}
+                      onClick={() => startVertical(v)}
+                      disabled={!!busyVertical}
+                      title={`Build a campaign with real ${v.label} target clients`}
+                      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-50"
+                    >
+                      {busyVertical === v.label ? "Building…" : v.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {VERTICALS.map((v) => (
-                  <button
-                    key={v.label}
-                    onClick={() => startVertical(v)}
-                    disabled={!!busyVertical}
-                    title={`Build a campaign with real ${v.label} target clients`}
-                    className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-50"
-                  >
-                    {busyVertical === v.label ? "Building…" : v.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto px-2 pb-3">
             {campaigns.map((c) => (
@@ -249,12 +295,28 @@ export function CampaignsView() {
         {/* Main */}
         <div className="min-w-0 flex-1 overflow-y-auto p-6">
           {creating ? (
-            <NewCampaignChat onPlanned={onPlanned} />
+            tab === "internal" ? (
+              <NewInternalCampaign onCreated={onInternalCreated} />
+            ) : (
+              <NewCampaignChat onPlanned={onPlanned} />
+            )
           ) : detail ? (
-            <CampaignDetailView
-              detail={detail}
-              onSectorChange={(s) => onSectorChange(detail.id, s)}
-            />
+            detail.type === "internal" ? (
+              <InternalCampaignView detail={detail} />
+            ) : (
+              <CampaignDetailView
+                detail={detail}
+                onSectorChange={(s) => onSectorChange(detail.id, s)}
+              />
+            )
+          ) : tab === "internal" ? (
+            <EmptyState
+              title="Start an internal campaign"
+              subtitle="Promote Talentrupt itself — a magazine launch, an announcement, a LinkedIn series. Name it, then describe it in chat and I'll generate the posts, visuals, decks and PDFs into its folder."
+              icon={<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>}
+            >
+              <button onClick={openNew} className="btn-primary mx-auto">New campaign</button>
+            </EmptyState>
           ) : (
             <EmptyState
               title="Start a campaign by sector"
@@ -891,5 +953,225 @@ function StratBullets({ items }: { items: string[] }) {
     <ul className="ml-4 list-disc space-y-1 text-muted">
       {items.map((t, i) => <li key={i}>{t}</li>)}
     </ul>
+  );
+}
+
+// --- Internal campaign: name it, then chat to generate the content folder -------------------------
+function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => void }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function create() {
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
+    try {
+      onCreated(await createInternalCampaign(n));
+    } catch {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mx-auto max-w-md pt-16 text-center">
+      <h2 className="font-heading text-2xl font-semibold">New internal campaign</h2>
+      <p className="mt-2 text-sm text-muted">
+        Name it (e.g. &ldquo;Magazine Launch&rdquo;, &ldquo;Q3 Hiring Push&rdquo;). Then describe it in
+        chat and I&apos;ll generate the posts, visuals, decks and PDFs into its folder.
+      </p>
+      <div className="mt-6 flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") create(); }}
+          autoFocus
+          placeholder="Campaign name…"
+          className="flex-1 bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+        />
+        <button onClick={create} disabled={busy || !name.trim()} className="btn-primary !px-4 !py-2">
+          {busy ? "Creating…" : "Create"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const CAMPAIGN_GREETING: ChatMessage = {
+  role: "assistant",
+  content:
+    "**What's this campaign about?** Tell me the goal, the audience, the channels (LinkedIn / Instagram / Email), and what you'd like — a few posts, some visuals, a deck, a PDF — and I'll generate it all into this campaign's folder.",
+};
+
+function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
+  const campaignId = detail.id;
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<number | null>(detail.conversation_id ?? null);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const genRef = useRef(0);
+
+  // Restore the saved thread (with its asset cards); seed a greeting when the folder is new.
+  useEffect(() => {
+    let live = true;
+    getCampaignMessages(campaignId)
+      .then((d) => {
+        if (!live) return;
+        if (d.conversation_id) setConversationId(d.conversation_id);
+        const msgs: ChatMessage[] = (d.messages || []).map((m) => ({
+          role: m.role === "user" ? "user" : "assistant",
+          content: m.content,
+          assets: m.assets || [],
+        }));
+        setMessages(msgs.length ? msgs : [CAMPAIGN_GREETING]);
+      })
+      .catch(() => setMessages([CAMPAIGN_GREETING]));
+    return () => { live = false; };
+  }, [campaignId]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages, status]);
+
+  async function send(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+    const myGen = (genRef.current += 1);
+    const live = () => genRef.current === myGen;
+    setBusy(true);
+    setStatus("");
+    setInput("");
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: trimmed },
+      { role: "assistant", content: "", pending: true },
+    ]);
+    try {
+      await streamChat(
+        trimmed,
+        conversationId,
+        {
+          onMeta: (meta) => { if (live()) setConversationId((id) => id ?? meta.conversation_id); },
+          onStatus: (t) => { if (live()) setStatus(t); },
+          onToken: (tok) => {
+            if (!live()) return;
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              return [...m.slice(0, -1), { ...last, content: last.content + tok }];
+            });
+          },
+          onAsset: (a: Asset) => {
+            if (!live()) return;
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              return [...m.slice(0, -1), { ...last, assets: [...(last.assets ?? []), a] }];
+            });
+          },
+          onDone: (final) => {
+            if (!live()) return;
+            setStatus("");
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (!last) return m;
+              return [...m.slice(0, -1), { ...last, content: final || last.content, pending: false }];
+            });
+          },
+          onError: (err) => {
+            if (!live()) return;
+            setStatus("");
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              const content = last.content ? `${last.content}\n\n⚠️ ${err}` : `⚠️ ${err}`;
+              return [...m.slice(0, -1), { ...last, content, pending: false }];
+            });
+          },
+        },
+        `/api/campaigns/${campaignId}/stream`,
+      );
+    } finally {
+      if (live()) {
+        setBusy(false);
+        setStatus("");
+      }
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send(input);
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="mb-3">
+        <h2 className="font-heading text-lg font-semibold">{detail.name}</h2>
+        <p className="text-xs text-muted">
+          Internal campaign · everything you generate is saved to this folder
+        </p>
+      </div>
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4"
+      >
+        <div className="mx-auto w-full max-w-2xl space-y-5">
+          {messages.map((m, i) =>
+            m.role === "user" ? (
+              <div key={i} className="flex justify-end">
+                <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
+                  {m.content}
+                </div>
+              </div>
+            ) : (
+              <div key={i} className="flex flex-col items-start gap-2">
+                {(m.content || m.pending) && (
+                  <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
+                    {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
+                  </div>
+                )}
+                {m.assets && m.assets.length > 0 && (
+                  <div className="grid w-full gap-2">
+                    {m.assets.map((a, j) => (
+                      <AssetCard key={`${a.type}-${a.id}-${j}`} asset={a} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ),
+          )}
+          {status && (
+            <div className="flex items-center gap-2 px-1 text-xs text-muted">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+              {status}…
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            rows={1}
+            placeholder="Describe the campaign, or ask for more posts / a visual / a deck…"
+            className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+          />
+          <button
+            onClick={() => send(input)}
+            disabled={busy || !input.trim()}
+            className="btn-primary !px-3 !py-2"
+            aria-label="Send"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

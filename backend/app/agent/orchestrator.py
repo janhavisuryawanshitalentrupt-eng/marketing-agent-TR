@@ -34,10 +34,11 @@ ERROR_REPLY = "The assistant hit an error and couldn't finish that — please tr
 
 async def run(
     db: Session, conversation_id: int, user_text: str, mode: str = "chat",
-    attachments: list[dict] | None = None,
+    attachments: list[dict] | None = None, campaign_id: int | None = None,
 ) -> AsyncIterator[dict]:
     """mode='chat'  -> all-access assistant (knowledge, prospecting, generation tools).
     mode='create' -> visual/document generation (image/deck/pdf tools).
+    mode='campaign' -> internal-campaign content studio; campaign_id attaches every asset to the folder.
     attachments    -> [{name, text}] files the user attached this turn, used as context."""
     brand = db.query(Brand).first()
     executors, schemas = tools_for(mode)
@@ -110,6 +111,8 @@ async def run(
                 attached_imgs.append({"id": sf.id, "name": a.get("name") or "photo", "path": sf.path})
     if attached_imgs:
         state["attachments"] = attached_imgs
+    if campaign_id is not None:  # campaign mode -> every generated asset lands in this folder
+        state["campaign_id"] = campaign_id
 
     # CREATE intake: a vague NEW request gets a short conversational nudge + tappable quick-picks
     # instead of generating blind. Specific / "your call" / answering / refine fall straight through.

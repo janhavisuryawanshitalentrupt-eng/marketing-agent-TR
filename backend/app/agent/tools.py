@@ -157,7 +157,7 @@ async def exec_generate_image(db, state, brand, args) -> dict:
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
-            db, None, "image", concept or "Campaign visual",
+            db, state.get("campaign_id"), "image", concept or "Campaign visual",
             body={"concept": concept, "layout": meta.get("layout")},
             file_path=path, file_url=meta["url"], meta=meta,
         )
@@ -209,7 +209,7 @@ async def exec_build_deck(db, state, brand, args) -> dict:
     saved = []
     for _ in range(count):  # each build re-plans the outline -> distinct variations
         path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides, **style)
-        a = _save_asset(db, None, "deck", topic, body={"topic": topic, **style},
+        a = _save_asset(db, state.get("campaign_id"), "deck", topic, body={"topic": topic, **style},
                         file_path=path, file_url=meta["url"], meta=meta)
         saved.append(serialize_asset(a))
     if not saved:
@@ -231,7 +231,7 @@ async def exec_build_pdf(db, state, brand, args) -> dict:
         outline = await pdf.generate_pdf_outline(brand, topic, kind, **style) if topic else None
         path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, **style)
         title = (topic or f"Talentrupt — {kind}")[:120]
-        a = _save_asset(db, None, "pdf", title, body={"kind": kind, "topic": topic, **style},
+        a = _save_asset(db, state.get("campaign_id"), "pdf", title, body={"kind": kind, "topic": topic, **style},
                         file_path=path, file_url=meta["url"], meta=meta)
         saved.append(serialize_asset(a))
     if not saved:
@@ -669,7 +669,7 @@ async def exec_animate_asset(db, state, brand, args) -> dict:
         return {"summary": "Couldn't animate that image this time — please try again.", "assets": []}
     new_type = "video" if meta.get("format") == "mp4" else "image"  # gif animates in an <img>
     body = {**(a.body or {}), "animated_from": a.id, "kind": (a.body or {}).get("kind", "")}
-    na = _save_asset(db, a.campaign_id, new_type, f"{a.title} (animated)"[:380],
+    na = _save_asset(db, a.campaign_id or state.get("campaign_id"), new_type, f"{a.title} (animated)"[:380],
                      body=body, file_path=path, file_url=meta["url"], meta={**meta, "parent_id": a.id})
     return {"summary": f"Animated “{a.title}” into a {meta.get('format', 'clip').upper()} motion post — "
             "a cinematic zoom over the real photo; the face is unchanged.", "assets": [serialize_asset(na)]}
@@ -754,7 +754,7 @@ async def exec_team_image(db, state, brand, args) -> dict:
             continue
         meta = {**meta, "team_photo": photo["label"]}
         title = f"{name}" + (f" — {role}" if role else "")
-        a = _save_asset(db, None, "image", title[:380],
+        a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
                         body={"person": name, "role": role, "headline": headline, "subline": subline,
                               "kind": "team", "style": styles[i]},
                         file_path=path, file_url=meta["url"], meta=meta)
@@ -810,7 +810,7 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
             continue
         meta = {**meta, "uploaded": True}
         title = (name or "Featured") + (f" — {role}" if role else "")
-        a = _save_asset(db, None, "image", title[:380],
+        a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
                         body={"person": name, "role": role, "headline": head, "subline": sub,
                               "kind": "team", "style": styles[i], "uploaded": True},
                         file_path=path, file_url=meta["url"], meta=meta)
@@ -876,10 +876,14 @@ CHAT_TOOL_NAMES = [
 ]
 CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "feature_uploaded_person", "build_deck",
                      "build_pdf", "regenerate_asset", "animate_asset"]
+# Internal-campaign content studio: write posts + build every visual/document into the folder.
+CAMPAIGN_TOOL_NAMES = ["generate_posts", "generate_image", "generate_team_image",
+                       "feature_uploaded_person", "build_deck", "build_pdf", "regenerate_asset",
+                       "animate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
-    names = CREATE_TOOL_NAMES if mode == "create" else CHAT_TOOL_NAMES
+    names = {"create": CREATE_TOOL_NAMES, "campaign": CAMPAIGN_TOOL_NAMES}.get(mode, CHAT_TOOL_NAMES)
     execs = {n: EXECUTORS[n] for n in names}
     schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in names]
     return execs, schemas

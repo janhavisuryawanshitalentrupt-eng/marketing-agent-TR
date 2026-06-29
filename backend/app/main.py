@@ -208,8 +208,9 @@ def list_messages(
 
 
 # --- Chat / Create (SSE streaming) ----------------------------------------
-def _stream(req: ChatRequest, db: Session, mode: str) -> StreamingResponse:
-    """Shared SSE handler. mode='chat' -> assistant; mode='create' -> generation.
+def _stream(req: ChatRequest, db: Session, mode: str, campaign_id: int | None = None) -> StreamingResponse:
+    """Shared SSE handler. mode='chat' -> assistant; mode='create' -> generation;
+    mode='campaign' -> internal-campaign studio (campaign_id attaches every asset to that folder).
     Conversations are tagged with the matching kind so each section lists its own."""
     if req.conversation_id:
         conv = db.get(Conversation, req.conversation_id)
@@ -217,7 +218,7 @@ def _stream(req: ChatRequest, db: Session, mode: str) -> StreamingResponse:
             raise HTTPException(status_code=404, detail="Conversation not found")
     else:
         title = req.message.strip()[:60] or "New conversation"
-        conv = Conversation(title=title, kind=mode)
+        conv = Conversation(title=title, kind=mode, campaign_id=campaign_id)
         db.add(conv)
         db.commit()
         db.refresh(conv)
@@ -239,7 +240,8 @@ def _stream(req: ChatRequest, db: Session, mode: str) -> StreamingResponse:
         interrupted = False
         try:
             async for ev in orchestrator.run(
-                stream_db, conv_id, user_text, mode=mode, attachments=attachments
+                stream_db, conv_id, user_text, mode=mode, attachments=attachments,
+                campaign_id=campaign_id,
             ):
                 if ev["event"] == "done":
                     final_text = ev["data"]
@@ -297,6 +299,17 @@ async def create_stream(
     req: ChatRequest, db: Session = Depends(get_db), _: None = Depends(require_auth)
 ):
     return _stream(req, db, mode="create")
+
+
+@app.post("/api/campaigns/{campaign_id}/stream")
+async def campaign_stream(
+    campaign_id: int, req: ChatRequest, db: Session = Depends(get_db), _: None = Depends(require_auth)
+):
+    """Internal-campaign chat: generate posts/visuals/decks/PDFs straight into this campaign folder."""
+    c = db.get(Campaign, campaign_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return _stream(req, db, mode="campaign", campaign_id=campaign_id)
 
 
 @app.post("/api/chat/attach")
@@ -361,6 +374,7 @@ def _campaign_detail(c: Campaign) -> dict:
     return {
         "id": c.id,
         "name": c.name,
+        "type": getattr(c, "type", "external") or "external",
         "goal": c.goal,
         "audience": c.audience,
         "pillar": c.pillar,
@@ -376,23 +390,67 @@ def _campaign_detail(c: Campaign) -> dict:
 
 @app.get("/api/campaigns")
 def list_campaigns(
-    status: str | None = None, db: Session = Depends(get_db), _: None = Depends(require_auth)
+    status: str | None = None, type: str | None = None,
+    db: Session = Depends(get_db), _: None = Depends(require_auth)
 ):
     # Folder rail shows names only (product rule). The Campaigns planner passes
-    # status=planning so old/test campaigns don't clutter the view.
+    # status=planning so old/test campaigns don't clutter the view. `type` splits the rail into
+    # internal (promote Talentrupt) vs external (client-targeting) folders.
     q = db.query(Campaign)
     if status:
         q = q.filter(Campaign.status == status)
+    if type in ("internal", "external"):
+        q = q.filter(Campaign.type == type)
     rows = q.order_by(Campaign.id.desc()).all()
     return [
         {
             "id": c.id,
             "name": c.name,
+            "type": getattr(c, "type", "external") or "external",
             "created_at": c.created_at.isoformat() if c.created_at else None,
             "sector": _campaign_industry(c),  # lets the UI open an existing same-sector folder vs duplicate it
         }
         for c in rows
     ]
+
+
+@app.post("/api/campaigns")
+def create_campaign_endpoint(
+    payload: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)
+):
+    """Create an internal campaign SHELL (no strategy/prospects) + its chat thread. The campaign
+    chat (POST /api/campaigns/{id}/stream) then drives all content generation into this folder."""
+    name = (payload.get("name") or "Untitled Campaign").strip()[:280] or "Untitled Campaign"
+    ctype = payload.get("type") if payload.get("type") in ("internal", "external") else "internal"
+    c = Campaign(name=name, type=ctype, status="active")
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    conv = Conversation(title=name[:60], kind="campaign", campaign_id=c.id)
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return {**_campaign_detail(c), "conversation_id": conv.id, "items": [], "assets": []}
+
+
+@app.get("/api/campaigns/{campaign_id}/messages")
+def campaign_messages(
+    campaign_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)
+):
+    """The campaign chat thread (so reopening the folder restores its conversation)."""
+    conv = (
+        db.query(Conversation).filter(Conversation.campaign_id == campaign_id)
+        .order_by(Conversation.id).first()
+    )
+    if not conv:
+        return {"conversation_id": None, "messages": []}
+    msgs = (
+        db.query(Message).filter(Message.conversation_id == conv.id).order_by(Message.id).all()
+    )
+    return {
+        "conversation_id": conv.id,
+        "messages": [{"role": m.role, "content": m.content, "assets": m.assets or []} for m in msgs],
+    }
 
 
 def _serialize_item(it: CampaignItem, db: Session) -> dict:
@@ -429,8 +487,13 @@ def get_campaign(
         .order_by(CampaignItem.scheduled_date, CampaignItem.id)
         .all()
     )
+    conv = (
+        db.query(Conversation).filter(Conversation.campaign_id == campaign_id)
+        .order_by(Conversation.id).first()
+    )
     return {
         **_campaign_detail(c),
+        "conversation_id": conv.id if conv else None,
         "items": [_serialize_item(i, db) for i in items],
         "assets": [serialize_asset(a) for a in assets],
     }
@@ -848,6 +911,8 @@ async def list_campaign_prospects(
     c = db.get(Campaign, campaign_id)
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
+    if getattr(c, "type", "external") == "internal":
+        return []  # internal campaigns promote Talentrupt itself — no client prospecting
     if status == "done":
         done = (
             db.query(CampaignProspect)
@@ -979,6 +1044,9 @@ def delete_campaign(
     c = db.get(Campaign, campaign_id)
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
+    # Drop the linked chat thread(s) too (Conversation.campaign_id isn't an ORM cascade).
+    for conv in db.query(Conversation).filter(Conversation.campaign_id == campaign_id).all():
+        db.delete(conv)
     db.delete(c)  # cascades to assets, prospects, and items (ORM delete-orphan)
     db.commit()
     _last_fill_attempt.pop(campaign_id, None)  # drop per-campaign fill state so a reused id starts clean
