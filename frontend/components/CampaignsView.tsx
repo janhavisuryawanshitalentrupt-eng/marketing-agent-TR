@@ -22,6 +22,7 @@ import {
   setCampaignSector,
   setCampaignStatus,
   streamChat,
+  updateCampaignBrief,
   updateCampaignItem,
   uploadAttachment,
 } from "@/lib/api";
@@ -974,7 +975,7 @@ function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => 
     }
   }
   return (
-    <div className="mx-auto max-w-lg pt-12">
+    <div className="mx-auto max-w-xl pt-12">
       <h2 className="text-center font-heading text-2xl font-semibold">New internal campaign</h2>
       <p className="mt-2 text-center text-sm text-muted">
         Name it and describe what it&apos;s about. That brief grounds everything you generate in this
@@ -991,9 +992,9 @@ function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => 
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          rows={4}
-          placeholder="What's this campaign about? e.g. “Promote Talentrupt's internal cricket tournament — fun, team-spirited posts for LinkedIn & Instagram celebrating our culture.”"
-          className="w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+          rows={12}
+          placeholder="What's this campaign about? Paste the full brief — theme, objectives, content pillars, tone, hashtags. e.g. “Promote Talentrupt's internal cricket tournament — fun, team-spirited posts for LinkedIn & Instagram celebrating our culture.”"
+          className="min-h-[260px] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
         />
         <button onClick={create} disabled={busy || !name.trim()} className="btn-primary w-full">
           {busy ? "Creating…" : "Create campaign"}
@@ -1043,6 +1044,73 @@ function DeletableAsset({ asset, onDelete }: { asset: Asset; onDelete: (a: Asset
   );
 }
 
+// Edit the campaign brief (the context that grounds generation). Saving updates Campaign.goal so every
+// future post/image/deck/PDF is generated from the new description.
+function BriefEditor({
+  initial,
+  onSave,
+  onClose,
+}: {
+  initial: string;
+  onSave: (text: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
+          <span className="font-heading text-sm font-semibold">Campaign brief</span>
+          <button onClick={onClose} type="button" aria-label="Close" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <p className="mb-2 text-xs text-muted">
+            This brief grounds everything generated in this folder. Edit it and save — future posts,
+            images, decks and PDFs will use the updated description.
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={16}
+            autoFocus
+            placeholder="Describe the campaign — theme, objectives, content pillars, tone, hashtags…"
+            className="min-h-[320px] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+          />
+        </div>
+        <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-3">
+          <button onClick={onClose} type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-muted transition hover:text-foreground">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave(text.trim());
+                onClose();
+              } catch {
+                setSaving(false);
+              }
+            }}
+            className="btn-primary px-4 py-2 text-sm disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save brief"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const campaignId = detail.id;
   const [tab, setTab] = useState<"chat" | "gallery">("chat");
@@ -1054,6 +1122,8 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const [assets, setAssets] = useState<Asset[]>(detail.assets ?? []);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attaching, setAttaching] = useState(0);
+  const [brief, setBrief] = useState(detail.goal ?? "");
+  const [editingBrief, setEditingBrief] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const genRef = useRef(0);
@@ -1226,8 +1296,19 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
     <div className="flex h-full flex-col">
       {/* Header: campaign name + brief + Chat / Generated content tabs */}
       <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-heading text-lg font-semibold">{detail.name}</h2>
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="truncate font-heading text-lg font-semibold">{detail.name}</h2>
+          <button
+            onClick={() => setEditingBrief(true)}
+            type="button"
+            title="View / edit the campaign brief"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </svg>
+            Brief
+          </button>
         </div>
         <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
           <button
@@ -1351,6 +1432,16 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
             </div>
           </div>
         </>
+      )}
+      {editingBrief && (
+        <BriefEditor
+          initial={brief}
+          onClose={() => setEditingBrief(false)}
+          onSave={async (text) => {
+            await updateCampaignBrief(campaignId, text);
+            setBrief(text);
+          }}
+        />
       )}
     </div>
   );

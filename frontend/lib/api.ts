@@ -137,6 +137,17 @@ export async function renameCampaign(id: number, name: string): Promise<void> {
   if (!res.ok) throw new Error("Rename failed");
 }
 
+/** Update an internal campaign's brief/description (the context that grounds all generation). */
+export async function updateCampaignBrief(id: number, goal: string): Promise<CampaignDetail> {
+  const res = await fetch(`${API_BASE}/api/campaigns/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ goal }),
+  });
+  if (!res.ok) throw new Error("Failed to update the brief");
+  return res.json();
+}
+
 export async function setCampaignSector(id: number, sector: string): Promise<CampaignDetail> {
   const res = await fetch(`${API_BASE}/api/campaigns/${id}`, {
     method: "PATCH",

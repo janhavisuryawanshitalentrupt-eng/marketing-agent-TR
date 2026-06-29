@@ -1010,6 +1010,8 @@ def update_campaign(
     name = (payload.get("name") or "").strip()
     if name:
         c.name = name[:280]
+    if "goal" in payload:  # the internal-campaign brief/description that grounds all generation
+        c.goal = (payload.get("goal") or "").strip()
     if "status" in payload:  # soft archive/restore — drops from the 'planning' rail, fully recoverable
         new_status = (payload.get("status") or "").strip()
         if new_status not in ("planning", "archived"):
