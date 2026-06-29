@@ -1016,6 +1016,12 @@ const CAMPAIGN_STARTERS = [
   "A one-page teaser PDF",
 ];
 
+// On a NEW campaign we auto-generate a starter pack FROM THE BRIEF; the chat is then for edits.
+const CAMPAIGN_SEED =
+  "Create a starter set of on-brand posts for this campaign — an image and a caption for each, all on the campaign's theme. Your call on the style.";
+// Campaign ids already auto-seeded this session (module-level so a dev remount can't double-fire it).
+const _seededCampaigns = new Set<number>();
+
 function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const campaignId = detail.id;
   const [tab, setTab] = useState<"chat" | "gallery">("chat");
@@ -1031,7 +1037,8 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const genRef = useRef(0);
 
-  // Restore the saved thread (with its asset cards); seed a greeting when the folder is new.
+  // Restore the saved thread (with its asset cards). On a brand-new campaign with a brief, AUTO-GENERATE
+  // the starter pack from that brief (chat is then for edits); otherwise greet.
   useEffect(() => {
     let live = true;
     getCampaignMessages(campaignId)
@@ -1043,10 +1050,19 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
           content: m.content,
           assets: m.assets || [],
         }));
-        setMessages(msgs.length ? msgs : [CAMPAIGN_GREETING]);
+        if (msgs.length) {
+          setMessages(msgs);
+        } else if ((detail.goal || "").trim() && !_seededCampaigns.has(campaignId)) {
+          _seededCampaigns.add(campaignId);
+          setMessages([]);
+          send(CAMPAIGN_SEED); // generate from the description at creation
+        } else {
+          setMessages([CAMPAIGN_GREETING]);
+        }
       })
       .catch(() => setMessages([CAMPAIGN_GREETING]));
     return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
   useEffect(() => {
@@ -1287,7 +1303,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={1}
-                  placeholder="Ask for posts, an image, a deck, a PDF… (grounded in this campaign)"
+                  placeholder="Refine the content, or ask for another post / image / deck…"
                   className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                 />
                 <button onClick={() => send(input)} disabled={busy || attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
