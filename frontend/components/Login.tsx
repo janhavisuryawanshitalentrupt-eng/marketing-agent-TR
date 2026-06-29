@@ -61,7 +61,7 @@ function PasswordField({
 export function Login({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [step, setStep] = useState<"request" | "reset">("request");
-  const [email, setEmail] = useState("Admin@talentrupt.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");

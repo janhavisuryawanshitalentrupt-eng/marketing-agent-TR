@@ -47,10 +47,11 @@ if [ ! -f backend/.env ]; then
   exit 1
 fi
 
-echo "==> [4/8] Frontend build (NEXT_PUBLIC_API_BASE=$WEB_ORIGIN)"
-( cd frontend && NEXT_PUBLIC_API_BASE="$WEB_ORIGIN" npm ci && NEXT_PUBLIC_API_BASE="$WEB_ORIGIN" npm run build )
+echo "==> [4/8] Frontend static export (relative API base -> same-origin /api; output: frontend/out)"
+( cd frontend && NEXT_PUBLIC_API_BASE="" npm ci && NEXT_PUBLIC_API_BASE="" npm run build )
 
-echo "==> [5/8] PM2 processes (talentrupt-api + talentrupt-web)"
+echo "==> [5/8] PM2 (single process — talentrupt-api serves the UI AND the API)"
+pm2 delete talentrupt-web 2>/dev/null || true   # remove the old web process if this was a 2-process deploy
 pm2 startOrReload ecosystem.config.js
 pm2 save
 

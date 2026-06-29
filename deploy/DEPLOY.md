@@ -1,20 +1,21 @@
 # Deploying the Talentrupt Marketing Agent
 
 Deploys onto the shared **htuniverse.com DigitalOcean droplet** (see `INFRA_BRIEF.md`) using the same
-stack as the other apps — **PM2 → shared Nginx → Let's Encrypt** — but this app is **two processes**:
+stack as the other apps — **PM2 → shared Nginx → Let's Encrypt** — as a **single process**:
 
-| Process | What | Internal port (example) | PM2 name |
+| Process | What | Internal port | PM2 name |
 |---|---|---|---|
-| `talentrupt-web` | Next.js UI (`next start`) | `4600` | from `ecosystem.config.js` |
-| `talentrupt-api` | FastAPI/uvicorn — REST + SSE + generated files (`/api/...`) | `8100` | from `ecosystem.config.js` |
+| `talentrupt-api` | FastAPI/uvicorn — serves the **static UI** (`frontend/out`) **and** the API + SSE + generated files | `8100` | from `ecosystem.config.js` |
+
+The Next.js frontend is **statically exported** (`output: 'export'` → `frontend/out`) and served by the
+same uvicorn process — there is **no separate Node server**.
 
 - **Public host:** `myra.htuniverse.com` (pick your own; **not** `trstudio.*`, which is a different app).
-- **One Nginx host** routes `/api/ → :8100` and `/ → :4600` (see `deploy/nginx-myra.conf`).
-- **Ports stay localhost-only** (not added to UFW) — Nginx is the only public entry point.
+- **One Nginx host** proxies everything to `:8100` (`/api/` with SSE buffering off, `/` for the UI).
+- **Port stays localhost-only** (not added to UFW) — Nginx is the only public entry point.
+- **Build with a relative API base** (`NEXT_PUBLIC_API_BASE=` empty) so the UI calls same-origin `/api`.
 
-> Pick ports that are free on the droplet. In use per the brief: `4200, 4500, 4001, 8001, 4400, 8080`.
-> If you change ports/host, update them in `ecosystem.config.js`, `deploy/nginx-myra.conf`,
-> `deploy/deploy.sh` (`WEB_ORIGIN`), and `backend/.env` (`CORS_ORIGINS`).
+> Pick a port that's free on the droplet. In use per the brief: `4200, 4500, 4001, 8001, 4400, 8080`.
 
 ---
 
@@ -54,8 +55,8 @@ git checkout main          # or the release branch
 ```bash
 apt update
 apt install -y python3-venv
-# Only needed if you keep the team-photo cutout deps (rembg/onnxruntime use OpenCV):
-apt install -y libgl1 libglib2.0-0
+# Only needed if you ALSO install requirements-optional.txt (rembg/onnxruntime use OpenCV):
+# apt install -y libgl1 libglib2.0-0
 ```
 
 ### 4. Backend
@@ -72,21 +73,23 @@ nano .env   # fill it in — see "Environment" below. AT MINIMUM:
 ```
 The DB tables and storage folders are created automatically on first start.
 
-### 5. Frontend (the API base is baked in at BUILD time)
+### 5. Frontend — static export (served by the backend; build with an EMPTY API base)
 ```bash
 cd /root/talentrupt-agent/frontend
-NEXT_PUBLIC_API_BASE=https://myra.htuniverse.com npm ci
-NEXT_PUBLIC_API_BASE=https://myra.htuniverse.com npm run build
+NEXT_PUBLIC_API_BASE= npm ci
+NEXT_PUBLIC_API_BASE= npm run build   # writes frontend/out (served by uvicorn)
 ```
+Empty `NEXT_PUBLIC_API_BASE` makes the UI call same-origin `/api`, so it works behind any host.
 > ⚠️ `next build` is memory-heavy and the droplet is small (1.9 GB RAM, 6 apps). If the build OOMs,
 > either add swap temporarily, stop a process during the build, or **build locally and rsync** the
-> `frontend/.next` + `frontend/node_modules` to the server.
+> `frontend/out` to the server.
 
-### 6. Start both processes
+### 6. Start the process
 ```bash
 cd /root/talentrupt-agent
+pm2 delete talentrupt-web 2>/dev/null || true   # only needed if migrating from an old 2-process deploy
 pm2 start ecosystem.config.js
-pm2 save          # so they come back after a reboot
+pm2 save          # so it comes back after a reboot
 pm2 status
 ```
 
@@ -144,12 +147,13 @@ Full template + comments live in `backend/.env.example`. The ones that matter mo
 ## What persists vs. what's rebuilt
 - **Persists on the server (never in git):** `backend/.env`, `backend/talentrupt.db*`, `storage/`. A
   `git pull` / redeploy does not touch them.
-- **Rebuilt every deploy:** `frontend/.next`, `frontend/node_modules`, `backend/.venv` deps.
+- **Rebuilt every deploy:** `frontend/out` (static export), `frontend/node_modules`, `backend/.venv` deps.
 
 ## Gotchas
-- **RAM** — uvicorn + onnxruntime/rembg + a Node server on a 2 GB box with 6 other apps is tight. If you
-  don't need team-photo cutouts, you can drop `rembg`/`onnxruntime` from `requirements.txt` to save
-  memory (the code falls back gracefully).
-- **First-run downloads** — `rembg` fetches a ~176 MB model and `imageio-ffmpeg` a ~30 MB binary on
-  first use (needs outbound network + disk).
+- **RAM** — `next build` + uvicorn on a 2 GB box with 6 other apps is tight. The team-photo cut-out deps
+  (`rembg`/`onnxruntime`) are now in `requirements-optional.txt` and NOT installed by default, which
+  keeps memory + the dep tree light. Only `pip install -r requirements-optional.txt` if you want HEIC +
+  background removal (and then `apt install libgl1 libglib2.0-0`).
+- **First-run downloads** — `imageio-ffmpeg` fetches a ~30 MB binary on first use (and `rembg`, if you
+  installed the optional extras, a ~176 MB model).
 - **OpenAI cost** — every image/text generation is billable; the key stays server-side only.

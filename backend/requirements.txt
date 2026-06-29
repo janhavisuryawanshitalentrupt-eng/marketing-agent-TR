@@ -10,12 +10,9 @@ Pillow==11.1.0
 python-pptx==1.0.2
 reportlab==4.2.5
 pypdf==5.1.0
-# Team-photo feature (generate_team_image): HEIC decode + offline background removal for cut-out posts.
-# Optional — the composer falls back to a no-cutout cover-fit if these aren't installed. rembg pulls
-# onnxruntime (heavy + a ~176MB model downloaded on first use).
-pillow-heif==1.4.0
-rembg==2.0.76
-onnxruntime==1.27.0
+# Team-photo cut-out extras (HEIC decode + offline background removal) are OPTIONAL and live in
+# requirements-optional.txt — they pin heavy versions that conflict with Pillow on some platforms, and
+# the composer falls back to a no-cutout cover-fit without them. Install them only if you want that.
 # Animate a post into a short motion clip (animate_asset): MP4 via imageio-ffmpeg (bundles a static
 # ffmpeg, ~30MB). Optional — falls back to an animated GIF if imageio-ffmpeg isn't installed.
 imageio==2.37.3

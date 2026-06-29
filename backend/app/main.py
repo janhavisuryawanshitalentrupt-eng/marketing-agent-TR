@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -19,6 +20,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -1696,3 +1698,34 @@ def serve_file(kind: str, file_name: str):
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+# --- Serve the exported frontend (single-process deploy) ------------------------------------------
+# In production the Next.js app is exported to static files (frontend/out) and served by THIS uvicorn
+# process, so the WHOLE app runs as one server (no separate Node process). Mounted LAST so every
+# /api/* route registered above takes precedence over the catch-all static handler.
+_FRONTEND_DIST = os.environ.get("FRONTEND_DIST") or str(
+    Path(__file__).resolve().parents[2] / "frontend" / "out"
+)
+
+
+class _SpaStaticFiles(StaticFiles):
+    """Static export server with an SPA fallback: a client-routed path with no matching file is served
+    index.html (so deep links / refresh load the app). Real /api 404s are left untouched."""
+
+    async def get_response(self, path, scope):
+        from starlette.exceptions import HTTPException as _HX
+
+        try:
+            return await super().get_response(path, scope)
+        except _HX as exc:
+            if exc.status_code == 404 and not path.startswith("api"):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+if Path(_FRONTEND_DIST).is_dir():
+    app.mount("/", _SpaStaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
+    log.info("serving exported frontend from %s", _FRONTEND_DIST)
+else:
+    log.warning("frontend dist not found at %s — running API-only (run `npm run build`)", _FRONTEND_DIST)
