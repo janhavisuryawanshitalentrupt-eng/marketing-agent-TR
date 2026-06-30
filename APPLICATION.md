@@ -4,7 +4,7 @@
 > change. For the chronological list of changes see [CHANGELOG.md](CHANGELOG.md); for deploy mechanics see
 > [deploy/DEPLOY.md](deploy/DEPLOY.md).
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 ---
 
