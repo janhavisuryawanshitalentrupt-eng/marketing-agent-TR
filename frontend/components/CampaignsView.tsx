@@ -92,16 +92,19 @@ export function CampaignsView() {
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
   const [creating, setCreating] = useState(false);
   const [busyVertical, setBusyVertical] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadList = useCallback(async () => {
-    // Internal = promote-Talentrupt folders (any status); External = the planned client campaigns.
-    const c =
-      tab === "internal"
+    // Active: Internal = promote-Talentrupt folders; External = the planned client campaigns.
+    // Archived view: archived campaigns of the current type (restorable).
+    const c = showArchived
+      ? await getCampaigns("archived", tab)
+      : tab === "internal"
         ? await getCampaigns(undefined, "internal")
         : await getCampaigns("planning", "external");
     setCampaigns(c);
     return c;
-  }, [tab]);
+  }, [tab, showArchived]);
 
   useEffect(() => {
     loadList();
@@ -113,6 +116,27 @@ export function CampaignsView() {
     setSelected(null);
     setDetail(null);
     setCreating(false);
+    setShowArchived(false);
+  }
+
+  function toggleArchived() {
+    setShowArchived((v) => !v);
+    setSelected(null);
+    setDetail(null);
+    setCreating(false);
+  }
+
+  async function restore(id: number) {
+    try {
+      await setCampaignStatus(id, "planning");
+    } catch {
+      /* ignore — still refresh the list */
+    }
+    if (selected === id) {
+      setSelected(null);
+      setDetail(null);
+    }
+    await loadList();
   }
 
   async function onInternalCreated(c: CampaignDetail) {
@@ -235,11 +259,13 @@ export function CampaignsView() {
                 </button>
               ))}
             </div>
-            <button onClick={openNew} className="btn-primary w-full">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-              New campaign
-            </button>
-            {tab === "external" && (
+            {!showArchived && (
+              <button onClick={openNew} className="btn-primary w-full">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                New campaign
+              </button>
+            )}
+            {!showArchived && tab === "external" && (
               <div>
                 <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-muted">
                   Quick-start by sector
@@ -259,6 +285,17 @@ export function CampaignsView() {
                 </div>
               </div>
             )}
+            <button
+              onClick={toggleArchived}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition ${
+                showArchived
+                  ? "border-[var(--brand-navy)] text-foreground"
+                  : "border-[var(--border)] text-muted hover:border-[var(--brand-red)] hover:text-foreground"
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
+              {showArchived ? "← Back to active" : "View archived"}
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto px-2 pb-3">
             {campaigns.map((c) => (
@@ -274,14 +311,25 @@ export function CampaignsView() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>
                   <span className="truncate">{c.name}</span>
                 </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); archive(c.id); }}
-                  title="Archive campaign (recoverable)"
-                  aria-label={`Archive ${c.name}`}
-                  className="absolute right-7 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
-                </button>
+                {showArchived ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); restore(c.id); }}
+                    title="Restore campaign"
+                    aria-label={`Restore ${c.name}`}
+                    className="absolute right-7 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.36 2.64L3 8M3 3v5h5" /></svg>
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); archive(c.id); }}
+                    title="Archive campaign (recoverable)"
+                    aria-label={`Archive ${c.name}`}
+                    className="absolute right-7 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); removeCampaign(c.id); }}
                   title="Delete campaign"

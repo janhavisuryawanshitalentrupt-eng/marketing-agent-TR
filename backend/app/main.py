@@ -455,7 +455,9 @@ def list_campaigns(
     # internal (promote Talentrupt) vs external (client-targeting) folders.
     q = db.query(Campaign).filter(Campaign.owner == role)
     if status:
-        q = q.filter(Campaign.status == status)
+        q = q.filter(Campaign.status == status)  # explicit (e.g. 'planning' rail, or 'archived' view)
+    else:
+        q = q.filter(Campaign.status != "archived")  # default: hide archived from the active rails
     if type in ("internal", "external"):
         q = q.filter(Campaign.type == type)
     rows = q.order_by(Campaign.id.desc()).all()

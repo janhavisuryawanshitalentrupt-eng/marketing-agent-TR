@@ -372,47 +372,63 @@ async def exec_list_prospects(db, state, brand, args) -> dict:
 
 
 async def exec_list_campaigns(db, state, brand, args) -> dict:
-    """READ the planned campaigns + their target-client counts (or one campaign's clients).
-    Reports the TOTAL campaign count alongside the planning subset so 'how many campaigns' is answered
-    with the real total (not just the planned ones)."""
-    total = db.query(Campaign).count()
-    camps = (
-        db.query(Campaign).filter(Campaign.status == "planning")
-        .order_by(Campaign.id.desc()).all()
-    )
-    if not camps:
-        if total:
-            return {"summary": f"There are {total} campaign(s) in total, but none are in the planning "
-                    "stage right now.", "assets": []}
+    """READ this account's campaigns, split by TYPE so counts are never conflated:
+    INTERNAL = promote Talentrupt (a content folder, no target clients); EXTERNAL = client-targeting
+    (a sector + scored target clients). Owner-scoped, and archived campaigns are excluded. Pass
+    type='internal'/'external' to answer 'how many internal/external campaigns', or name=... for one
+    campaign's target clients."""
+    owner = state.get("owner", "admin")
+    rows = (db.query(Campaign)
+            .filter(Campaign.owner == owner, Campaign.status != "archived")
+            .order_by(Campaign.id.desc()).all())
+    if not rows:
         return {"summary": "No campaigns have been created yet.", "assets": []}
+
+    # One campaign's clients, looked up by name.
     term = (args.get("name") or "").strip().lower()
     if term:
-        match = next((c for c in camps if term in (c.name or "").lower()), None)
+        match = next((c for c in rows if term in (c.name or "").lower()), None)
         if match:
+            if (match.type or "external") == "internal":
+                return {"summary": f"'{match.name}' is an INTERNAL (promote-Talentrupt) campaign — a "
+                        "content folder, so it has no target clients.", "assets": []}
             sector = (match.strategy or {}).get("sector") or "auto-detected"
-            clients = (
-                db.query(CampaignProspect)
-                .filter(CampaignProspect.campaign_id == match.id, CampaignProspect.status == "active")
-                .order_by(CampaignProspect.fit_score.desc()).all()
-            )
+            clients = (db.query(CampaignProspect)
+                       .filter(CampaignProspect.campaign_id == match.id, CampaignProspect.status == "active")
+                       .order_by(CampaignProspect.fit_score.desc()).all())
             cl = [f"- {cp.company} — fit {int(cp.fit_score or 0)}" for cp in clients] or ["- (no active clients yet)"]
-            return {"summary": f"Campaign '{match.name}' [sector: {sector}] — {len(clients)} active "
+            return {"summary": f"'{match.name}' (EXTERNAL) [sector: {sector}] — {len(clients)} active "
                     f"target client(s):\n" + "\n".join(cl), "assets": []}
-    lines = []
-    for c in camps:
+
+    internal = [c for c in rows if (c.type or "external") == "internal"]
+    external = [c for c in rows if (c.type or "external") != "internal"]
+
+    def _ext_line(c) -> str:
         sector = (c.strategy or {}).get("sector") or ""
-        n = (
-            db.query(CampaignProspect)
-            .filter(CampaignProspect.campaign_id == c.id, CampaignProspect.status == "active").count()
-        )
-        lines.append(f"- {c.name}" + (f" [{sector}]" if sector else "") + f" — {n} target client(s)")
-    return {"summary": f"{total} campaign(s) in total; {len(camps)} in the planning stage:\n"
-            + "\n".join(lines), "assets": []}
+        n = (db.query(CampaignProspect)
+             .filter(CampaignProspect.campaign_id == c.id, CampaignProspect.status == "active").count())
+        return f"- {c.name}" + (f" [{sector}]" if sector else "") + f" — {n} target client(s)"
+
+    want = (args.get("type") or "").strip().lower()
+    if want == "internal":
+        body = "\n".join(f"- {c.name}" for c in internal) or "(none)"
+        return {"summary": f"{len(internal)} INTERNAL (promote-Talentrupt) campaign(s):\n{body}", "assets": []}
+    if want == "external":
+        body = "\n".join(_ext_line(c) for c in external) or "(none)"
+        return {"summary": f"{len(external)} EXTERNAL (client-targeting) campaign(s):\n{body}", "assets": []}
+
+    parts = [f"{len(rows)} campaign(s) total: {len(internal)} INTERNAL (promote Talentrupt) and "
+             f"{len(external)} EXTERNAL (client-targeting)."]
+    if internal:
+        parts.append("INTERNAL:\n" + "\n".join(f"- {c.name}" for c in internal))
+    if external:
+        parts.append("EXTERNAL:\n" + "\n".join(_ext_line(c) for c in external))
+    return {"summary": "\n\n".join(parts), "assets": []}
 
 
 async def exec_list_assets(db, state, brand, args) -> dict:
     """READ the generated assets (images, decks, PDFs, posts) from Create / past generations."""
-    q = db.query(Asset)
+    q = db.query(Asset).filter(Asset.owner == state.get("owner", "admin"))  # this account's assets only
     t = (args.get("type") or "").strip().lower()
     if t in ("image", "deck", "pdf", "post"):
         q = q.filter(Asset.type == t)
@@ -1122,10 +1138,13 @@ TOOL_SCHEMAS = [
         },
         []),
     _fn("list_campaigns",
-        "READ the planned campaigns and their target-client counts. Use when the user asks what "
-        "campaigns exist, or to see/count the target clients of a campaign (pass `name` for one "
-        "campaign's clients).",
+        "READ this account's campaigns, split by TYPE. INTERNAL = promote Talentrupt (content folder, "
+        "no clients); EXTERNAL = client-targeting (sector + target clients). ALWAYS pass `type` when the "
+        "user asks specifically about internal OR external campaigns, so the count isn't conflated. Pass "
+        "`name` for one campaign's target clients. Report the tool's numbers verbatim — never guess.",
         {
+            "type": {"type": "string", "enum": ["internal", "external"],
+                     "description": "Limit to internal (promote-Talentrupt) or external (client-targeting) campaigns"},
             "name": {"type": "string", "description": "A campaign name (substring) to list that campaign's target clients"},
         },
         []),

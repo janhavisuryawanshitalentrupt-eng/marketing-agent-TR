@@ -14,6 +14,17 @@ All notable changes to the app, most recent first. Dates are when the work lande
   its own data; cross-account get/delete returns 404. Existing data is assigned to **admin** by a
   one-time migration that runs automatically on startup. (Fixes "one account's info showing on another".)
 
+## Campaigns & chat accuracy (2026-06-30)
+- **Chat no longer mislabels campaigns.** Asked "how many *internal* campaigns", chat was lumping
+  external client-targeting "RPO Outreach" campaigns in as internal. The `list_campaigns` tool now
+  splits results by **type** (internal = promote Talentrupt; external = client-targeting), takes a
+  `type` filter, and — critically — is **owner-scoped** (it was counting every account's campaigns).
+  `list_assets` was owner-scoped for the same leak.
+- **Archived campaigns are viewable & restorable.** Archived campaigns now hide from the active rails
+  (they were leaking into the Internal rail) and live under a **"View archived"** toggle in Campaigns,
+  each with a **Restore** action. `GET /api/campaigns` hides archived by default; `?status=archived`
+  lists them.
+
 ## Reliability & fixes (2026-06-30)
 - **Blurry images no longer ship.** gpt-image-1 occasionally returns a soft/out-of-focus frame. The
   pipeline now measures each frame's sharpness (variance-of-Laplacian, calibrated: sharp ≈ 1000–1300,
