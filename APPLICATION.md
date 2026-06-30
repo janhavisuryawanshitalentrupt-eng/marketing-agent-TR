@@ -76,7 +76,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   loop and streams events (meta/status/token/asset/chips/done/error). `mode` ∈ chat | create | campaign.
 - `tools.py` — the tool registry + executors (`generate_posts`, `generate_image`, `generate_team_image`,
   `build_deck`, `build_pdf`, `discover_prospects`, `draft_outreach`, etc.). `tools_for(mode)` picks the
-  set per section. Every created record is stamped with `state['owner']`.
+  set per section. Every created record is stamped with `state['owner']`, and **every READ tool must
+  filter by `state['owner']`** too (e.g. `list_campaigns`/`list_assets`) — otherwise chat leaks another
+  account's data and miscounts. `list_campaigns` also splits by `type` (internal vs external) so counts
+  aren't conflated.
 - **Rule:** every new app feature must also be exposed to the Chat agent (a tool + prompt) so Chat can do
   it too.
 
