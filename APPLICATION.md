@@ -63,7 +63,8 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 
 ## 6. Generation pipeline (`backend/app/generation/`)
 - `posts.py` — captions/posts. `images.py` — `gpt-image-1` art (with `_plan` art-director + brand-system
-  prompt + a gentle `_crispen` sharpen) and a deterministic compositor fallback. `decks.py` — PPTX.
+  prompt; a **blur gate** that measures each frame's sharpness and regenerates a soft one keeping the
+  sharpest, then a gentle `_crispen`) and a deterministic compositor fallback. `decks.py` — PPTX.
   `pdf.py` — branded PDFs. `teampost.py` — real-person cut-out posts (NEVER an AI face) + AI-scene.
   `refine.py` — regenerate/refine an asset into a new version.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
