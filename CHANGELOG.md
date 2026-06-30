@@ -14,6 +14,12 @@ All notable changes to the app, most recent first. Dates are when the work lande
   its own data; cross-account get/delete returns 404. Existing data is assigned to **admin** by a
   one-time migration that runs automatically on startup. (Fixes "one account's info showing on another".)
 
+## Branding (2026-06-30)
+- **App rebranded to "Myra".** The UI chrome — header, login, loading screen, page `<title>` and favicon —
+  now shows the **Myra** name and a new "M" brand mark (navy legs + coral→pink swoosh), via the new
+  `components/MyraLogo.tsx` and `app/icon.svg`. UI-only: auth/session keys, APIs, and the Talentrupt
+  *content* brand used for generation are untouched, so the working flow is unchanged.
+
 ## Business Dev (2026-06-30)
 - **C-level "Search LinkedIn" links now actually return results.** The people-search URL used to
   exact-quote BOTH the company and the title and AND them (e.g. `"SCIGON" "Chief Operating Officer"`),

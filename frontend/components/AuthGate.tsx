@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { ApiError, clearToken, getBrand, getHealth, getMe, getRole, getToken, getUsername } from "@/lib/api";
+import { MyraMark } from "./MyraLogo";
 import type { Brand, Health } from "@/lib/types";
 import { ChatProvider, CreateProvider } from "./ChatProvider";
 import { Login } from "./Login";
@@ -79,13 +80,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   if (authed === null) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4">
-        <div
-          className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl"
-          style={{ background: "var(--grad-navy)" }}
-        >
-          <span className="font-heading text-sm font-bold text-[var(--brand-red)]">TR</span>
+        <div className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl bg-white p-2">
+          <MyraMark className="h-full w-full" />
         </div>
-        <div className="font-heading text-sm tracking-wide text-muted">Talentrupt AI</div>
+        <div className="font-heading text-sm tracking-wide text-muted">Myra</div>
       </div>
     );
   }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "./AuthGate";
 import { Avatar } from "./Avatar";
+import { MyraMark } from "./MyraLogo";
 import { ChatPanel } from "./ChatPanel";
 import { CreateView } from "./CreateView";
 import { CampaignsView } from "./CampaignsView";
@@ -75,14 +76,14 @@ export function Shell() {
         {/* Brand (left) */}
         <div className="flex flex-1 items-center gap-3">
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-2xl"
-            style={{ background: "var(--grad-navy)", boxShadow: "0 6px 16px rgba(11,53,89,0.5)" }}
+            className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white p-1.5"
+            style={{ boxShadow: "0 6px 16px rgba(11,53,89,0.25)" }}
           >
-            <span className="font-heading text-sm font-bold text-[var(--brand-red)]">TR</span>
+            <MyraMark className="h-full w-full" />
           </div>
           <div className="hidden leading-tight sm:block">
-            <div className="font-heading text-sm font-semibold">Talentrupt AI</div>
-            <div className="text-[10px] uppercase tracking-wider text-muted">RPO Done Right</div>
+            <div className="font-heading text-sm font-semibold">Myra</div>
+            <div className="text-[10px] uppercase tracking-wider text-muted">Marketing Agent</div>
           </div>
         </div>
 

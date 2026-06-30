@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { login, forgotPassword, resetPassword, setSession } from "@/lib/api";
+import { MyraMark } from "./MyraLogo";
 
 function EyeIcon({ off }: { off?: boolean }) {
   return off ? (
@@ -138,12 +139,12 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div
-            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ background: "var(--grad-navy)", boxShadow: "0 10px 30px rgba(11,53,89,0.5)" }}
+            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white p-2.5"
+            style={{ boxShadow: "0 10px 30px rgba(11,53,89,0.25)" }}
           >
-            <span className="font-heading text-2xl font-bold text-[var(--brand-red)]">TR</span>
+            <MyraMark className="h-full w-full" />
           </div>
-          <h1 className="font-heading text-2xl font-semibold">Talentrupt AI</h1>
+          <h1 className="font-heading text-2xl font-semibold">Myra</h1>
           <p className="mt-1 text-sm text-muted">Your internal marketing department</p>
         </div>
 

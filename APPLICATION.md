@@ -14,6 +14,11 @@ team uses it to chat with an AI assistant, generate on-brand content (posts, ima
 internal/external marketing campaigns, and do lead generation ("Business Dev"). Live at
 **https://myra.htuniverse.com**.
 
+The **app's UI is branded "Myra" / "Marketing Agent"** (header, login, loading screen, page title, favicon
+— see `components/MyraLogo.tsx` for the M mark and `app/icon.svg` for the favicon). This is product chrome
+only: the **content** the app produces is still Talentrupt's (brand grounding, "Promote Talentrupt",
+"Why Talentrupt fits") — those references are intentional and stay.
+
 ## 2. Stack & architecture
 - **Frontend:** Next.js 16 (React 19), Tailwind v4. Built as a **static export** (`output: 'export'` →
   `frontend/out`). Client-side SPA; talks to the backend over `/api`.

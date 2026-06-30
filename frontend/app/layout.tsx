@@ -16,8 +16,8 @@ const montserrat = Montserrat({
 });
 
 export const metadata: Metadata = {
-  title: "Talentrupt AI — Marketing Agent",
-  description: "Internal AI marketing department for Talentrupt. RPO Done Right.",
+  title: "Myra — Marketing Agent",
+  description: "Myra — your AI marketing department.",
 };
 
 export default function RootLayout({
