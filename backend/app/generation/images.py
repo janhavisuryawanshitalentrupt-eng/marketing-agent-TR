@@ -12,7 +12,7 @@ import io
 import re
 import zipfile
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageStat
 
 from ..brand.brand_kit import CREAM, NAVY, RED, WHITE
 from ..config import settings
@@ -536,6 +536,28 @@ def _downscale_jpeg(data: bytes, max_side: int = 1024) -> bytes:
     return buf.getvalue()
 
 
+# A frame this soft is visibly blurry and must NOT ship — regenerate instead. Calibrated on real
+# gpt-image-1 output (variance-of-Laplacian, normalized to a 640px long edge): sharp frames score
+# ~1000-1300; a clearly blurry frame (Gaussian blur radius >= ~1.8) drops below ~220. Tunable.
+_SHARP_MIN = 220.0
+
+
+def _sharpness(data: bytes) -> float:
+    """Variance-of-Laplacian sharpness (higher = crisper), scale-normalized so the threshold holds
+    across image sizes. Best-effort: returns a high value on any error so a measurement hiccup never
+    blocks generation."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("L")
+        w, h = im.size
+        s = 640.0 / max(w, h)
+        if s < 1:
+            im = im.resize((max(1, int(w * s)), max(1, int(h * s))))
+        lap = im.filter(ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1, offset=128))
+        return ImageStat.Stat(lap).var[0]
+    except Exception:
+        return 1e9
+
+
 def _crispen(data: bytes) -> bytes:
     """gpt-image-1 sometimes returns a soft / hazy frame. Apply a GENTLE unsharp pass to recover edges
     without making already-crisp renders look over-processed (the threshold means flat areas are left
@@ -571,14 +593,30 @@ async def _openai_image(
     plan: dict, concept: str, context: str, refs: list[bytes], brief: str = ""
 ) -> tuple[str, str, dict] | None:
     prompt = _openai_prompt(plan, concept, context, bool(refs), brief=brief)
-    try:
-        if refs:
-            data = await llm.generate_image_edit(prompt, refs)
-        else:
-            data = await llm.generate_image_bytes(prompt)
-    except Exception:
+    # Never ship a blurry frame: generate up to N times and KEEP THE SHARPEST. gpt-image-1 is sharp on
+    # the first try the vast majority of the time, so the extra calls only happen when a frame actually
+    # comes back soft (measured by _sharpness vs _SHARP_MIN). Keeping the best means a retry can only
+    # help, never hurt.
+    max_tries = 2 if refs else 3
+    best: bytes | None = None
+    best_sharp = -1.0
+    for _ in range(max_tries):
+        try:
+            data = await (
+                llm.generate_image_edit(prompt, refs) if refs else llm.generate_image_bytes(prompt)
+            )
+        except Exception:
+            if best is not None:
+                break  # a retry failed — keep the sharpest frame we already have
+            return None  # the very first call failed — nothing to ship
+        s = _sharpness(data)
+        if s > best_sharp:
+            best, best_sharp = data, s
+        if s >= _SHARP_MIN:
+            break  # crisp enough — stop early
+    if best is None:
         return None
-    data = _crispen(data)  # crisp up any soft/hazy gpt-image-1 frame so a blurry image never ships
+    data = _crispen(best)  # gentle final pass on the sharpest frame
     data = composite_logo_bytes(data)  # stamp the real Talentrupt logo so it's always present & correct
     file_name = unique_name("tr-image", "png")
     path = storage_subdir("images") / file_name

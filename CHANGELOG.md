@@ -15,6 +15,11 @@ All notable changes to the app, most recent first. Dates are when the work lande
   one-time migration that runs automatically on startup. (Fixes "one account's info showing on another".)
 
 ## Reliability & fixes (2026-06-30)
+- **Blurry images no longer ship.** gpt-image-1 occasionally returns a soft/out-of-focus frame. The
+  pipeline now measures each frame's sharpness (variance-of-Laplacian, calibrated: sharp ≈ 1000–1300,
+  blurry < ~220) and, when a frame is soft, **regenerates and keeps the sharpest** (up to 3 tries) before
+  the gentle crisp pass. Sharp frames pass on the first try, so the extra cost only kicks in on a
+  genuinely blurry result. (`generation/images.py:_sharpness` / `_openai_image`.)
 - **Campaign clients no longer come back empty for overlapping sectors.** The client purity gate
   required an exact sector match, so healthcare *staffing* agencies (labeled "Staffing & Recruiting")
   were dropped from a **Healthcare** campaign — leaving 0 clients. The gate now also keeps a company
