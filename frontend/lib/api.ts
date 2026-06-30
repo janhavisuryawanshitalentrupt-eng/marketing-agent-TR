@@ -71,7 +71,7 @@ export function clearToken(): void {
 
 /** The current session's identity — role is derived server-side from the token (can't be spoofed). */
 export async function getMe(): Promise<{ username: string; role: string }> {
-  const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
   if (!res.ok) throw new ApiError(res.status, "Failed to load session");
   return res.json();
 }
@@ -79,6 +79,24 @@ export async function getMe(): Promise<{ username: string; role: string }> {
 function authHeaders(): Record<string, string> {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Retry an idempotent GET through a transient backend blip. A deploy restarts the server for ~2-4s and
+// returns 502/503/504 (or a network error) during that window. Without this, view loads (past
+// generations, history, campaigns) that fired during a deploy came back EMPTY and were silently
+// swallowed — looking like the data "vanished" after every deployment. Only use for GETs (never POSTs,
+// which could double-submit).
+async function fetchRetry(input: string, init: RequestInit = {}, tries = 4): Promise<Response> {
+  const TRANSIENT = new Set([502, 503, 504]);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(input, init);
+      if (res.ok || !TRANSIENT.has(res.status) || attempt >= tries) return res;
+    } catch (e) {
+      if (attempt >= tries) throw e;
+    }
+    await new Promise((r) => setTimeout(r, Math.min(1200, 500 * (attempt + 1))));
+  }
 }
 
 export async function login(
@@ -127,20 +145,20 @@ export async function resetPassword(
 }
 
 export async function getHealth(): Promise<Health> {
-  const res = await fetch(`${API_BASE}/api/health`);
+  const res = await fetchRetry(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error("Backend unavailable");
   return res.json();
 }
 
 export async function getBrand(): Promise<Brand> {
-  const res = await fetch(`${API_BASE}/api/brand`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/brand`, { headers: authHeaders() });
   if (!res.ok) throw new ApiError(res.status, "Failed to load brand");
   return res.json();
 }
 
 export async function getConversations(kind?: string): Promise<Conversation[]> {
   const q = kind ? `?kind=${encodeURIComponent(kind)}` : "";
-  const res = await fetch(`${API_BASE}/api/conversations${q}`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/conversations${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load conversations");
   return res.json();
 }
@@ -328,7 +346,7 @@ export async function getCampaigns(status?: string, type?: string): Promise<Camp
   if (status) params.set("status", status);
   if (type) params.set("type", type);
   const q = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`${API_BASE}/api/campaigns${q}`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/campaigns${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load campaigns");
   return res.json();
 }
@@ -367,7 +385,7 @@ export async function getCampaignProspects(
   status?: string,
 ): Promise<CampaignProspect[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await fetch(`${API_BASE}/api/campaigns/${campaignId}/prospects${q}`, {
+  const res = await fetchRetry(`${API_BASE}/api/campaigns/${campaignId}/prospects${q}`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error("Failed to load target clients");
@@ -415,7 +433,7 @@ export async function revokeCampaignProspect(id: number): Promise<CampaignProspe
 
 export async function getAssets(type?: string): Promise<Asset[]> {
   const q = type ? `?type=${encodeURIComponent(type)}` : "";
-  const res = await fetch(`${API_BASE}/api/assets${q}`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/assets${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load assets");
   return res.json();
 }
@@ -457,7 +475,7 @@ export async function intakeCompany(
 
 export async function getOpportunities(status?: string): Promise<Opportunity[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await fetch(`${API_BASE}/api/opportunities${q}`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/opportunities${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load opportunities");
   return res.json();
 }

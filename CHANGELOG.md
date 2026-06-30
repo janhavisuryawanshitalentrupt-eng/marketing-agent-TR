@@ -3,6 +3,14 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Reliability (2026-06-30)
+- **Past generations / history no longer "vanish" after a deploy.** The data was never lost — the DB keeps
+  accumulating (verified 44 → 52 assets across deploys). But the view-load GETs (`/assets`,
+  `/conversations`, `/campaigns`, `/opportunities`, `/auth/me`, `/brand`) had **no retry**, so a fetch that
+  happened to hit the ~2-4s backend restart during a deploy failed and was **silently swallowed**, leaving
+  the gallery/history empty until a manual refresh. Those GETs now retry through the restart blip
+  (`fetchRetry`), and `/auth/me` retries too so a deploy can't momentarily log you out.
+
 ## Content & viewing (2026-06-30)
 - **No more stamped logo on generated images.** The Talentrupt "TR" badge that was composited onto every
   AI image is removed — images ship clean and use the full canvas (the "keep the corner empty" reservation
