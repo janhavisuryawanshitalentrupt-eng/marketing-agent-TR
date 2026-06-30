@@ -662,6 +662,7 @@ async def _openai_image(
         "url": public_url("images", file_name), "layout": plan["layout"],
         "style": plan.get("style"), "renderer": "openai_gpt_image_ref" if refs else "openai_gpt_image",
         "size": settings.openai_image_size,
+        "model": getattr(llm, "LAST_IMAGE_MODEL", settings.openai_image_model),  # which model actually ran
     }
 
 

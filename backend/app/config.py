@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # "openai" -> gpt-image-1 (rich, illustrative); "compositor" -> deterministic
     # brand template; "none" -> compositor. The compositor is always the fallback.
     image_provider: str = "none"
-    openai_image_model: str = "gpt-image-1"
+    openai_image_model: str = "gpt-image-2"  # llm.py falls back to gpt-image-1 if this is unavailable
     openai_image_quality: str = "high"  # low | medium | high | auto
     openai_image_size: str = "1024x1024"
 

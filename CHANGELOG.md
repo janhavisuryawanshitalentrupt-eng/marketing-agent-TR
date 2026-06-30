@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Chat & image model (2026-06-30)
+- **`@` quick-actions in Chat.** Type `@` in the chat box for a command palette — Create image / Create
+  deck / Create PDF / Write a post / Find prospects. Selecting one drops in a ready-to-fill prompt
+  (Chat already runs these). Arrow keys + Enter/Tab to pick, Esc to dismiss.
+- **Image model set to `gpt-image-2`, with a safe fallback.** The configured image model
+  (`openai_image_model`) now falls back to `gpt-image-1` automatically if the configured one is
+  unavailable, so switching models can't break generation; the asset `meta.model` records which model
+  actually ran.
+
 ## Reliability (2026-06-30)
 - **Past generations / history no longer "vanish" after a deploy.** The data was never lost — the DB keeps
   accumulating (verified 44 → 52 assets across deploys). But the view-load GETs (`/assets`,

@@ -33,6 +33,33 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // "@" command palette in the chat box (ChatGPT/Slack-style). Selecting one inserts a ready-to-fill
+  // prompt — Chat already understands these (generate_image, build_deck, …); the "@" is just a shortcut.
+  const [menuSel, setMenuSel] = useState(0);
+  const [atDismissed, setAtDismissed] = useState(false);
+  const AT_COMMANDS = [
+    { key: "image", label: "Create image", hint: "generate an image", insert: "Create an image of " },
+    { key: "deck", label: "Create deck", hint: "slide deck", insert: "Create a slide deck about " },
+    { key: "pdf", label: "Create PDF", hint: "document", insert: "Write a PDF document about " },
+    { key: "post", label: "Write a post", hint: "social caption", insert: "Write a LinkedIn post about " },
+    { key: "prospects", label: "Find prospects", hint: "target companies", insert: "Find prospects: " },
+  ];
+  const atMatch = atDismissed ? null : input.match(/(^|\s)@(\w*)$/);
+  const atQuery = atMatch ? atMatch[2].toLowerCase() : null;
+  const atMenu =
+    atQuery === null
+      ? []
+      : AT_COMMANDS.filter((c) => c.key.includes(atQuery) || c.label.toLowerCase().includes(atQuery));
+  const showAtMenu = atMenu.length > 0 && !busy;
+
+  function pickCommand(c: { insert: string }) {
+    setInput((prev) => prev.replace(/(^|\s)@(\w*)$/, (_m, lead) => lead + c.insert));
+    setMenuSel(0);
+    setAtDismissed(false);
+    requestAnimationFrame(() => taRef.current?.focus());
+  }
 
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -56,6 +83,12 @@ export function ChatPanel() {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (showAtMenu) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMenuSel((i) => (i + 1) % atMenu.length); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setMenuSel((i) => (i - 1 + atMenu.length) % atMenu.length); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickCommand(atMenu[Math.min(menuSel, atMenu.length - 1)]); return; }
+      if (e.key === "Escape") { e.preventDefault(); setAtDismissed(true); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit(input);
@@ -217,7 +250,29 @@ export function ChatPanel() {
                   )}
                 </div>
               )}
-              <div className="flex items-end gap-2">
+              <div className="relative flex items-end gap-2">
+                {showAtMenu && (
+                  <div className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg">
+                    <div className="border-b border-[var(--border)] px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted">Quick actions</div>
+                    {atMenu.map((c, i) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickCommand(c); }}
+                        onMouseEnter={() => setMenuSel(i)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                          i === Math.min(menuSel, atMenu.length - 1)
+                            ? "bg-[var(--surface-2)] text-foreground"
+                            : "text-muted hover:bg-[var(--surface-2)]"
+                        }`}
+                      >
+                        <span className="font-medium text-[var(--brand-red)]">@</span>
+                        <span className="flex-1">{c.label}</span>
+                        <span className="text-[11px] text-muted">{c.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <input
                   ref={fileRef}
                   type="file"
@@ -238,11 +293,12 @@ export function ChatPanel() {
                   </svg>
                 </button>
                 <textarea
+                  ref={taRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => { setInput(e.target.value); setAtDismissed(false); }}
                   onKeyDown={onKeyDown}
                   rows={1}
-                  placeholder="Ask anything, or describe what to find or create…"
+                  placeholder="Ask anything, or describe what to find or create…  (type @ for quick actions)"
                   className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                 />
                 <button

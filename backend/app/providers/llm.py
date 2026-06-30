@@ -62,51 +62,84 @@ def image_provider_available() -> bool:
     return settings.image_provider == "openai" and bool(settings.openai_api_key)
 
 
+# The model that produced the most recent image — surfaced in asset meta so we can see which model
+# actually ran (the configured one, or the gpt-image-1 fallback when the configured model is rejected).
+LAST_IMAGE_MODEL: str = settings.openai_image_model
+
+
+def _image_models() -> list[str]:
+    """The configured image model, with gpt-image-1 appended as a SAFE fallback when it differs — so
+    switching to an experimental/unavailable model name can never break generation (it falls back)."""
+    models = [settings.openai_image_model]
+    if settings.openai_image_model != "gpt-image-1":
+        models.append("gpt-image-1")
+    return models
+
+
 async def generate_image_bytes(
     prompt: str, size: str | None = None, quality: str | None = None
 ) -> bytes:
-    """Generate an image with gpt-image-1 and return raw PNG bytes."""
+    """Generate an image and return raw PNG bytes. Tries the configured model, falling back to
+    gpt-image-1 if that model is rejected (e.g. an unknown model name)."""
+    global LAST_IMAGE_MODEL
     url = f"{settings.openai_base_url.rstrip('/')}/images/generations"
     headers = {
         "Authorization": f"Bearer {settings.openai_api_key}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": settings.openai_image_model,
-        "prompt": prompt,
-        "n": 1,
-        "size": size or settings.openai_image_size,
-        "quality": quality or settings.openai_image_quality,
-    }
-    async with httpx.AsyncClient(timeout=300) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        b64 = resp.json()["data"][0]["b64_json"]
-    return base64.b64decode(b64)
+    last_err: Exception | None = None
+    for model in _image_models():
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": size or settings.openai_image_size,
+            "quality": quality or settings.openai_image_quality,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                b64 = resp.json()["data"][0]["b64_json"]
+            LAST_IMAGE_MODEL = model
+            return base64.b64decode(b64)
+        except Exception as e:  # invalid/unavailable model, rate limit, etc. -> try the fallback
+            last_err = e
+            logging.getLogger(__name__).warning("image model %s failed: %s", model, e)
+    raise last_err  # type: ignore[misc]
 
 
 async def generate_image_edit(
     prompt: str, references: list[bytes], size: str | None = None, quality: str | None = None
 ) -> bytes:
-    """Generate an image with gpt-image-1 guided by reference images (style transfer
-    from real past posts). Returns raw PNG bytes."""
+    """Generate an image guided by reference images (style transfer from real past posts). Tries the
+    configured model, falling back to gpt-image-1 if that model is rejected. Returns raw PNG bytes."""
+    global LAST_IMAGE_MODEL
     url = f"{settings.openai_base_url.rstrip('/')}/images/edits"
     headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
     files = [
         ("image[]", (f"ref{i}.jpg", data, "image/jpeg"))
         for i, data in enumerate(references)
     ]
-    form = {
-        "model": settings.openai_image_model,
-        "prompt": prompt,
-        "size": size or settings.openai_image_size,
-        "quality": quality or settings.openai_image_quality,
-    }
-    async with httpx.AsyncClient(timeout=300) as client:
-        resp = await client.post(url, headers=headers, data=form, files=files)
-        resp.raise_for_status()
-        b64 = resp.json()["data"][0]["b64_json"]
-    return base64.b64decode(b64)
+    last_err: Exception | None = None
+    for model in _image_models():
+        form = {
+            "model": model,
+            "prompt": prompt,
+            "size": size or settings.openai_image_size,
+            "quality": quality or settings.openai_image_quality,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                resp = await client.post(url, headers=headers, data=form, files=files)
+                resp.raise_for_status()
+                b64 = resp.json()["data"][0]["b64_json"]
+            LAST_IMAGE_MODEL = model
+            return base64.b64decode(b64)
+        except Exception as e:
+            last_err = e
+            logging.getLogger(__name__).warning("image-edit model %s failed: %s", model, e)
+    raise last_err  # type: ignore[misc]
 
 
 async def stream_chat(messages: list[dict], temperature: float = 0.6) -> AsyncIterator[str]:
