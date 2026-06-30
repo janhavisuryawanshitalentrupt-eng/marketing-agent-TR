@@ -41,6 +41,7 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 | **Create** | Visual/document generation studio (image / deck / PDF) | all |
 | **Campaigns** | **Internal** (promote Talentrupt: chat-driven content folder grounded in a brief) + **External** (client-targeting: sector → prospects → dated content calendar) | all |
 | **Business Dev** | Find/analyze real hiring companies as prospects; outreach drafts; pipeline tracking | all |
+| **Folders** | Folders of employees (photo + name + role); generate branded posts featuring their **real** photos (never an AI face) | all |
 | **Tasks** | Follow-up reminders | **admin only** |
 | **Analytics** | Pipeline/outreach/content rollup | **admin only** |
 

@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import random
 import re
 import secrets
 import time
@@ -17,15 +18,16 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .agent import orchestrator
-from .agent.tools import _save_asset, serialize_asset
+from .agent.tools import _FEATURE_HEADLINES, _build_one, _save_asset, serialize_asset
 from .business import analyze as bd_analyze
 from .business import discover as bd_discover
 from .business import enrich as bd_enrich
@@ -41,7 +43,8 @@ from .generation import images as gen_images
 from .generation import pdf as gen_pdf
 from .generation import posts as gen_posts
 from .generation import refine as gen_refine
-from .generation.common import storage_subdir
+from .generation import teampost
+from .generation.common import public_url, storage_subdir, unique_name
 from .knowledge.ingest import ingest_upload, is_supported_upload, run_ingest
 from .models import (
     Asset,
@@ -52,6 +55,8 @@ from .models import (
     CampaignItem,
     CampaignProspect,
     Conversation,
+    Employee,
+    Folder,
     Message,
     Opportunity,
     SourceFile,
@@ -424,6 +429,159 @@ async def upload_brand_file(
     if not data:
         raise HTTPException(status_code=400, detail="The file is empty.")
     return await ingest_upload(db, name, data, folder="Brand Kit", owner=role)
+
+
+# --- Folders (employee photo libraries -> real-person posts) ---------------
+class FolderCreate(BaseModel):
+    name: str = ""
+
+
+class FolderGenerate(BaseModel):
+    topic: str = ""
+
+
+def _serialize_employee(e: Employee) -> dict:
+    return {
+        "id": e.id, "folder_id": e.folder_id, "name": e.name, "role": e.role,
+        "file_url": e.file_url,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    }
+
+
+def _serialize_folder(db: Session, f: Folder) -> dict:
+    count = db.query(Employee).filter(Employee.folder_id == f.id).count()
+    return {
+        "id": f.id, "name": f.name, "employee_count": count,
+        "created_at": f.created_at.isoformat() if f.created_at else None,
+    }
+
+
+@app.get("/api/folders")
+def list_folders(db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    rows = db.query(Folder).filter(Folder.owner == role).order_by(Folder.id.desc()).all()
+    return [_serialize_folder(db, f) for f in rows]
+
+
+@app.post("/api/folders")
+def create_folder(req: FolderCreate, db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    f = Folder(owner=role, name=(req.name or "").strip()[:200] or "Untitled folder")
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    return _serialize_folder(db, f)
+
+
+@app.delete("/api/folders/{folder_id}")
+def delete_folder(folder_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    f = db.get(Folder, folder_id)
+    if not f or f.owner != role:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    for e in db.query(Employee).filter(Employee.folder_id == folder_id).all():
+        try:
+            if e.photo_path:
+                os.remove(e.photo_path)
+        except OSError:
+            pass
+    db.delete(f)
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/folders/{folder_id}/employees")
+def list_employees(folder_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    f = db.get(Folder, folder_id)
+    if not f or f.owner != role:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    rows = db.query(Employee).filter(Employee.folder_id == folder_id).order_by(Employee.id).all()
+    return [_serialize_employee(e) for e in rows]
+
+
+@app.post("/api/folders/{folder_id}/employees")
+async def add_employee(
+    folder_id: int,
+    name: str = Form(...),
+    role_title: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    role: str = Depends(require_auth),
+):
+    f = db.get(Folder, folder_id)
+    if not f or f.owner != role:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    limit = 25 * 1024 * 1024
+    total = 0
+    parts: list[bytes] = []
+    while chunk := await file.read(1 << 20):
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(status_code=413, detail="Photo too large (max 25 MB).")
+        parts.append(chunk)
+    data = b"".join(parts)
+    if not data:
+        raise HTTPException(status_code=400, detail="The photo is empty.")
+    ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp", "heic", "heif"):
+        ext = "jpg"
+    fname = unique_name("emp", ext)
+    path = storage_subdir("employees") / fname
+    with open(path, "wb") as fh:
+        fh.write(data)
+    e = Employee(
+        owner=role, folder_id=folder_id,
+        name=(name or "").strip()[:200] or "Employee",
+        role=(role_title or "").strip()[:200],
+        photo_path=str(path), file_url=public_url("employees", fname),
+    )
+    db.add(e)
+    db.commit()
+    db.refresh(e)
+    return _serialize_employee(e)
+
+
+@app.delete("/api/employees/{emp_id}")
+def delete_employee(emp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    e = db.get(Employee, emp_id)
+    if not e or e.owner != role:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    try:
+        if e.photo_path:
+            os.remove(e.photo_path)
+    except OSError:
+        pass
+    db.delete(e)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/employees/{emp_id}/generate")
+async def generate_employee_post(
+    emp_id: int, req: FolderGenerate, db: Session = Depends(get_db), role: str = Depends(require_auth)
+):
+    """Generate ONE branded post featuring this employee's REAL photo (AI scene background; the face is
+    kept exactly, never AI-generated). Mirrors the chat 'feature_uploaded_person' flow."""
+    e = db.get(Employee, emp_id)
+    if not e or e.owner != role:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    try:
+        with open(e.photo_path, "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        raise HTTPException(status_code=400, detail="Couldn't read the employee photo.")
+    brand = db.query(Brand).first()
+    topic = (req.topic or "").strip()
+    head, sub = teampost.split_message(topic) if topic else (random.choice(_FEATURE_HEADLINES), "")
+    try:
+        path, fname, meta = await _build_one(brand, raw, e.name, e.role, head, sub, "ai")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Generation failed — please try again.")
+    title = (e.name or "Featured") + (f" — {e.role}" if e.role else "")
+    a = _save_asset(
+        db, None, "image", title[:380],
+        body={"person": e.name, "role": e.role, "headline": head, "subline": sub,
+              "kind": "team", "folder_id": e.folder_id},
+        file_path=path, file_url=meta["url"], meta={**meta, "employee_id": e.id}, owner=role,
+    )
+    return serialize_asset(a)
 
 
 # --- Campaigns ------------------------------------------------------------

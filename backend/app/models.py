@@ -117,6 +117,36 @@ class Asset(Base):
     campaign: Mapped["Campaign | None"] = relationship(back_populates="assets")
 
 
+class Folder(Base):
+    """A user-managed folder of employees — upload their REAL photos + name/role, then generate branded
+    posts that feature them. Their actual photo is used; the face is never AI-generated."""
+    __tablename__ = "folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    employees: Mapped[list["Employee"]] = relationship(
+        cascade="all, delete-orphan", order_by="Employee.id"
+    )
+
+
+class Employee(Base):
+    """One person in a Folder: their real photo + name + role. The ACTUAL photo is composited into
+    generated posts; the face is never AI-generated."""
+    __tablename__ = "employees"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
+    folder_id: Mapped[int] = mapped_column(ForeignKey("folders.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(200), default="")
+    photo_path: Mapped[str] = mapped_column(String(600))  # on-disk path to the real photo
+    file_url: Mapped[str | None] = mapped_column(String(600), nullable=True)  # served URL for the thumbnail
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class CampaignItem(Base):
     """A planned content-calendar item within a future campaign."""
     __tablename__ = "campaign_items"

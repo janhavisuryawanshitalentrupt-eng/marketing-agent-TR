@@ -10,6 +10,7 @@ import { ChatPanel } from "./ChatPanel";
 import { CreateView } from "./CreateView";
 import { CampaignsView } from "./CampaignsView";
 import { BusinessView } from "./BusinessView";
+import { FoldersView } from "./FoldersView";
 import { TasksView } from "./TasksView";
 import { AnalyticsView } from "./AnalyticsView";
 
@@ -21,6 +22,7 @@ const NAV: NavItem[] = [
   { href: "/create", label: "Create", icon: "M4 5h16v14H4zM4 14l4-4 4 4 3-3 5 5" },
   { href: "/campaigns", label: "Campaigns", icon: "M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" },
   { href: "/business", label: "Business Dev", icon: "M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" },
+  { href: "/folders", label: "Folders", icon: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" },
   { href: "/tasks", label: "Tasks", icon: "M9 11l3 3L20 6M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7", adminOnly: true },
   { href: "/analytics", label: "Analytics", icon: "M4 20V10M10 20V4M16 20v-7M3 20h18", adminOnly: true },
 ];
@@ -79,6 +81,7 @@ export function Shell() {
     { key: "/create", active: pathname.startsWith("/create"), node: <CreateView /> },
     { key: "/campaigns", active: pathname.startsWith("/campaigns"), node: <CampaignsView /> },
     { key: "/business", active: pathname.startsWith("/business"), node: <BusinessView /> },
+    { key: "/folders", active: pathname.startsWith("/folders"), node: <FoldersView /> },
     // Tasks & Analytics are mounted only for admins; a member who deep-links here sees the fallback.
     ...(isAdmin
       ? [

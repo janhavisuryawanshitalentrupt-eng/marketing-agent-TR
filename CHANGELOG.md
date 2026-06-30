@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Folders — employee posts (2026-06-30)
+- **New "Folders" section.** Create folders of employees (each = photo + name + role), then generate
+  branded posts that feature their **real photos** — composited via the existing real-person engine
+  (`build_ai_scene`: AI scene background, the actual face kept, never AI-generated). "Generate post" per
+  employee or "Generate for everyone" with an optional topic. New `Folder` + `Employee` models
+  (owner-scoped) and `/api/folders` + `/api/employees` endpoints; nothing existing was changed.
+
 ## Chat & image model (2026-06-30)
 - **`@` quick-actions in Chat.** Type `@` in the chat box for a command palette — Create image / Create
   deck / Create PDF / Write a post / Find prospects. Selecting one drops in a ready-to-fill prompt

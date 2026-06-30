@@ -12,6 +12,22 @@ export interface Asset {
   meta: Record<string, unknown>;
 }
 
+export interface Folder {
+  id: number;
+  name: string;
+  employee_count: number;
+  created_at?: string | null;
+}
+
+export interface Employee {
+  id: number;
+  folder_id: number;
+  name: string;
+  role: string;
+  file_url?: string | null;
+  created_at?: string | null;
+}
+
 export interface ChatMessage {
   role: Role;
   content: string;

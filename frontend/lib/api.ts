@@ -11,6 +11,8 @@ import type {
   ChatMessage,
   ClientStrategy,
   Conversation,
+  Employee,
+  Folder,
   Health,
   KnowledgeStatus,
   Opportunity,
@@ -435,6 +437,64 @@ export async function getAssets(type?: string): Promise<Asset[]> {
   const q = type ? `?type=${encodeURIComponent(type)}` : "";
   const res = await fetchRetry(`${API_BASE}/api/assets${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load assets");
+  return res.json();
+}
+
+// --- Folders (employee photo libraries) -----------------------------------
+export async function getFolders(): Promise<Folder[]> {
+  const res = await fetchRetry(`${API_BASE}/api/folders`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load folders");
+  return res.json();
+}
+
+export async function createFolder(name: string): Promise<Folder> {
+  const res = await fetch(`${API_BASE}/api/folders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to create folder");
+  return res.json();
+}
+
+export async function deleteFolder(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/folders/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error("Delete failed");
+}
+
+export async function getEmployees(folderId: number): Promise<Employee[]> {
+  const res = await fetchRetry(`${API_BASE}/api/folders/${folderId}/employees`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load employees");
+  return res.json();
+}
+
+export async function addEmployee(folderId: number, name: string, role: string, file: File): Promise<Employee> {
+  const fd = new FormData();
+  fd.append("name", name);
+  fd.append("role_title", role);
+  fd.append("file", file);
+  // No Content-Type — the browser sets the multipart boundary.
+  const res = await fetch(`${API_BASE}/api/folders/${folderId}/employees`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: fd,
+  });
+  if (!res.ok) throw new Error("Failed to add employee");
+  return res.json();
+}
+
+export async function deleteEmployee(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/employees/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error("Delete failed");
+}
+
+export async function generateEmployeePost(empId: number, topic: string): Promise<Asset> {
+  const res = await fetch(`${API_BASE}/api/employees/${empId}/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ topic }),
+  });
+  if (!res.ok) throw new Error("Generation failed");
   return res.json();
 }
 
