@@ -21,6 +21,10 @@ All notable changes to the app, most recent first. Dates are when the work lande
 - **`@` autocomplete in Create & Chat.** Type `@` in the message box and your **employees** appear at the
   top (with their photo), the existing **quick actions** below. Pick someone → it inserts `@Their Name`;
   add context and send → a post with their real photo. New flat `GET /api/employees` backs the picker.
+- **The raw prompt no longer leaks into the post headline.** "Create an image of Nishant for Talentrupt's
+  success" used to print the literal instruction ("Create an image of for talentrupts success") as the
+  headline. The leading "create/make/generate an image of/for/about …" phrasing and the person's name are
+  now stripped (`_clean_headline`), so the headline reads as the actual message.
 - **`generate_team_image` finds Folders employees too (no `@` needed).** Even a plain request like
   "create an image of Nishant promoting Talentrupt" now resolves the name against your Folders library
   first and features their real photo — instead of failing with "no team photos for Nishant in the

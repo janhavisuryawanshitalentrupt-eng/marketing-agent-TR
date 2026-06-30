@@ -10,6 +10,7 @@ fallback path can call them.
 from __future__ import annotations
 
 import random
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
@@ -727,6 +728,31 @@ async def _build_one(brand, raw, name, role, headline, subline, style):
                                      question=subline, variant=random.randint(0, 5), style=style)
 
 
+_INSTRUCTION_RE = re.compile(
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|i\s+(?:want|need|would\s+like)(?:\s+you)?(?:\s+to)?\s+|let'?s\s+|kindly\s+)*"
+    r"(?:create|make|generate|build|design|draft|produce|render|do|give\s+me|show\s+me|prepare|put\s+together)\s+"
+    r"(?:me\s+)?(?:an?\s+|the\s+|some\s+|a\s+few\s+)?"
+    r"(?:image|images|post|posts|visual|visuals|graphic|graphics|picture|photo|creative|design|banner|poster)?s?\s*"
+    r"(?:of|for|about|featuring|showing|with|on|that\s+says|saying|to)?\s*",
+    re.I,
+)
+
+
+def _clean_headline(message: str, name: str = "") -> str:
+    """Turn a raw user request into a clean post headline: drop the person's name and any leading
+    'create an image of / make a post about …' instruction phrasing, so the literal prompt is never
+    printed as the headline. Returns '' if nothing meaningful remains (caller uses a default headline)."""
+    m = (message or "").strip()
+    if name:
+        m = re.sub(r"\b" + re.escape(name) + r"\b", " ", m, flags=re.I)
+    prev = None
+    while prev != m:  # peel repeated leading instruction phrases ("create an image of …")
+        prev = m
+        m = _INSTRUCTION_RE.sub("", m, count=1).strip()
+    m = re.sub(r"^(?:of|for|about|featuring|with|on|the)\s+", "", m, flags=re.I)  # leftover preposition
+    return re.sub(r"\s+", " ", m).strip(" -,:;.")
+
+
 def _find_employee(db, owner: str, query: str):
     """Resolve a Folders employee for `owner` by name — case-insensitive, fuzzy (exact first, then name
     contained-in-query or query-contained-in-name, longest name wins). Returns the Employee or None. The
@@ -794,8 +820,9 @@ async def exec_team_image(db, state, brand, args) -> dict:
     else:  # a named individual, no explicit style -> default to the designed AI scene (rich background)
         styles = ["ai"] * n
 
-    # Split the user's message into a punchy headline + supporting subline so it's shown in full.
-    msg_head, msg_sub = teampost.split_message(message)
+    # Strip any "create an image of …" instruction phrasing, then split into headline + supporting subline.
+    clean_msg = _clean_headline(message, person)
+    msg_head, msg_sub = teampost.split_message(clean_msg) if clean_msg else ("", "")
     assets, used, name, role = [], [], "", ""
     for i in range(n):
         photo = random.choice(photos)  # rotate across this person's real shots
@@ -803,7 +830,7 @@ async def exec_team_image(db, state, brand, args) -> dict:
         if not raw:
             continue
         name, role = teampost.parse_team_label(photo["label"])
-        if message:
+        if clean_msg:
             headline, subline = msg_head, msg_sub
         else:
             headline, subline = random.choice(_FEATURE_HEADLINES), ""
@@ -910,7 +937,7 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     except Exception:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}
-    message = (args.get("message") or "").strip()
+    message = _clean_headline((args.get("message") or "").strip(), match.name)
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     style_arg = (args.get("style") or "").strip().lower()
     if style_arg in ("ai", "scene"):
