@@ -3,12 +3,30 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Image quality + Folders fixes (2026-06-30)
+- **No more decorative starburst/squiggle symbols.** The little coral starburst/asterisk and the
+  hand-drawn squiggle/swoosh were being drawn on most images. Removed: the decoration treatments are now
+  clean-only, and the prompt explicitly forbids any starburst, asterisk, sparkle, squiggle, swoosh,
+  scribble or dotted-grid motif.
+- **No more dark / hazy / washed-out images.** One image shipped dim and foggy with barely-legible text.
+  Two guards now stop that: (1) the render prompt demands **bright, high-contrast, fully-legible** output
+  and forbids fog/haze/dim/grey-wash renders, and the dark "premium" palette is dropped from RPO content;
+  (2) a new **contrast gate** measures each frame's contrast (alongside the existing sharpness gate) and
+  **regenerates a washed-out frame, keeping the best** — so a hazy frame can't ship.
+- **Folders generate the REAL employee, not random AI people.** Folder post generation was using the
+  AI-scene path, which painted an AI background (with AI people) and needed a cut-out lib the server
+  doesn't have — so you saw strangers. It now uses the **real-photo template** (`build_team_image`
+  magazine/split): the employee's actual uploaded photo, full-bleed, in a branded navy layout. No AI
+  faces, ever.
+- **Employee photo thumbnails now display** (`/api/files/employees/*` was 404 — `employees` wasn't an
+  allowed file kind) and the **"Upload photo from your device"** action on each folder is clearer.
+
 ## Folders — employee posts (2026-06-30)
 - **New "Folders" section.** Create folders of employees (each = photo + name + role), then generate
-  branded posts that feature their **real photos** — composited via the existing real-person engine
-  (`build_ai_scene`: AI scene background, the actual face kept, never AI-generated). "Generate post" per
-  employee or "Generate for everyone" with an optional topic. New `Folder` + `Employee` models
-  (owner-scoped) and `/api/folders` + `/api/employees` endpoints; nothing existing was changed.
+  branded posts that feature their **real photos** (the real-photo template — never an AI face).
+  "Generate post" per employee or "Generate for everyone" with an optional topic. New `Folder` +
+  `Employee` models (owner-scoped) and `/api/folders` + `/api/employees` endpoints; nothing existing
+  was changed.
 
 ## Chat & image model (2026-06-30)
 - **`@` quick-actions in Chat.** Type `@` in the chat box for a command palette — Create image / Create

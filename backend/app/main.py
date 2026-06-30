@@ -572,8 +572,13 @@ async def generate_employee_post(
     brand = db.query(Brand).first()
     topic = (req.topic or "").strip()
     head, sub = teampost.split_message(topic) if topic else (random.choice(_FEATURE_HEADLINES), "")
+    # Use the employee's REAL photo in a branded template. 'magazine'/'split' show the full real photo
+    # (never an AI face, no cut-out lib needed) — the AI-scene path was producing random AI people.
+    style = random.choice(["magazine", "split"])
     try:
-        path, fname, meta = await _build_one(brand, raw, e.name, e.role, head, sub, "ai")
+        path, fname, meta = teampost.build_team_image(
+            brand, raw, e.name, e.role, head, sub, random.randint(0, 5), style
+        )
     except Exception:
         raise HTTPException(status_code=500, detail="Generation failed — please try again.")
     title = (e.name or "Featured") + (f" — {e.role}" if e.role else "")
@@ -1845,7 +1850,7 @@ def analytics_summary(db: Session = Depends(get_db), role: str = Depends(require
 
 
 # --- File serving (public; dev) -------------------------------------------
-_ALLOWED_KINDS = {"images", "decks", "pdfs"}
+_ALLOWED_KINDS = {"images", "decks", "pdfs", "employees"}
 
 
 def _is_deck_chrome(text: str) -> bool:

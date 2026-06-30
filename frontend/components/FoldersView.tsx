@@ -157,7 +157,7 @@ export function FoldersView() {
 
             {/* Add employee */}
             <div className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Add an employee</div>
+              <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Add an employee — name, role, then upload their photo from your device</div>
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   value={addName}
@@ -182,9 +182,10 @@ export function FoldersView() {
                   onClick={() => fileRef.current?.click()}
                   disabled={addBusy || !addName.trim()}
                   className="btn-primary shrink-0 disabled:opacity-50"
-                  title={addName.trim() ? "Pick a photo to add" : "Enter a name first"}
+                  title={addName.trim() ? "Choose a photo from your device" : "Enter a name first"}
                 >
-                  {addBusy ? "Adding…" : "+ Photo"}
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+                  {addBusy ? "Uploading…" : "Upload photo"}
                 </button>
               </div>
             </div>

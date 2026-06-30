@@ -478,13 +478,14 @@ _PALETTES = {
     "teal_calm": "deep navy with muted teal/sage accents on warm cream — calm, modern, professional",
 }
 # RPO / sales content stays close to brand (signature weighted); internal campaigns may use any palette.
-_RPO_PALETTES = ("signature", "signature", "signature", "mono_navy", "navy_gold", "dark_premium")
+# NOTE: bright/clean palettes only here — no dark/moody skins (they were producing dim, hazy frames).
+_RPO_PALETTES = ("signature", "signature", "signature", "mono_navy", "navy_gold", "coral_warm")
 _EXPRESSIVE_PALETTES = tuple(_PALETTES)
+# Decoration is deliberately CLEAN — NO starburst/asterisk/sparkle/squiggle/swoosh/scribble/dotted-grid
+# motifs (users asked for these removed). Let the type, color and imagery carry the design.
 _DECORATION = (
-    "NO decorative motifs — let the type and imagery carry it, clean and uncluttered",
-    "a FEW sparse hand-drawn accent motifs (a single arc, a loose squiggle, or a small dotted cluster) tucked into ONE corner only",
-    "one quiet geometric element or a soft tonal gradient block for subtle background interest",
-    "Talentrupt's signature sparse accents — a small coral 8-point starburst or concentric line arcs in a corner, never a full wash",
+    "NO decorative motifs at all — clean and uncluttered; let the type, color and imagery carry it",
+    "at most one quiet solid geometric block or a clean flat tonal area for subtle structure — and NOTHING else: no starbursts, sparkles, asterisks, squiggles, swooshes, scribbles or dotted grids",
 )
 
 
@@ -545,8 +546,10 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief
         "- For data graphics, render any REAL supplied stat as a solid, fully-opaque rounded card (one "
         "big number above a short label), aligned cleanly; invent NO numbers.\n"
         "- CRITICAL: do NOT render the word 'Talentrupt', the tagline 'RPO Done Right', or ANY company "
-        "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image. Use the full canvas — no "
-        "reserved empty corner. Premium B2B, magazine-quality finish.\n\n"
+        "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image.\n"
+        "- CRITICAL: do NOT add ANY decorative motif or symbol — no starburst, asterisk, sparkle, sun/rays, "
+        "squiggle, swoosh, scribble, hand-drawn doodle, or dotted-grid. Keep it clean and typographic.\n"
+        "- Use the full canvas — no reserved empty corner. Premium B2B, magazine-quality finish.\n\n"
         f"VISUAL STYLE: {_STYLE_DIRECTION.get(plan.get('style', 'photographic'), _STYLE_DIRECTION['photographic'])}\n"
         f"COMPOSITION: {comp}\n"
         f'The ONLY text rendered in the image is the headline (spell EXACTLY): "{plan["headline"]}"'
@@ -554,11 +557,14 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief
         f"Supporting line: {plan.get('subtext','')}\n{metric_line}\n{extra}\n"
         f"Topic: {concept}\n\n"
         + (f"Brand voice/themes to echo:\n{context}\n" if context else "")
-        + "\nRENDER QUALITY: tack-sharp focus, high detail, crisp edges; professional editorial/studio "
-        "photography quality; vivid yet brand-accurate color with strong contrast and clean lighting. "
-        "Any panel or card behind text must be SOLID and fully opaque (never translucent). STRICTLY "
-        "AVOID: blur, soft focus, low contrast, faded/washed-out tones, muddy gradients, haze, or noise.\n"
-        + "Output one finished, high-end, photorealistic 1:1 graphic with crisp, correctly-spelled text."
+        + "\nRENDER QUALITY: BRIGHT, clean, well-lit and HIGH-CONTRAST with fully legible text. Tack-sharp "
+        "focus, high detail, crisp edges; professional editorial/studio quality; vivid yet brand-accurate "
+        "color with strong contrast and clean, even lighting. Any panel or card behind text must be SOLID "
+        "and fully opaque (never translucent), and the text on it must read clearly. STRICTLY AVOID: blur, "
+        "soft focus, low contrast, dim/dark/underexposed renders, fog, haze, mist, smoke, a grey wash or "
+        "dark overlay, faded/washed-out/muddy tones, muddy gradients, or noise.\n"
+        + "Output one finished, high-end, BRIGHT, high-contrast, photorealistic 1:1 graphic with crisp, "
+        "correctly-spelled, fully-legible text."
     )
 
 
@@ -576,6 +582,20 @@ def _downscale_jpeg(data: bytes, max_side: int = 1024) -> bytes:
 # gpt-image-1 output (variance-of-Laplacian, normalized to a 640px long edge): sharp frames score
 # ~1000-1300; a clearly blurry frame (Gaussian blur radius >= ~1.8) drops below ~220. Tunable.
 _SHARP_MIN = 220.0
+# A frame this flat is washed-out / foggy / dim (everything mid-tone) and must NOT ship — regenerate.
+# Grayscale std-dev: a clean bright design clears ~50-75; a hazy grey-wash frame falls well below ~40.
+_CONTRAST_MIN = 40.0
+
+
+def _contrast(data: bytes) -> float:
+    """Global contrast = std-dev of luminance (0-255). A foggy / washed-out / dim frame scores low; a
+    clean high-contrast design scores high. Best-effort: returns a high value on any error so a
+    measurement hiccup never blocks generation."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("L")
+        return ImageStat.Stat(im).stddev[0]
+    except Exception:
+        return 1e9
 
 
 def _sharpness(data: bytes) -> float:
@@ -629,13 +649,13 @@ async def _openai_image(
     plan: dict, concept: str, context: str, refs: list[bytes], brief: str = ""
 ) -> tuple[str, str, dict] | None:
     prompt = _openai_prompt(plan, concept, context, bool(refs), brief=brief)
-    # Never ship a blurry frame: generate up to N times and KEEP THE SHARPEST. gpt-image-1 is sharp on
-    # the first try the vast majority of the time, so the extra calls only happen when a frame actually
-    # comes back soft (measured by _sharpness vs _SHARP_MIN). Keeping the best means a retry can only
-    # help, never hurt.
+    # Never ship a blurry OR washed-out frame: generate up to N times and KEEP THE BEST. gpt-image-1 is
+    # crisp & bright on the first try the vast majority of the time, so the extra calls only happen when a
+    # frame actually comes back soft (low _sharpness) or hazy/dim (low _contrast). We keep the frame that's
+    # best on its WEAKEST axis (normalized), so a retry can only help, never hurt.
     max_tries = 2 if refs else 3
     best: bytes | None = None
-    best_sharp = -1.0
+    best_score = -1.0
     for _ in range(max_tries):
         try:
             data = await (
@@ -643,13 +663,13 @@ async def _openai_image(
             )
         except Exception:
             if best is not None:
-                break  # a retry failed — keep the sharpest frame we already have
+                break  # a retry failed — keep the best frame we already have
             return None  # the very first call failed — nothing to ship
-        s = _sharpness(data)
-        if s > best_sharp:
-            best, best_sharp = data, s
-        if s >= _SHARP_MIN:
-            break  # crisp enough — stop early
+        score = min(_sharpness(data) / _SHARP_MIN, _contrast(data) / _CONTRAST_MIN)
+        if score > best_score:
+            best, best_score = data, score
+        if score >= 1.0:
+            break  # crisp AND high-contrast — stop early
     if best is None:
         return None
     data = _crispen(best)  # gentle final pass on the sharpest frame
