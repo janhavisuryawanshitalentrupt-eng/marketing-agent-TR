@@ -7,21 +7,17 @@ import {
   deleteEmployee,
   deleteFolder,
   fileUrl,
-  generateEmployeePost,
   getEmployees,
   getFolders,
 } from "@/lib/api";
-import type { Asset, Employee, Folder } from "@/lib/types";
-import { AssetCard } from "./AssetCard";
+import type { Employee, Folder } from "@/lib/types";
 
+// Folders is a REFERENCE PHOTO LIBRARY (a "knowledge bank") for Create & Chat. You don't generate here —
+// you add employees (photo + name + role), then mention them with @ in Create/Chat to feature them.
 export function FoldersView() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [topic, setTopic] = useState("");
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [genAll, setGenAll] = useState(false);
   const [addName, setAddName] = useState("");
   const [addRole, setAddRole] = useState("");
   const [addBusy, setAddBusy] = useState(false);
@@ -37,7 +33,6 @@ export function FoldersView() {
   }, []);
   useEffect(() => {
     if (selected == null) { setEmployees([]); return; }
-    setAssets([]);
     loadEmployees(selected);
   }, [selected, loadEmployees]);
 
@@ -77,26 +72,6 @@ export function FoldersView() {
     if (!confirm("Remove this employee from the folder?")) return;
     try { await deleteEmployee(id); } catch { /* still refresh */ }
     if (selected != null) { await loadEmployees(selected); await loadFolders(); }
-  }
-
-  async function genOne(emp: Employee) {
-    setBusyId(emp.id);
-    try {
-      const a = await generateEmployeePost(emp.id, topic.trim());
-      setAssets((prev) => [a, ...prev]);
-    } catch { alert("Generation failed — please try again."); }
-    finally { setBusyId(null); }
-  }
-
-  async function genAllPosts() {
-    setGenAll(true);
-    for (const emp of employees) {
-      try {
-        const a = await generateEmployeePost(emp.id, topic.trim());
-        setAssets((prev) => [a, ...prev]);
-      } catch { /* skip this one */ }
-    }
-    setGenAll(false);
   }
 
   return (
@@ -144,15 +119,15 @@ export function FoldersView() {
         {!folder ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-muted">
             <div>
-              <p className="mb-1 font-medium text-foreground">Employee folders</p>
-              <p>Create a folder, add employees (photo + name + role), then generate branded posts that<br />feature their real photos — never an AI face.</p>
+              <p className="mb-1 font-medium text-foreground">Employee photo library</p>
+              <p>Create a folder and add employees (photo + name + role). This is a reference library —<br />in <span className="font-medium text-foreground">Create</span> or <span className="font-medium text-foreground">Chat</span>, type <span className="font-mono">@</span> to feature anyone here in a post with their real photo.</p>
             </div>
           </div>
         ) : (
           <div className="mx-auto max-w-4xl">
             <h2 className="font-heading text-xl font-semibold">{folder.name}</h2>
             <p className="mt-1 text-sm text-muted">
-              Add employees, then generate posts featuring their real photos. Faces are never AI‑generated.
+              A reference photo library. To make a post featuring someone here, go to <span className="font-medium text-foreground">Create</span> or <span className="font-medium text-foreground">Chat</span> and type <span className="font-mono">@</span> their name — their real photo is used (never an AI face).
             </p>
 
             {/* Add employee */}
@@ -194,61 +169,29 @@ export function FoldersView() {
             {employees.length === 0 ? (
               <p className="mt-5 text-sm text-muted">No employees yet — add one above.</p>
             ) : (
-              <>
-                <div className="mt-6 flex flex-wrap items-center gap-2">
-                  <input
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    placeholder="What should the posts be about? (e.g. “welcoming new clients”) — optional"
-                    className="min-w-[16rem] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm outline-none"
-                  />
-                  <button onClick={genAllPosts} disabled={genAll} className="btn-primary shrink-0 disabled:opacity-50">
-                    {genAll ? "Generating…" : "Generate for everyone"}
-                  </button>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {employees.map((emp) => (
-                    <div key={emp.id} className="group relative flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                      {emp.file_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={fileUrl(emp.file_url)} alt={emp.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
-                      ) : (
-                        <div className="h-12 w-12 shrink-0 rounded-lg bg-[var(--surface-2)]" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{emp.name}</div>
-                        {emp.role ? <div className="truncate text-xs text-muted">{emp.role}</div> : null}
-                        <button
-                          onClick={() => genOne(emp)}
-                          disabled={busyId === emp.id || genAll}
-                          className="mt-1 text-[11px] text-[var(--brand-red)] hover:underline disabled:opacity-50"
-                        >
-                          {busyId === emp.id ? "Generating…" : "Generate post"}
-                        </button>
-                      </div>
-                      <button
-                        onClick={() => onDeleteEmployee(emp.id)}
-                        title="Remove"
-                        aria-label={`Remove ${emp.name}`}
-                        className="absolute right-1.5 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-[var(--brand-red)] focus-visible:opacity-100 group-hover:opacity-100"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                      </button>
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {employees.map((emp) => (
+                  <div key={emp.id} className="group relative flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                    {emp.file_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={fileUrl(emp.file_url)} alt={emp.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                    ) : (
+                      <div className="h-12 w-12 shrink-0 rounded-lg bg-[var(--surface-2)]" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{emp.name}</div>
+                      {emp.role ? <div className="truncate text-xs text-muted">{emp.role}</div> : null}
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Generated posts */}
-            {assets.length > 0 && (
-              <div className="mt-8">
-                <div className="mb-2 text-[11px] uppercase tracking-wider text-muted">Generated posts ({assets.length})</div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {assets.map((a) => (
-                    <AssetCard key={a.id} asset={a} />
-                  ))}
-                </div>
+                    <button
+                      onClick={() => onDeleteEmployee(emp.id)}
+                      title="Remove"
+                      aria-label={`Remove ${emp.name}`}
+                      className="absolute right-1.5 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-[var(--brand-red)] focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

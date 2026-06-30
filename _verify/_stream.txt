@@ -1,0 +1,12 @@
+event: meta
+data: {"conversation_id": 53, "title": "Create an image: a data-driven hiring infographic for Talent"}
+
+event: status
+data: {"text": "Understanding your request"}
+
+event: chips
+data: {"items": ["Hiring success rate", "Talent acquisition trends", "Data insights", "Your call", "Surprise me"]}
+
+event: done
+data: {"text": "What specific message or insight should the infographic convey beyond the 90% stat?"}
+
