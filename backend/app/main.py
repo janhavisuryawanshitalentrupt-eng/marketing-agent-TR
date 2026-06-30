@@ -145,6 +145,8 @@ def health() -> dict:
         "version": _app_version(),
         "llm_provider": settings.llm_provider,
         "llm_ready": llm.provider_available(),
+        "image_model": settings.openai_image_model,            # configured image model
+        "image_model_last": getattr(llm, "LAST_IMAGE_MODEL", settings.openai_image_model),  # model that actually ran last
         "enrichment_ready": settings.enrichment_available(),
         "database": settings.database_url.split(":")[0],
     }

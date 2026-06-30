@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Image model → gpt-image-2 (2026-06-30)
+- **Default image model switched to `gpt-image-2`** (OpenAI's latest — now live; it didn't exist when we
+  first tried). Verified end-to-end through the app's own pipeline: it returns b64 like gpt-image-1,
+  accepts `quality=high`, and `meta.model` came back `gpt-image-2` (a real run, not a fallback). The
+  gpt-image-1 auto-fallback stays, so a key without access can never break generation. `/api/health` now
+  reports `image_model` (configured) + `image_model_last` (what actually ran) to verify which is live.
+  **Requires an `OPENAI_API_KEY` with gpt-image-2 access in the server's `backend/.env`** (the deploy
+  never touches `.env`, so this is set on the droplet, not in the repo).
+
 ## Feature an employee by @mention (2026-06-30)
 - **Folders is now a pure reference library**; the in-section "Generate post" / "Generate for everyone"
   controls are removed. You feature people from **Create or Chat** instead.

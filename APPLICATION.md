@@ -23,7 +23,7 @@ only: the **content** the app produces is still Talentrupt's (brand grounding, "
 - **Frontend:** Next.js 16 (React 19), Tailwind v4. Built as a **static export** (`output: 'export'` →
   `frontend/out`). Client-side SPA; talks to the backend over `/api`.
 - **Backend:** FastAPI + SQLAlchemy 2 + SQLite (WAL). Pydantic-settings reads `backend/.env`.
-- **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-1` (images), `text-embedding-3-small` (RAG).
+- **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-2` (images; auto-falls back to `gpt-image-1` if the key lacks access), `text-embedding-3-small` (RAG).
   Providers are gated: `LLM_PROVIDER`/`IMAGE_PROVIDER` must be `openai` or you get a deterministic fallback.
 - **Single process:** in production the FastAPI/uvicorn process serves BOTH the static UI and the API —
   no separate Node server. (Dev runs them apart: `next dev` :3000 + uvicorn :8000.)
