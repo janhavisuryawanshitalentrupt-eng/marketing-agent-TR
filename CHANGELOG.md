@@ -21,6 +21,11 @@ All notable changes to the app, most recent first. Dates are when the work lande
 - **`@` autocomplete in Create & Chat.** Type `@` in the message box and your **employees** appear at the
   top (with their photo), the existing **quick actions** below. Pick someone → it inserts `@Their Name`;
   add context and send → a post with their real photo. New flat `GET /api/employees` backs the picker.
+- **`@mentions` are deterministic.** An `@Name` in Create or Chat now runs `feature_employee` **directly**
+  (the orchestrator resolves the name against your Folders and generates immediately) — it never gets
+  caught by the Create brief-intake questions and never mistakenly calls `generate_team_image` (the old
+  brand-library "Team/" folder). Fixes the "no team photos for X in the brand library" reply when X was
+  actually uploaded to Folders.
 
 ## Real brand logo in generated images (2026-06-30)
 - **The official TALENTRUPT wordmark now appears in generated images — without ever covering content.**

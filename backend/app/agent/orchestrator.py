@@ -185,6 +185,35 @@ async def run(
         state["campaign_brief"] = campaign_brief
         state["campaign_name"] = campaign_name
 
+    # DETERMINISTIC @MENTION: if the user @mentioned a Folders employee, feature their REAL photo NOW —
+    # bypassing the create brief-intake AND the LLM tool choice (which otherwise asked clarifying
+    # questions or wrongly tried generate_team_image / the brand-library "Team/" folder, where folder
+    # employees don't live). Skipped when a photo is attached this turn (that features the attachment).
+    if not attached_imgs:
+        import re as _re
+        at = _re.search(r"(?:^|\s)@\w", user_text)
+        if at:
+            from .tools import exec_feature_employee
+            from ..models import Employee
+            at_pos = user_text.index("@", at.start())
+            after = user_text[at_pos + 1:]
+            low = after.lower()
+            emps = db.query(Employee).filter(Employee.owner == owner).all()
+            emp = next((e for e in sorted(emps, key=lambda x: -len(x.name or ""))
+                        if e.name and (low.startswith(e.name.lower()) or e.name.lower() in low)), None)
+            person = emp.name if emp else after.strip()[:60]
+            message = ((user_text[:at_pos] + after[len(emp.name):]) if emp else user_text).strip()
+            yield {"event": "status", "data": STATUS_LABELS.get("feature_employee", "Featuring your team member")}
+            try:
+                result = await exec_feature_employee(db, state, brand, {"name": person, "message": message})
+            except Exception as e:
+                log.warning("feature_employee short-circuit failed: %s", e)
+                result = {"summary": f"Couldn't feature {person} — please try again.", "assets": []}
+            for asset in result.get("assets", []):
+                yield {"event": "asset", "data": asset}
+            yield {"event": "done", "data": result.get("summary") or "Done."}
+            return
+
     # CREATE / CAMPAIGN intake: a vague NEW request gets a short conversational nudge + tappable
     # quick-picks instead of generating blind. Specific / "your call" / answering / refine fall straight
     # through. SKIP the intake when a photo is attached — generate on THIS turn so the attachment (which
