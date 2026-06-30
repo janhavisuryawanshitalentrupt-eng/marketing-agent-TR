@@ -133,6 +133,15 @@ async def run(
             "'use this image'/'use this photo instead', that means feature THIS attached photo with "
             "feature_uploaded_person. NEVER reply that you can't see or analyze the image — use the tool."
         )
+    import re as _re
+    if _re.search(r"(?:^|\s)@[A-Za-z]", user_text):
+        system += (
+            "\n\nThe user @MENTIONED a team member (the name directly after '@', which may be two words). "
+            "IMMEDIATELY call feature_employee with that person's `name` and the rest of the message as "
+            "`message`. It builds a post from their REAL photo already saved in the app's Folders — you do "
+            "NOT need an attachment and do NOT need to 'know' them. Do NOT ask any clarifying question and "
+            "do NOT use generate_image — call feature_employee right now."
+        )
     messages: list[dict] = [{"role": "system", "content": system}]
     history = (
         db.query(Message)
