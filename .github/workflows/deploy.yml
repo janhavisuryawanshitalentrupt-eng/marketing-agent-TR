@@ -94,13 +94,17 @@ jobs:
               grep -v '^OPENAI_IMAGE_MODEL=' "$E" > "$E.t" 2>/dev/null || true; echo "OPENAI_IMAGE_MODEL=$OPENAI_IMAGE_MODEL" >> "$E.t"; mv "$E.t" "$E"
               echo "backend/.env updated (OPENAI_API_KEY hidden, OPENAI_IMAGE_MODEL=$OPENAI_IMAGE_MODEL)"
             fi
-            # CRITICAL: .env is the single source of truth for the app. The CI vars above were only used
-            # to (optionally) WRITE .env — they must NOT leak into the pm2 process env via --update-env,
-            # or an UNSET secret (empty string) would blank out the real OPENAI_API_KEY on the live
-            # process and knock the provider offline. Drop them from the shell before restarting.
+            # CRITICAL: .env is the single source of truth. The CI vars above were only used to
+            # (optionally) WRITE .env. Now RE-EXPORT the real OPENAI_* values straight FROM .env so that
+            # `pm2 --update-env` OVERWRITES any stale/blank value already stuck on the running process
+            # (pm2 --update-env merges, so it won't drop a var on its own). Only export keys that exist.
             unset OPENAI_API_KEY OPENAI_IMAGE_MODEL
+            ENVF=/root/talentrupt-agent/backend/.env
+            KL="$(grep -E '^OPENAI_API_KEY=' "$ENVF" | head -1)";    [ -n "$KL" ] && export OPENAI_API_KEY="${KL#OPENAI_API_KEY=}"
+            ML="$(grep -E '^OPENAI_IMAGE_MODEL=' "$ENVF" | head -1)"; [ -n "$ML" ] && export OPENAI_IMAGE_MODEL="${ML#OPENAI_IMAGE_MODEL=}"
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
             pm2 restart myra --update-env
+            echo "post-restart health: $(curl -fsS http://127.0.0.1:8100/api/health 2>/dev/null || echo unavailable)"
             pm2 save
             # Wait for uvicorn + DB migrations to come up (don't fail on a cold-start race).
             ok=0
