@@ -7,6 +7,9 @@
 #   2. In GitHub repo → Settings → Secrets and variables → Actions, add:
 #        DROPLET_HOST    = 206.189.132.167
 #        DROPLET_SSH_KEY = <the full contents of the PRIVATE key file `deploykey`>
+#        OPENAI_API_KEY  = <OPTIONAL — a key with gpt-4o-mini + gpt-image-2 access. When set, the deploy
+#                          writes it + OPENAI_IMAGE_MODEL=gpt-image-2 into the droplet's backend/.env, so
+#                          the key stays in GitHub's encrypted store (never the repo). Omit to manage .env by hand.>
 #
 # After that, every push to the branches below redeploys automatically. The frontend is built HERE
 # (GitHub's runner has plenty of RAM) so the 2 GB droplet never has to run `next build`. Only the
@@ -63,10 +66,18 @@ jobs:
 
       - name: Extract, install deps, restart
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          # OPTIONAL: set the GitHub Actions secret OPENAI_API_KEY (a key with gpt-4o-mini + gpt-image-2
+          # access) to have the deploy manage the OpenAI key + image model in the server's .env — so the
+          # key lives in GitHub's encrypted secret store, NEVER in the repo. If the secret is unset, .env
+          # is left completely untouched (safe no-op).
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_IMAGE_MODEL: gpt-image-2
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          envs: OPENAI_API_KEY,OPENAI_IMAGE_MODEL
           script: |
             set -e
             # Rebuild the static UI dir from scratch so DELETED assets don't linger — `tar -x` overlays
@@ -75,6 +86,14 @@ jobs:
             rm -rf /root/talentrupt-agent/frontend/out
             tar -xzf /root/deploy.tar.gz -C /root/talentrupt-agent
             cd /root/talentrupt-agent
+            # Upsert ONLY the OpenAI key + image model into backend/.env from the CI secret (every other
+            # line is preserved). Skipped entirely when the OPENAI_API_KEY secret is not set.
+            if [ -n "$OPENAI_API_KEY" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^OPENAI_API_KEY=' "$E" > "$E.t" 2>/dev/null || true; echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^OPENAI_IMAGE_MODEL=' "$E" > "$E.t" 2>/dev/null || true; echo "OPENAI_IMAGE_MODEL=$OPENAI_IMAGE_MODEL" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (OPENAI_API_KEY hidden, OPENAI_IMAGE_MODEL=$OPENAI_IMAGE_MODEL)"
+            fi
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
             pm2 restart myra --update-env
             pm2 save
