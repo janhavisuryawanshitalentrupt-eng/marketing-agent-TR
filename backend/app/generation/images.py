@@ -549,7 +549,9 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief
         "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image.\n"
         "- CRITICAL: do NOT add ANY decorative motif or symbol — no starburst, asterisk, sparkle, sun/rays, "
         "squiggle, swoosh, scribble, hand-drawn doodle, or dotted-grid. Keep it clean and typographic.\n"
-        "- Use the full canvas — no reserved empty corner. Premium B2B, magazine-quality finish.\n\n"
+        "- Compose within the TOP ~88% of the canvas; keep the BOTTOM ~12% as clean, simple background "
+        "(no headline, stat, or key subject there) — a slim brand footer strip is added in that space. "
+        "Premium B2B, magazine-quality finish.\n\n"
         f"VISUAL STYLE: {_STYLE_DIRECTION.get(plan.get('style', 'photographic'), _STYLE_DIRECTION['photographic'])}\n"
         f"COMPOSITION: {comp}\n"
         f'The ONLY text rendered in the image is the headline (spell EXACTLY): "{plan["headline"]}"'
@@ -629,6 +631,30 @@ def _crispen(data: bytes) -> bytes:
         return data
 
 
+def _brand_footer(data: bytes) -> bytes:
+    """Add a clean brand FOOTER BAND with the official wordmark BENEATH the artwork. The band is a solid
+    brand-cream strip (thin coral keyline + navy wordmark), so the logo lives in its OWN reserved space
+    and never floats over / covers the image's content. Best-effort; returns input unchanged on error."""
+    try:
+        from PIL import ImageDraw
+        from .common import paste_wordmark
+        art = Image.open(io.BytesIO(data)).convert("RGB")
+        W, Ht = art.size
+        band_h = max(104, int(Ht * 0.11))
+        y0 = Ht - band_h
+        d = ImageDraw.Draw(art)
+        d.rectangle([0, y0, W, Ht], fill=(0xEB, 0xE9, 0xDF))                                # cream band
+        d.rectangle([0, y0, W, y0 + max(4, int(band_h * 0.05))], fill=(0xF6, 0x40, 0x4C))   # coral keyline
+        box_h = int(band_h * 0.48)
+        paste_wordmark(art, int(W * 0.045), y0 + (band_h - box_h) // 2 + int(band_h * 0.04),
+                       int(W * 0.46), box_h, dark_bg=False, align="left")
+        buf = io.BytesIO()
+        art.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return data
+
+
 def _load_references(paths: list[str]) -> list[bytes]:
     if not paths:
         return []
@@ -673,7 +699,7 @@ async def _openai_image(
     if best is None:
         return None
     data = _crispen(best)  # gentle final pass on the sharpest frame
-    # (No logo stamp — generated images ship clean; the brand mark is not composited onto them.)
+    data = _brand_footer(data)  # clean brand footer band w/ the official wordmark (reserved, never over content)
     file_name = unique_name("tr-image", "png")
     path = storage_subdir("images") / file_name
     with open(path, "wb") as f:

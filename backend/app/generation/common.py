@@ -15,6 +15,10 @@ _LOGO_RED = (0xF6, 0x40, 0x4C)
 # The REAL logo, extracted from Talentrupt's brand guideline and bundled with the repo. Used by
 # default on every generated asset (overridable via settings.brand_logo_path).
 _BUNDLED_LOGO = Path(__file__).resolve().parent.parent / "brand" / "tr_logo.png"
+# The official TALENTRUPT WORDMARK (transparent PNG, true aspect ratio) — navy for light backgrounds,
+# white for dark. Composited into RESERVED clean space (never stamped over content). From the brand PDF.
+_BUNDLED_WORDMARK = Path(__file__).resolve().parent.parent / "brand" / "tr_wordmark.png"
+_BUNDLED_WORDMARK_WHITE = Path(__file__).resolve().parent.parent / "brand" / "tr_wordmark_white.png"
 
 # Windows font candidates (bold heading + regular body), with graceful fallback.
 _HEADING_CANDIDATES = [
@@ -122,6 +126,32 @@ def paste_logo(img, x: int, y: int, size: int) -> bool:
     try:
         logo = Image.open(str(logo_path())).convert("RGBA").resize((size, size))
         img.paste(logo, (int(x), int(y)), logo)
+        return True
+    except Exception:
+        return False
+
+
+def wordmark_path(dark_bg: bool = False) -> Path:
+    """Path to the official Talentrupt WORDMARK (a transparent, true-aspect PNG). White variant on a dark
+    background, navy on a light one. Falls back to the square logo if the wordmark asset is missing."""
+    p = _BUNDLED_WORDMARK_WHITE if dark_bg else _BUNDLED_WORDMARK
+    return p if p.exists() else logo_path()
+
+
+def paste_wordmark(img, x: int, y: int, max_w: int, max_h: int, dark_bg: bool = False, align: str = "left") -> bool:
+    """Fit the official wordmark into a (max_w x max_h) box at (x, y), preserving aspect ratio, on a
+    TRANSPARENT background — so it sits in reserved space and NEVER covers content with a chip/box.
+    `align` positions the (narrower) wordmark within the box: left | center | right. Best-effort."""
+    try:
+        wm = Image.open(str(wordmark_path(dark_bg))).convert("RGBA")
+        scale = min(max_w / wm.width, max_h / wm.height)
+        w, h = max(1, int(wm.width * scale)), max(1, int(wm.height * scale))
+        wm = wm.resize((w, h), Image.LANCZOS)
+        if align == "center":
+            x = int(x + (max_w - w) / 2)
+        elif align == "right":
+            x = int(x + (max_w - w))
+        img.paste(wm, (int(x), int(y)), wm)  # wm's own alpha is the mask -> no opaque box
         return True
     except Exception:
         return False

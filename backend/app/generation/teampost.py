@@ -19,7 +19,7 @@ import re
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from ..models import Brand
-from .common import body_font, heading_font, paste_logo, public_url, storage_subdir, unique_name
+from .common import body_font, heading_font, paste_wordmark, public_url, storage_subdir, unique_name
 
 W = H = 1080
 RAIL_W = 16
@@ -252,7 +252,7 @@ def _layout_spotlight(photo, name, role, headline, question, variant) -> Image.I
             d.text((pad, y), ln, font=qf, fill=CREAM)
             y += 44
     _draw_featuring(d, pad, H - 250, name, role)
-    paste_logo(canvas, W - 116, H - 116, 74)
+    paste_wordmark(canvas, 70, H - 64, 240, 46, dark_bg=True)  # wordmark in the clean bottom margin
     return canvas
 
 
@@ -298,7 +298,7 @@ def _layout_magazine(photo, name, role, headline, question, variant) -> Image.Im
         d.text((pad, name_y), name, font=heading_font(74), fill=WHITE)
         if role:
             _role_badge(d, pad, name_y + 92, role)
-    paste_logo(canvas, W - 116, H - 116, 74)
+    paste_wordmark(canvas, 70, H - 64, 240, 46, dark_bg=True)  # on the dark scrim, bottom-left
     return canvas
 
 
@@ -322,7 +322,7 @@ def _layout_split(photo, name, role, headline, question, variant) -> Image.Image
             d.text((pad, y), ln, font=qf, fill=CREAM)
             y += 40
     _draw_featuring(d, pad, H - 300, name, role, name_size=48)
-    paste_logo(canvas, pad, H - 110, 60)
+    paste_wordmark(canvas, pad, H - 64, 230, 46, dark_bg=True)  # on the navy panel, bottom-left
     return canvas
 
 
@@ -360,7 +360,7 @@ def _layout_framed(photo, name, role, headline, question, variant) -> Image.Imag
             ry = fy + fh + 26 + 76
             d.rounded_rectangle([(W - rw) // 2 - 30, ry, (W + rw) // 2 + 30, ry + 54], radius=27, fill=RED)
             d.text(((W - rw) // 2, ry + 12), role, font=rf, fill=WHITE)
-    paste_logo(canvas, W - 116, H - 116, 74)
+    paste_wordmark(canvas, 0, H - 64, W, 46, dark_bg=True, align="center")  # centered in the bottom margin
     return canvas
 
 
@@ -500,7 +500,7 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
             y += 44
     _draw_featuring(d, pad, H - 250, name, role)
     try:
-        paste_logo(canvas, W - 116, H - 116, 74)
+        paste_wordmark(canvas, 70, H - 64, 240, 46, dark_bg=True)
     except Exception:
         pass
 

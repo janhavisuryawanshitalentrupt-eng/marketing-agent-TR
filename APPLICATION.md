@@ -67,8 +67,11 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   **`scene`** used as the AUTHORITATIVE subject so imagery stays on the post's topic; a per-image
   **palette + decoration variety** pass (`_variety`) so posts don't all share one skin — RPO stays
   brand-weighted, internal campaigns roam; a **blur gate** that measures sharpness and regenerates a soft
-  frame keeping the sharpest, then a gentle `_crispen`) and a deterministic compositor fallback. `decks.py` — PPTX.
-  `pdf.py` — branded PDFs. `teampost.py` — real-person cut-out posts (NEVER an AI face) + AI-scene.
+  frame keeping the sharpest, then a gentle `_crispen`; a **contrast gate** that rejects washed-out/hazy
+  frames; and a clean brand **footer band** (`_brand_footer`) carrying the official wordmark beneath the
+  art so the logo never covers content) and a deterministic compositor fallback. `decks.py` — PPTX.
+  `pdf.py` — branded PDFs. `teampost.py` — real-person posts (NEVER an AI face), with the official
+  **wordmark** placed in the layout's reserved bottom margin (`common.paste_wordmark`, navy/white variants).
   `refine.py` — regenerate/refine an asset into a new version.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
   the ingested TR library. **Campaign** generation grounds in the campaign's **brief** (`Campaign.goal`),

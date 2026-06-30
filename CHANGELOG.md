@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Real brand logo in generated images (2026-06-30)
+- **The official TALENTRUPT wordmark now appears in generated images — without ever covering content.**
+  Extracted the real wordmark from the brand-guideline PDF (transparent **navy** + **white** variants)
+  and replaced the old square "TR" badge that was being *stamped on top* of team/folder posts (it landed
+  on the person's photo — the overlap you saw). Now:
+  - **Team / folder posts** place the white wordmark in the clean **bottom margin** of every layout
+    (spotlight / magazine / split / framed) — reserved navy/scrim space, never over the photo or text.
+  - **AI images** get a slim brand **footer band** (cream strip + coral keyline + navy wordmark) beneath
+    the artwork, and the prompt now keeps the bottom ~12% clear so nothing important is covered.
+  - New `paste_wordmark` + `wordmark_path` helpers in `common.py`; assets bundled at
+    `backend/app/brand/tr_wordmark.png` + `tr_wordmark_white.png`. Decks/PDFs are unchanged.
+
 ## Image quality + Folders fixes (2026-06-30)
 - **No more decorative starburst/squiggle symbols.** The little coral starburst/asterisk and the
   hand-drawn squiggle/swoosh were being drawn on most images. Removed: the decoration treatments are now
