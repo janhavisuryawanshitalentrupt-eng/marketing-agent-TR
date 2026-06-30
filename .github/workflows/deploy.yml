@@ -100,8 +100,10 @@ jobs:
             # (pm2 --update-env merges, so it won't drop a var on its own). Only export keys that exist.
             unset OPENAI_API_KEY OPENAI_IMAGE_MODEL
             ENVF=/root/talentrupt-agent/backend/.env
-            KL="$(grep -E '^OPENAI_API_KEY=' "$ENVF" | head -1)";    [ -n "$KL" ] && export OPENAI_API_KEY="${KL#OPENAI_API_KEY=}"
-            ML="$(grep -E '^OPENAI_IMAGE_MODEL=' "$ENVF" | head -1)"; [ -n "$ML" ] && export OPENAI_IMAGE_MODEL="${ML#OPENAI_IMAGE_MODEL=}"
+            # tr -d '\r' guards a CRLF .env: without it the value picks up a trailing \r (e.g.
+            # "gpt-image-1\r"), which makes the model name invalid and forces a wasted fallback per image.
+            KL="$(grep -E '^OPENAI_API_KEY=' "$ENVF" | head -1 | tr -d '\r')";    [ -n "$KL" ] && export OPENAI_API_KEY="${KL#OPENAI_API_KEY=}"
+            ML="$(grep -E '^OPENAI_IMAGE_MODEL=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$ML" ] && export OPENAI_IMAGE_MODEL="${ML#OPENAI_IMAGE_MODEL=}"
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
             pm2 restart myra --update-env
             echo "post-restart health: $(curl -fsS http://127.0.0.1:8100/api/health 2>/dev/null || echo unavailable)"
