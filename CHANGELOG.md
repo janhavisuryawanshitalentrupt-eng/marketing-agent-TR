@@ -29,6 +29,13 @@ All notable changes to the app, most recent first. Dates are when the work lande
 - A deterministic **crisp-up pass** removes gpt-image-1's occasional soft/hazy frames, tuned to a gentle
   level (not over-sharpened).
 
+## Deployment (2026-06-30)
+- **Auto-deploy is live & green** — the GitHub Actions pipeline now deploys end-to-end on every push
+  (build → ship → restart → health-check). Fixed three first-run issues: the scp source must live inside
+  the workspace (`tar: empty archive`), deploys now **queue** instead of cancel mid-flight, and the
+  post-restart health check **retries for ~60s** instead of a single `sleep 2` (uvicorn + migrations need
+  a moment to boot, which was reporting a false failure even though the app was up).
+
 ## Deployment (2026-06-29)
 - **Deploy verification** — `GET /api/health` now returns the live `version` (the deployed commit SHA,
   stamped by CI). Confirms from the outside exactly which commit is live after a deploy.

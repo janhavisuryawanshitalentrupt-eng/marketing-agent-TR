@@ -74,5 +74,14 @@ jobs:
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
             pm2 restart myra --update-env
             pm2 save
-            sleep 2
-            curl -fsS http://127.0.0.1:8100/api/health >/dev/null && echo "deploy OK" || (pm2 logs myra --lines 20 --nostream; exit 1)
+            # Wait for uvicorn + DB migrations to come up (don't fail on a cold-start race).
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8100/api/health >/dev/null 2>&1; then ok=1; break; fi
+              sleep 2
+            done
+            if [ "$ok" = 1 ]; then
+              echo "deploy OK: $(curl -fsS http://127.0.0.1:8100/api/health)"
+            else
+              echo "health check failed after ~60s"; pm2 logs myra --lines 30 --nostream; exit 1
+            fi
