@@ -3,6 +3,14 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## UI (2026-06-30)
+- **Account menu.** The header now shows just your **avatar**; clicking it opens a dropdown with your
+  name, email, a light/dark **theme toggle**, and **Sign out** (closes on outside-click / Esc). Replaces
+  the always-on name + email + logout + theme icons.
+- **Stream retry widened to cover a deploy restart.** Chat/Create/Campaign streams now retry the initial
+  connection for ~4s (up to 5 attempts) on a transient 502/network blip, so the brief backend restart
+  during a deploy no longer surfaces as "network error".
+
 ## Accounts & security (2026-06-29)
 - **Member login added** — `nishant@talentrupt.com` signs in as a non-admin **member**; the existing
   `Admin@talentrupt.com` stays admin. Role is derived server-side from the bearer token (`/api/auth/me`),

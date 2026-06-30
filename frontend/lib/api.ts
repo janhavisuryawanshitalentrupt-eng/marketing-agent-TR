@@ -684,6 +684,8 @@ export async function streamChat(
   // an error so a short blip doesn't dump the user to "network error". We only retry before any data
   // has streamed — never mid-stream, which would duplicate a partial reply.
   const TRANSIENT = new Set([502, 503, 504]);
+  const MAX_RETRY = 4; // up to 5 attempts (~4s total) — rides through a backend restart during a deploy
+  const wait = (a: number) => new Promise((r) => setTimeout(r, Math.min(1200, 600 * (a + 1))));
   let res: Response | null = null;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -695,15 +697,15 @@ export async function streamChat(
       });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") return; // superseded by a newer turn — silent
-      if (attempt < 2) {
-        await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+      if (attempt < MAX_RETRY) {
+        await wait(attempt);
         continue; // network blip before any response — retry
       }
       handlers.onError?.("Couldn’t reach the server — please try again in a moment.");
       return;
     }
-    if (res.ok || !TRANSIENT.has(res.status) || attempt >= 2) break;
-    await new Promise((r) => setTimeout(r, 700 * (attempt + 1))); // backend restarting — retry
+    if (res.ok || !TRANSIENT.has(res.status) || attempt >= MAX_RETRY) break;
+    await wait(attempt); // backend restarting (e.g. a deploy) — retry
   }
 
   if (!res || !res.ok || !res.body) {

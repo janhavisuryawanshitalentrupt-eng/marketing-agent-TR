@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "./AuthGate";
@@ -51,6 +51,25 @@ export function Shell() {
       /* ignore */
     }
   }
+
+  // Account dropdown (avatar -> name, email, theme, sign out): close on outside-click / Escape.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // All four views stay MOUNTED here (in the persistent Shell), so an in-progress task
   // (a discovery, a generation, a draft) survives switching sections. The route's pathname
@@ -111,37 +130,52 @@ export function Shell() {
           })}
         </nav>
 
-        {/* Right: theme toggle + profile */}
-        <div className="flex flex-1 items-center justify-end gap-1.5">
-          <button
-            onClick={toggleTheme}
-            title="Toggle light / dark mode"
-            aria-label="Toggle light / dark mode"
-            className="rounded-xl p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
-          >
-            {theme === "dark" ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" /></svg>
-            )}
-          </button>
-
-          <div className="flex items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-[var(--surface-2)]">
-            <Avatar name={displayName} size={32} />
-            <div className="hidden min-w-0 leading-tight lg:block">
-              <div className="truncate text-sm font-medium">{displayName}</div>
-              <div className="truncate text-[11px] text-muted">{username || ""}</div>
-            </div>
+        {/* Right: account menu — avatar opens a dropdown (name, email, theme, sign out) */}
+        <div className="flex flex-1 items-center justify-end">
+          <div className="relative" ref={menuRef}>
             <button
-              onClick={logout}
-              title="Sign out"
-              aria-label="Sign out"
-              className="rounded-lg p-2 text-muted transition hover:bg-[var(--surface-3)] hover:text-[var(--brand-red)]"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Account menu"
+              className="rounded-full transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-red)]"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-              </svg>
+              <Avatar name={displayName} size={34} />
             </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg"
+              >
+                <div className="flex items-center gap-3 border-b border-[var(--border)] px-3 py-3">
+                  <Avatar name={displayName} size={36} />
+                  <div className="min-w-0 leading-tight">
+                    <div className="truncate text-sm font-medium">{displayName}</div>
+                    <div className="truncate text-[11px] text-muted">{username || ""}</div>
+                  </div>
+                </div>
+                <button
+                  role="menuitem"
+                  onClick={toggleTheme}
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
+                >
+                  {theme === "dark" ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" /></svg>
+                  )}
+                  <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={logout}
+                  className="flex w-full items-center gap-2.5 border-t border-[var(--border)] px-3 py-2.5 text-left text-sm text-muted transition hover:bg-[var(--surface-2)] hover:text-[var(--brand-red)]"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+                  <span>Sign out</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
