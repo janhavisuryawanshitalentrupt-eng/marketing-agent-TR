@@ -69,6 +69,10 @@ jobs:
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
             set -e
+            # Rebuild the static UI dir from scratch so DELETED assets don't linger — `tar -x` overlays
+            # files but never removes ones dropped from the build (e.g. an old favicon.ico). `frontend/out`
+            # is fully regenerated every deploy and holds no runtime data (.env/db/storage live elsewhere).
+            rm -rf /root/talentrupt-agent/frontend/out
             tar -xzf /root/deploy.tar.gz -C /root/talentrupt-agent
             cd /root/talentrupt-agent
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
