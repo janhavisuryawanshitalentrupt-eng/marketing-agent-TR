@@ -62,7 +62,8 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   library; `SourceFile.owner` is NULL for the shared library, a role for a user upload) · `AppSetting`.
 
 ## 6. Generation pipeline (`backend/app/generation/`)
-- `posts.py` — captions/posts. `images.py` — `gpt-image-1` art (with `_plan` art-director; a per-image
+- `posts.py` — captions/posts. `images.py` — `gpt-image-1` art (`_plan` art-director plans a topic-specific
+  **`scene`** used as the AUTHORITATIVE subject so imagery stays on the post's topic; a per-image
   **palette + decoration variety** pass (`_variety`) so posts don't all share one skin — RPO stays
   brand-weighted, internal campaigns roam; a **blur gate** that measures sharpness and regenerates a soft
   frame keeping the sharpest, then a gentle `_crispen`) and a deterministic compositor fallback. `decks.py` — PPTX.

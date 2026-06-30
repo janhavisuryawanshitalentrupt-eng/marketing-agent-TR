@@ -98,6 +98,11 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             '"typographic" (atmospheric photo + elegant condensed type)\n'
             '- "composition": one of "full_bleed_photo","split_panel","centered_type","grid",'
             '"cards","collage" — the overall arrangement\n'
+            '- "scene": 1-2 SHORT sentences naming the SPECIFIC imagery to depict for THIS topic — the '
+            'concrete subject, key objects and setting drawn from the topic itself (e.g. a DATA/analytics '
+            'topic -> dashboards, charts, a recruiter reading hiring metrics on a screen; a YOGA/wellness '
+            'topic -> a calm figure mid-pose at sunrise; a FOOTBALL topic -> players/ball/pitch). It MUST '
+            'be on-topic and literal; NEVER generic office filler or an unrelated/off-theme scene.\n'
             '- "bg": "navy" or "cream"\n'
             '- "headline": <= 10 words, punchy, matches the topic\n'
             '- "subtext": one short supporting line (<= 14 words)\n'
@@ -240,6 +245,7 @@ def _coerce(v: dict, concept: str, brand: Brand | None, force_style: str | None 
         "layout": layout,
         "style": style,
         "composition": v.get("composition", ""),
+        "scene": (v.get("scene") or concept or "").strip(),  # topic-specific imagery to depict
         "bg": "cream" if v.get("bg") == "cream" else "navy",
         "headline": (v.get("headline") or concept or "RPO Done Right").strip(),
         "subtext": (v.get("subtext") or (brand.tagline if brand else "RPO Done Right")).strip(),
@@ -524,6 +530,11 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief
     return (
         subject_line
         + ref_line
+        + "SUBJECT — AUTHORITATIVE: the image MUST depict, specifically and literally, "
+        f"{plan.get('scene') or concept}. Build the whole scene around THIS topic; every visual element "
+        "should reinforce it. Do NOT use generic office filler, stock 'handshake / laptop' clichés, or ANY "
+        "unrelated / off-theme imagery. If the VISUAL STYLE note below lists example subjects, treat those "
+        "as STYLE guidance only and depict the subject above instead.\n\n"
         + "DESIGN SYSTEM for THIS image (sets the LOOK and deliberately VARIES image-to-image — the "
         "official logo is overlaid afterward, so the brand stays present whatever the palette):\n"
         f"- COLOR PALETTE — AUTHORITATIVE: use {palette}. If the VISUAL STYLE note below names other "

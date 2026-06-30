@@ -4,6 +4,12 @@ All notable changes to the app, most recent first. Dates are when the work lande
 `feat/create-chip-brief-intake`.
 
 ## Image design variety (2026-06-30)
+- **Designs lock to the post's TOPIC (not off-theme).** The art-director now plans a topic-specific
+  `scene` (the concrete imagery to depict — analytics dashboards for a data post, a yoga pose for a yoga
+  post, players/pitch for a football post) and the renderer treats that scene as the **AUTHORITATIVE
+  subject**, overriding the style templates' generic example subjects (handshakes, office props). So a
+  data-driven post gets data designs and a culture post gets that culture's imagery — never an unrelated
+  theme. The VARIETY is in the LOOK (palette/decoration); the SUBJECT stays on the topic.
 - **Generated images no longer all share one look.** The image prompt forced the SAME skin on every post
   (fixed navy/coral/cream palette + a headline with exactly one coral word + the same coral starburst/
   squiggle motifs). Now each image picks a **color palette** and a **decoration treatment** that vary
