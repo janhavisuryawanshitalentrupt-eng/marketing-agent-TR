@@ -7,10 +7,12 @@ All notable changes to the app, most recent first. Dates are when the work lande
 - **`@` quick-actions in Chat.** Type `@` in the chat box for a command palette — Create image / Create
   deck / Create PDF / Write a post / Find prospects. Selecting one drops in a ready-to-fill prompt
   (Chat already runs these). Arrow keys + Enter/Tab to pick, Esc to dismiss.
-- **Image model set to `gpt-image-2`, with a safe fallback.** The configured image model
-  (`openai_image_model`) now falls back to `gpt-image-1` automatically if the configured one is
-  unavailable, so switching models can't break generation; the asset `meta.model` records which model
-  actually ran.
+- **Image model: safe, switchable, with auto-fallback.** Tried `gpt-image-2` per request — OpenAI
+  **rejected it** (not a real model yet; verified live, the asset fell back to `gpt-image-1`), so the
+  default stays `gpt-image-1` (no wasted failed call per image). The model is one-line switchable
+  (`OPENAI_IMAGE_MODEL`) and `llm.py` now falls back to `gpt-image-1` automatically if a configured model
+  is unavailable, so a future switch can never break generation; the asset `meta.model` records which
+  model actually ran.
 
 ## Reliability (2026-06-30)
 - **Past generations / history no longer "vanish" after a deploy.** The data was never lost — the DB keeps

@@ -69,7 +69,10 @@ class Settings(BaseSettings):
     # "openai" -> gpt-image-1 (rich, illustrative); "compositor" -> deterministic
     # brand template; "none" -> compositor. The compositor is always the fallback.
     image_provider: str = "none"
-    openai_image_model: str = "gpt-image-2"  # llm.py falls back to gpt-image-1 if this is unavailable
+    # gpt-image-1 is OpenAI's current image model. ("gpt-image-2" was tested live and REJECTED by the
+    # API — it doesn't exist yet.) Switchable via OPENAI_IMAGE_MODEL; llm.py falls back to gpt-image-1
+    # automatically if the configured model is ever unavailable, so a future switch can't break gen.
+    openai_image_model: str = "gpt-image-1"
     openai_image_quality: str = "high"  # low | medium | high | auto
     openai_image_size: str = "1024x1024"
 
