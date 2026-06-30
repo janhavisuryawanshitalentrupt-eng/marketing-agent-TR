@@ -523,7 +523,9 @@ async def add_employee(
     if ext not in ("jpg", "jpeg", "png", "webp", "heic", "heif"):
         ext = "jpg"
     fname = unique_name("emp", ext)
-    path = storage_subdir("employees") / fname
+    sub = storage_subdir("employees")
+    sub.mkdir(parents=True, exist_ok=True)  # the 'employees' storage dir may not exist yet
+    path = sub / fname
     with open(path, "wb") as fh:
         fh.write(data)
     e = Employee(
