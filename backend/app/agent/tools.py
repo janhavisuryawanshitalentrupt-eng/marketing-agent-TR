@@ -23,6 +23,7 @@ from ..business.store import save_opportunity, serialize_opportunity
 from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy, teampost
 from ..knowledge import retrieve
 from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Employee, Opportunity
+from ..providers import llm
 
 
 # --- Serialization --------------------------------------------------------
@@ -753,6 +754,28 @@ def _clean_headline(message: str, name: str = "") -> str:
     return re.sub(r"\s+", " ", m).strip(" -,:;.")
 
 
+async def _polish_headline(message: str) -> str:
+    """Rewrite a rough phrase into a SHORT, punchy marketing headline via the LLM — so a deterministic
+    @mention (which bypasses the agent) still gets a real headline, not the user's literal words. Best
+    effort: returns the input unchanged on any error or when no AI provider is configured."""
+    msg = (message or "").strip()
+    if not msg or not llm.provider_available():
+        return msg
+    try:
+        out = await llm.chat_json([
+            {"role": "system", "content":
+             "You write short marketing post headlines for Talentrupt, an RPO (recruitment process "
+             "outsourcing) firm. Rewrite the user's rough phrase into ONE punchy headline of 2-5 words, "
+             "Title Case, no end punctuation, no quotes — keep their intent. Reply ONLY as JSON: "
+             "{\"headline\": \"...\"}."},
+            {"role": "user", "content": msg},
+        ], temperature=0.5)
+        head = ((out or {}).get("headline") or "").strip().strip('"').strip()
+        return head[:60] if head else msg
+    except Exception:
+        return msg
+
+
 def _find_employee(db, owner: str, query: str):
     """Resolve a Folders employee for `owner` by name — case-insensitive, fuzzy (exact first, then name
     contained-in-query or query-contained-in-name, longest name wins). Returns the Employee or None. The
@@ -937,7 +960,7 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     except Exception:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}
-    message = _clean_headline((args.get("message") or "").strip(), match.name)
+    message = await _polish_headline(_clean_headline((args.get("message") or "").strip(), match.name))
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     style_arg = (args.get("style") or "").strip().lower()
     if style_arg in ("ai", "scene"):
