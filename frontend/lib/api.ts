@@ -468,6 +468,13 @@ export async function getEmployees(folderId: number): Promise<Employee[]> {
   return res.json();
 }
 
+// Flat list of ALL the account's employees across folders — for the @ mention picker in Create/Chat.
+export async function getAllEmployees(): Promise<Employee[]> {
+  const res = await fetchRetry(`${API_BASE}/api/employees`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load employees");
+  return res.json();
+}
+
 export async function addEmployee(folderId: number, name: string, role: string, file: File): Promise<Employee> {
   const fd = new FormData();
   fd.append("name", name);

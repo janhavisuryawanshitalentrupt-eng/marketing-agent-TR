@@ -5,6 +5,8 @@ import { useAuth } from "./AuthGate";
 import { useChat } from "./ChatProvider";
 import { AssetCard } from "./AssetCard";
 import { Markdown } from "./Markdown";
+import { fileUrl, getAllEmployees } from "@/lib/api";
+import type { Employee } from "@/lib/types";
 
 const SUGGESTIONS = [
   "Find 5 US healthcare staffing agencies ready for RPO support",
@@ -12,6 +14,9 @@ const SUGGESTIONS = [
   "Design an image for a data-driven hiring post",
   "What can this app do?",
 ];
+
+// One entry in the "@" palette — an employee (people) or a quick-action command.
+type AtItem = { key: string; label: string; hint: string; insert: string; kind: "person" | "command"; thumb: string | null };
 
 export function ChatPanel() {
   const { brand } = useAuth();
@@ -39,6 +44,9 @@ export function ChatPanel() {
   // prompt — Chat already understands these (generate_image, build_deck, …); the "@" is just a shortcut.
   const [menuSel, setMenuSel] = useState(0);
   const [atDismissed, setAtDismissed] = useState(false);
+  const [people, setPeople] = useState<Employee[]>([]);
+  // Employees from the Folders library populate the "@" picker (mention one to feature their real photo).
+  useEffect(() => { getAllEmployees().then(setPeople).catch(() => {}); }, []);
   const AT_COMMANDS = [
     { key: "image", label: "Create image", hint: "generate an image", insert: "Create an image of " },
     { key: "deck", label: "Create deck", hint: "slide deck", insert: "Create a slide deck about " },
@@ -48,10 +56,19 @@ export function ChatPanel() {
   ];
   const atMatch = atDismissed ? null : input.match(/(^|\s)@(\w*)$/);
   const atQuery = atMatch ? atMatch[2].toLowerCase() : null;
-  const atMenu =
+  const atMenu: AtItem[] =
     atQuery === null
       ? []
-      : AT_COMMANDS.filter((c) => c.key.includes(atQuery) || c.label.toLowerCase().includes(atQuery));
+      : [
+          ...people
+            .filter((e) => e.name.toLowerCase().includes(atQuery) || (e.role || "").toLowerCase().includes(atQuery))
+            .slice(0, 6)
+            .map((e) => ({ key: `emp-${e.id}`, label: e.name, hint: e.role || "team member",
+                           insert: `@${e.name} `, kind: "person" as const, thumb: e.file_url ?? null })),
+          ...AT_COMMANDS
+            .filter((c) => c.key.includes(atQuery) || c.label.toLowerCase().includes(atQuery))
+            .map((c) => ({ ...c, kind: "command" as const, thumb: null })),
+        ];
   const showAtMenu = atMenu.length > 0 && !busy;
 
   function pickCommand(c: { insert: string }) {
@@ -252,25 +269,40 @@ export function ChatPanel() {
               )}
               <div className="relative flex items-end gap-2">
                 {showAtMenu && (
-                  <div className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg">
-                    <div className="border-b border-[var(--border)] px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted">Quick actions</div>
-                    {atMenu.map((c, i) => (
-                      <button
-                        key={c.key}
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); pickCommand(c); }}
-                        onMouseEnter={() => setMenuSel(i)}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
-                          i === Math.min(menuSel, atMenu.length - 1)
-                            ? "bg-[var(--surface-2)] text-foreground"
-                            : "text-muted hover:bg-[var(--surface-2)]"
-                        }`}
-                      >
-                        <span className="font-medium text-[var(--brand-red)]">@</span>
-                        <span className="flex-1">{c.label}</span>
-                        <span className="text-[11px] text-muted">{c.hint}</span>
-                      </button>
-                    ))}
+                  <div className="absolute bottom-full left-0 z-30 mb-2 max-h-80 w-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg">
+                    {atMenu.map((c, i) => {
+                      const prev = atMenu[i - 1];
+                      const header = !prev || prev.kind !== c.kind ? (c.kind === "person" ? "People" : "Quick actions") : null;
+                      const active = i === Math.min(menuSel, atMenu.length - 1);
+                      return (
+                        <div key={c.key}>
+                          {header && (
+                            <div className="border-b border-[var(--border)] px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted">{header}</div>
+                          )}
+                          <button
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); pickCommand(c); }}
+                            onMouseEnter={() => setMenuSel(i)}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                              active ? "bg-[var(--surface-2)] text-foreground" : "text-muted hover:bg-[var(--surface-2)]"
+                            }`}
+                          >
+                            {c.kind === "person" ? (
+                              c.thumb ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={fileUrl(c.thumb)} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
+                              ) : (
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--brand-navy)] text-[10px] font-semibold text-cream">{c.label.charAt(0)}</span>
+                              )
+                            ) : (
+                              <span className="font-medium text-[var(--brand-red)]">@</span>
+                            )}
+                            <span className="flex-1 truncate">{c.label}</span>
+                            <span className="shrink-0 text-[11px] text-muted">{c.hint}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 <input
@@ -298,7 +330,7 @@ export function ChatPanel() {
                   onChange={(e) => { setInput(e.target.value); setAtDismissed(false); }}
                   onKeyDown={onKeyDown}
                   rows={1}
-                  placeholder="Ask anything, or describe what to find or create…  (type @ for quick actions)"
+                  placeholder="Ask anything, or describe what to find or create…  (type @ for people & quick actions)"
                   className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                 />
                 <button
