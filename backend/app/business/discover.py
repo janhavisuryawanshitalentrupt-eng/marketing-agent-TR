@@ -98,8 +98,14 @@ def _linkedin_search_url(company: str, role: str, website: str = "") -> str:
         return ""
     if not _company_is_distinctive(company):
         return ""  # e.g. "Stivers" (surname), "Apex" (common word), "Smith Group"
-    role_kw = f'"{role}"' if " " in role else role  # phrase-quote multi-word titles to cut noise
-    keywords = f'"{_search_phrase(company)}" {role_kw}'
+    # HIGH-RECALL query: exact-quoting BOTH the company AND the title and ANDing them is so strict
+    # LinkedIn returns "No results found" for many (esp. smaller) employers. Quote the company ONLY
+    # when it's multi-word (to hold the brand together for scoping) and leave the TITLE UNQUOTED so
+    # variants still match ("COO", "Chief Operating Officer & Co-Founder", "Interim CFO"). The rep
+    # still lands on LinkedIn scoped to the employer + role and picks the right profile.
+    phrase = _search_phrase(company)
+    company_kw = f'"{phrase}"' if " " in phrase else phrase
+    keywords = f"{company_kw} {role}"
     return "https://www.linkedin.com/search/results/people/?keywords=" + quote(keywords)
 
 

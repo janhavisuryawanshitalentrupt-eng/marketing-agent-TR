@@ -14,6 +14,14 @@ All notable changes to the app, most recent first. Dates are when the work lande
   its own data; cross-account get/delete returns 404. Existing data is assigned to **admin** by a
   one-time migration that runs automatically on startup. (Fixes "one account's info showing on another".)
 
+## Business Dev (2026-06-30)
+- **C-level "Search LinkedIn" links now actually return results.** The people-search URL used to
+  exact-quote BOTH the company and the title and AND them (e.g. `"SCIGON" "Chief Operating Officer"`),
+  which LinkedIn answered with "No results found." Now the title is unquoted and the company is quoted
+  only when it's multi-word — a high-recall query (`SCIGON Chief Operating Officer`) that lands the rep
+  on the right people. The no-fabricated-names rule and the suppression of generic roles / ambiguous
+  company names are unchanged. Existing prospects pick up the fix automatically (URLs regenerate on read).
+
 ## Campaigns (2026-06-29)
 - **Internal vs External** split. Internal campaigns are a Create-style chat studio that promotes
   Talentrupt itself.
