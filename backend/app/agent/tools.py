@@ -727,12 +727,33 @@ async def _build_one(brand, raw, name, role, headline, subline, style):
                                      question=subline, variant=random.randint(0, 5), style=style)
 
 
+def _find_employee(db, owner: str, query: str):
+    """Resolve a Folders employee for `owner` by name — case-insensitive, fuzzy (exact first, then name
+    contained-in-query or query-contained-in-name, longest name wins). Returns the Employee or None. The
+    single matcher so a person in the Folders photo library is found no matter which tool the agent uses."""
+    q = (query or "").strip().lstrip("@").strip().lower()
+    if not q:
+        return None
+    rows = db.query(Employee).filter(Employee.owner == owner).all()
+    return (next((e for e in rows if (e.name or "").lower() == q), None)
+            or next((e for e in sorted(rows, key=lambda x: -len(x.name or ""))
+                     if e.name and ((e.name or "").lower() in q or q in (e.name or "").lower())), None))
+
+
 async def exec_team_image(db, state, brand, args) -> dict:
-    """Feature a REAL Talentrupt person/group: composite their ACTUAL photo (from the brand library's
-    Team/ folder) into a branded cut-out post. Never AI-generates a face; if no photo matches, lists
-    the options."""
+    """Feature a REAL Talentrupt person/group: composite their ACTUAL photo into a branded post. Never
+    AI-generates a face. Looks in the Folders photo library FIRST (a named employee there), then the
+    brand library's legacy Team/ folder; if no photo matches, lists the options."""
     person = (args.get("person") or "").strip()
     message = (args.get("message") or "").strip()
+    # Folders photo library is the primary source for a NAMED person now: if `person` is an employee
+    # there, feature their stored photo (delegates to feature_employee). Fixes the "no team photos for X
+    # in the library" reply when X was actually uploaded to Folders. Brand-library Team/ is the fallback.
+    if person:
+        _emp = _find_employee(db, state.get("owner", "admin"), person)
+        if _emp:
+            return await exec_feature_employee(db, state, brand,
+                                               {"name": _emp.name, "message": message, "style": (args.get("style") or "")})
     options = retrieve.list_team_photos()
     if not options:
         return {"summary": "There are no team photos on file yet, so I can't feature a real person — and "
