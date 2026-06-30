@@ -21,7 +21,7 @@ from ..business import outreach as bd_outreach
 from ..business.store import save_opportunity, serialize_opportunity
 from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy, teampost
 from ..knowledge import retrieve
-from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Opportunity
+from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Employee, Opportunity
 
 
 # --- Serialization --------------------------------------------------------
@@ -865,12 +865,61 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
             + " from your uploaded photo — real face, unchanged" + note + ".", "assets": assets}
 
 
+async def exec_feature_employee(db, state, brand, args) -> dict:
+    """Feature a Talentrupt EMPLOYEE from the Folders photo library by NAME: looks up the employee for
+    THIS account, composites their REAL stored photo into the brand template. NEVER AI-generates the
+    face. Called when the user @mentions a team member (e.g. '@Nishant ...') or asks to feature one."""
+    owner = state.get("owner", "admin")
+    name_q = (args.get("name") or "").strip().lstrip("@").strip()
+    if not name_q:
+        return {"summary": "Tell me which team member to feature — type @ in the box to pick one from "
+                "your Folders.", "assets": []}
+    rows = db.query(Employee).filter(Employee.owner == owner).all()
+    ql = name_q.lower()
+    match = (next((e for e in rows if e.name.lower() == ql), None)
+             or next((e for e in rows if ql in e.name.lower()), None)
+             or next((e for e in rows if e.name.lower() in ql), None))
+    if not match:
+        avail = ", ".join(e.name for e in rows[:8]) if rows else "no employees yet"
+        return {"summary": f'I couldn\'t find "{name_q}" in your Folders. Add them in the Folders section '
+                f"first (upload their photo). You have: {avail}.", "assets": []}
+    try:
+        with open(match.photo_path, "rb") as f:
+            raw = f.read()
+    except Exception:
+        return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
+                "assets": []}
+    message = (args.get("message") or "").strip()
+    head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
+    style_arg = (args.get("style") or "").strip().lower()
+    if style_arg in ("ai", "scene"):
+        style = "ai"  # AI background + real cut-out (best with rembg installed)
+    elif style_arg in teampost.STYLE_NAMES:
+        style = style_arg
+    else:
+        style = random.choice(["magazine", "split", "framed"])  # real-photo templates (no AI face, no rembg)
+    try:
+        path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style)
+    except Exception:
+        return {"summary": "Couldn't build the post — please try again.", "assets": []}
+    title = match.name + (f" — {match.role}" if match.role else "")
+    a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
+                    body={"person": match.name, "role": match.role, "headline": head, "subline": sub,
+                          "kind": "team", "style": style, "employee_id": match.id},
+                    file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
+                    owner=owner)
+    return {"summary": f"Created a post featuring {match.name}"
+            + (f" ({match.role})" if match.role else "")
+            + " using their real photo from Folders — face unchanged.", "assets": [serialize_asset(a)]}
+
+
 EXECUTORS = {
     "create_campaign": exec_create_campaign,
     "generate_posts": exec_generate_posts,
     "generate_image": exec_generate_image,
     "generate_team_image": exec_team_image,
     "feature_uploaded_person": exec_feature_uploaded_person,
+    "feature_employee": exec_feature_employee,
     "build_deck": exec_build_deck,
     "build_pdf": exec_build_pdf,
     "search_brand_knowledge": exec_search_brand_knowledge,
@@ -911,15 +960,16 @@ CHAT_TOOL_NAMES = [
     "generate_image",
     "generate_team_image",
     "feature_uploaded_person",
+    "feature_employee",
     "build_deck",
     "build_pdf",
 ]
-CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "feature_uploaded_person", "build_deck",
-                     "build_pdf", "regenerate_asset", "animate_asset"]
+CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "feature_uploaded_person", "feature_employee",
+                     "build_deck", "build_pdf", "regenerate_asset", "animate_asset"]
 # Internal-campaign content studio: write posts + build every visual/document into the folder.
 CAMPAIGN_TOOL_NAMES = ["generate_posts", "generate_image", "generate_team_image",
-                       "feature_uploaded_person", "build_deck", "build_pdf", "regenerate_asset",
-                       "animate_asset"]
+                       "feature_uploaded_person", "feature_employee", "build_deck", "build_pdf",
+                       "regenerate_asset", "animate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
@@ -935,6 +985,7 @@ STATUS_LABELS = {
     "generate_image": "Designing a campaign visual",
     "generate_team_image": "Featuring the team",
     "feature_uploaded_person": "Featuring your photo",
+    "feature_employee": "Featuring your team member",
     "build_deck": "Designing presentation slides",
     "build_pdf": "Preparing the document",
     "search_brand_knowledge": "Reviewing past Talentrupt work",
@@ -1051,6 +1102,21 @@ TOOL_SCHEMAS = [
             "count": {"type": "integer", "description": "How many posts (1-4); omit for 1."},
         },
         []),
+    _fn("feature_employee",
+        "Feature a Talentrupt EMPLOYEE from the Folders photo library in a branded post, using their REAL "
+        "stored photo (never an AI face). Call this whenever the user @MENTIONS a team member (e.g. "
+        "'@Nishant Trivedi welcoming our new clients') or asks to feature/spotlight a specific employee "
+        "by name. The employee's photo is already saved in the app's Folders, so you do NOT need an "
+        "attachment — pass the name exactly as mentioned and the tool looks them up. Prefer this over "
+        "generate_image/feature_uploaded_person when the user references a person by an @mention or by a "
+        "name that's in their Folders.",
+        {
+            "name": {"type": "string", "description": "The employee's name, exactly as @mentioned (e.g. 'Nishant Trivedi'). The leading @ is optional."},
+            "message": {"type": "string", "description": "What the post should say / be about (e.g. 'welcoming our newest clients'). Used as the headline + subline."},
+            "style": {"type": "string", "enum": ["magazine", "split", "framed", "spotlight", "scene"],
+                      "description": "Optional FORMAT. magazine/split/framed/spotlight = the real photo in a branded layout (default, rotates). 'scene' = the person on an AI-generated background — only when the user explicitly asks for an AI scene/background."},
+        },
+        ["name"]),
     _fn("build_deck",
         "Build a ready-to-present, designed PowerPoint (.pptx) in Talentrupt's deck style. Pass the "
         "audience/tone/depth gathered from the user so the deck is tailored, not generic.",

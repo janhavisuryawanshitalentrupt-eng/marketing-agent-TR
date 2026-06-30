@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Feature an employee by @mention (2026-06-30)
+- **Folders is now a pure reference library**; the in-section "Generate post" / "Generate for everyone"
+  controls are removed. You feature people from **Create or Chat** instead.
+- **New agent tool `feature_employee`** (owner-scoped): looks an employee up in your Folders by name,
+  reads their REAL saved photo, and builds a branded post (real-photo template — never an AI face).
+  Wired into Chat, Create and internal campaigns, so however you ask, it can do it. New flat
+  `GET /api/employees` endpoint backs the @ picker. _Typing `@Their Name …` already works; the @
+  autocomplete dropdown in the message box lands next._
+
 ## Real brand logo in generated images (2026-06-30)
 - **The official TALENTRUPT wordmark now appears in generated images — without ever covering content.**
   Extracted the real wordmark from the brand-guideline PDF (transparent **navy** + **white** variants)

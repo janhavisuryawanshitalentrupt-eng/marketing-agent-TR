@@ -20,6 +20,10 @@ npm-debug.log*
 # Generated assets / storage
 storage/
 
+# Local verification scratch (downloaded prod assets, stream dumps)
+_verify/
+_logo_extract/
+
 # CI-stamped deploy marker (written by .github/workflows/deploy.yml)
 backend/app/_version.txt
 

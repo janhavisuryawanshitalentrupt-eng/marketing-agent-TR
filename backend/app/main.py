@@ -540,6 +540,13 @@ async def add_employee(
     return _serialize_employee(e)
 
 
+@app.get("/api/employees")
+def list_all_employees(db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    """Flat list of ALL this account's employees across folders — powers the @ mention picker in Create/Chat."""
+    rows = db.query(Employee).filter(Employee.owner == role).order_by(Employee.name).all()
+    return [_serialize_employee(e) for e in rows]
+
+
 @app.delete("/api/employees/{emp_id}")
 def delete_employee(emp_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)):
     e = db.get(Employee, emp_id)
