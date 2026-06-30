@@ -62,9 +62,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   library; `SourceFile.owner` is NULL for the shared library, a role for a user upload) · `AppSetting`.
 
 ## 6. Generation pipeline (`backend/app/generation/`)
-- `posts.py` — captions/posts. `images.py` — `gpt-image-1` art (with `_plan` art-director + brand-system
-  prompt; a **blur gate** that measures each frame's sharpness and regenerates a soft one keeping the
-  sharpest, then a gentle `_crispen`) and a deterministic compositor fallback. `decks.py` — PPTX.
+- `posts.py` — captions/posts. `images.py` — `gpt-image-1` art (with `_plan` art-director; a per-image
+  **palette + decoration variety** pass (`_variety`) so posts don't all share one skin — RPO stays
+  brand-weighted, internal campaigns roam; a **blur gate** that measures sharpness and regenerates a soft
+  frame keeping the sharpest, then a gentle `_crispen`) and a deterministic compositor fallback. `decks.py` — PPTX.
   `pdf.py` — branded PDFs. `teampost.py` — real-person cut-out posts (NEVER an AI face) + AI-scene.
   `refine.py` — regenerate/refine an asset into a new version.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import random
 import re
 import zipfile
 
@@ -456,10 +457,44 @@ _COMPOSITION_DIRECTION = {
 }
 
 
+# --- Per-image visual VARIETY (palette + decoration) ----------------------
+# Breaks the "every post looks identical" problem WITHOUT changing what makes generation work: the
+# official logo is overlaid afterward, so it always carries the brand and the image palette can flex.
+# "signature" is the classic Talentrupt look, weighted heavily for RPO content so the trusted design
+# still shows up often; internal campaigns roam all palettes for genuinely different looks.
+_PALETTES = {
+    "signature": "deep navy #0B3559, coral red #F6404C as the accent, warm cream #EBE9DF background, white",
+    "mono_navy": "deep navy #0B3559 with white and soft cool greys, plus ONE restrained coral #F6404C accent — minimal and clean",
+    "navy_gold": "deep navy #0B3559 with warm gold/amber accents on a soft ivory background — understated and premium",
+    "coral_warm": "warm coral-to-terracotta tones (#F6404C, #E8744C) with deep-navy type on soft off-white — energetic",
+    "light_airy": "airy off-white with soft pastel tints, deep-navy type and one small coral accent — bright and modern",
+    "dark_premium": "a deep navy/charcoal background (#0B2238) with warm cream type and a coral #F6404C accent — sleek and premium",
+    "teal_calm": "deep navy with muted teal/sage accents on warm cream — calm, modern, professional",
+}
+# RPO / sales content stays close to brand (signature weighted); internal campaigns may use any palette.
+_RPO_PALETTES = ("signature", "signature", "signature", "mono_navy", "navy_gold", "dark_premium")
+_EXPRESSIVE_PALETTES = tuple(_PALETTES)
+_DECORATION = (
+    "NO decorative motifs — let the type and imagery carry it, clean and uncluttered",
+    "a FEW sparse hand-drawn accent motifs (a single arc, a loose squiggle, or a small dotted cluster) tucked into ONE corner only",
+    "one quiet geometric element or a soft tonal gradient block for subtle background interest",
+    "Talentrupt's signature sparse accents — a small coral 8-point starburst or concentric line arcs in a corner, never a full wash",
+)
+
+
+def _variety(brief: str) -> tuple[str, str]:
+    """Pick a color palette + decoration treatment for ONE image so successive / parallel images don't
+    all share the same skin. Internal campaigns (a brief is present) roam every palette; RPO content
+    stays closer to brand. Independent picks => a large combinatorial space."""
+    palettes = _EXPRESSIVE_PALETTES if brief else _RPO_PALETTES
+    return _PALETTES[random.choice(palettes)], random.choice(_DECORATION)
+
+
 def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief: str = "") -> str:
     metric_line = f'Feature this statistic prominently: "{plan["metric"]}" ({plan.get("metric_label") or ""}).' if plan.get("metric") else ""
     extra = "Steps to show: " + "; ".join(plan["points"]) + "." if (plan["layout"] == "steps" and plan.get("points")) else ""
     comp = _COMPOSITION_DIRECTION.get(plan.get("composition", ""), _LAYOUT_DIRECTION.get(plan["layout"], _LAYOUT_DIRECTION["statement"]))
+    palette, decoration = _variety(brief)
     ref_line = (
         "Attached image(s) are Talentrupt's OWN past posts. Study them closely to ABSORB the brand's "
         "craft — its warm-cream paper texture, the subtle navy/cream/coral color grading, the "
@@ -489,22 +524,15 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief
     return (
         subject_line
         + ref_line
-        + "BRAND SYSTEM — follow precisely:\n"
-        "- Colors: deep navy #0B3559, coral red #F6404C (accent), warm cream #EBE9DF, white.\n"
-        "- Typography: bold modern geometric sans-serif headings, strong hierarchy.\n"
-        "- BRAND MOTIFS: Where it suits the style, weave in Talentrupt's signature ACCENT MOTIFS in "
-        "coral red (and sometimes navy) — a hand-drawn 8-POINT STARBURST behind or beside the focal "
-        "element, loose hand-drawn SQUIGGLES, a faint DOTTED GRID, and CONCENTRIC LINE ARCS / "
-        "half-circles drifting into the corners — over a textured warm-cream 'paper' background for "
-        "collage, decorative, and infographic posts; for cut-out-subject collages give the single "
-        "cut-out person a clean edge with a faint paper drop-shadow, surround them with neatly floating "
-        "work objects/icon tiles at varied sizes each casting a soft shadow, and set the headline in "
-        "bold geometric navy with exactly ONE word in coral red beside a solid navy rounded subtext "
-        "pill. For data graphics, render stat figures as solid, fully-opaque rounded navy and coral-red "
-        "CARDS, each one big number above a short label, aligned in a clean row. These motifs are "
-        "SPARSE accents only (corners and behind the subject) and must NEVER become a flat full-color "
-        "wash; for full-bleed photographic and atmospheric posters keep them minimal or absent so the "
-        "photo and type stay clean.\n"
+        + "DESIGN SYSTEM for THIS image (sets the LOOK and deliberately VARIES image-to-image — the "
+        "official logo is overlaid afterward, so the brand stays present whatever the palette):\n"
+        f"- COLOR PALETTE — AUTHORITATIVE: use {palette}. If the VISUAL STYLE note below names other "
+        "colors, ADAPT them to this palette.\n"
+        "- TYPOGRAPHY: clean modern type with strong hierarchy — a clear headline plus a short supporting "
+        "line; any single accent word uses the palette's accent color.\n"
+        f"- DECORATION: {decoration}.\n"
+        "- For data graphics, render any REAL supplied stat as a solid, fully-opaque rounded card (one "
+        "big number above a short label), aligned cleanly; invent NO numbers.\n"
         "- CRITICAL: do NOT render the word 'Talentrupt', the tagline 'RPO Done Right', or ANY company "
         "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image — the official logo is "
         "overlaid afterward. Keep the BOTTOM-RIGHT corner (about the last 20% of the width AND height) "

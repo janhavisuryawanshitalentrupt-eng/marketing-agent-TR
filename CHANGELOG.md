@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Image design variety (2026-06-30)
+- **Generated images no longer all share one look.** The image prompt forced the SAME skin on every post
+  (fixed navy/coral/cream palette + a headline with exactly one coral word + the same coral starburst/
+  squiggle motifs). Now each image picks a **color palette** and a **decoration treatment** that vary
+  image-to-image, **context-aware**: RPO/sales content stays close to brand (the signature look is
+  weighted ~45%), internal campaigns roam the full palette set. The format is ALL that changed — quality
+  and content rules are untouched (blur gate, face guard, logo overlay + bottom-right space,
+  no-fabrication, brief grounding). One shared engine, so it applies to **Create and internal campaigns**.
+
 ## UI (2026-06-30)
 - **Account menu.** The header now shows just your **avatar**; clicking it opens a dropdown with your
   name, email, a light/dark **theme toggle**, and **Sign out** (closes on outside-click / Esc). Replaces
