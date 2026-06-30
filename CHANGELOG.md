@@ -14,7 +14,21 @@ All notable changes to the app, most recent first. Dates are when the work lande
   its own data; cross-account get/delete returns 404. Existing data is assigned to **admin** by a
   one-time migration that runs automatically on startup. (Fixes "one account's info showing on another".)
 
+## Reliability & fixes (2026-06-30)
+- **Campaign clients no longer come back empty for overlapping sectors.** The client purity gate
+  required an exact sector match, so healthcare *staffing* agencies (labeled "Staffing & Recruiting")
+  were dropped from a **Healthcare** campaign — leaving 0 clients. The gate now also keeps a company
+  when its segment text clearly belongs to the campaign's sector, so a "healthcare staffing agency"
+  correctly counts as a Healthcare target. (`main.py:_segment_ok_for_sector`.)
+- **Streams ride through restart blips.** Chat/Create/Campaign streams now retry the initial
+  connection on a transient `502/503/504` or a pre-response network drop (which happen briefly during a
+  deploy restart) instead of immediately surfacing "network error" / "Request failed (502)".
+
 ## Branding (2026-06-30)
+- **Logo refined to the M mark only** — the header/login/loading badge dropped the white tile; the "M"
+  now uses `currentColor` for its legs so it adapts to **both light and dark themes** (navy on light,
+  white on dark), with the coral swoosh constant. The favicon is theme-aware too (via
+  `prefers-color-scheme`), transparent, no tile.
 - **App rebranded to "Myra".** The UI chrome — header, login, loading screen, page `<title>` and favicon —
   now shows the **Myra** name and a new "M" brand mark (navy legs + coral→pink swoosh), via the new
   `components/MyraLogo.tsx` and `app/icon.svg`. UI-only: auth/session keys, APIs, and the Talentrupt

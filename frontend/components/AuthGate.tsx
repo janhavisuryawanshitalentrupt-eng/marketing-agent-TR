@@ -80,9 +80,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   if (authed === null) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4">
-        <div className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl bg-white p-2">
-          <MyraMark className="h-full w-full" />
-        </div>
+        <MyraMark className="h-12 w-12 animate-pulse" />
         <div className="font-heading text-sm tracking-wide text-muted">Myra</div>
       </div>
     );

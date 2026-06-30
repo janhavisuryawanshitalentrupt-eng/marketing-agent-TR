@@ -808,17 +808,21 @@ def _sectors_for_segment(segment: str) -> set[str]:
 
 
 def _segment_ok_for_sector(item: dict, campaign_sector: str) -> bool:
-    """Purity gate. Primary signal is the LLM's explicit per-company `sector` classification (one
-    of _KNOWN_SECTORS) — kept ONLY on an exact match. For items lacking that field (legacy or
-    unclassified), fall back to free-text `segment` keywords: keep if the campaign's sector matches,
-    or if the segment matches NO known sector (ambiguous → don't over-drop)."""
+    """Purity gate. Keep a company if EITHER the LLM's explicit per-company `sector` classification
+    matches the campaign, OR its free-text `segment` clearly belongs to the campaign's sector. The
+    second clause matters for OVERLAPPING segments: a "healthcare staffing agency" is a valid target
+    for a Healthcare campaign even when the LLM labels its sector "Staffing & Recruiting" — without it
+    the gate dropped every healthcare-staffing client and the folder came back empty. For items with
+    no classification AND no recognizable segment (ambiguous), keep rather than over-drop."""
     if not campaign_sector:
         return True
+    matched = _sectors_for_segment(item.get("segment", ""))
+    if campaign_sector in matched:
+        return True  # segment text belongs to the campaign's sector (rescues overlaps)
     classified = (item.get("sector") or "").strip()
     if classified in _KNOWN_SECTORS:
-        return classified == campaign_sector  # authoritative — exact, like-for-like
-    matched = _sectors_for_segment(item.get("segment", ""))
-    return (not matched) or (campaign_sector in matched)
+        return classified == campaign_sector  # authoritative when the segment didn't already vouch
+    return not matched  # no class + segment matches no known sector → ambiguous, don't over-drop
 
 
 def _campaign_industry(c: Campaign) -> str:

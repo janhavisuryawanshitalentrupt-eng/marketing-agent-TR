@@ -75,12 +75,7 @@ export function Shell() {
       <header className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/70 px-5 py-2.5 backdrop-blur">
         {/* Brand (left) */}
         <div className="flex flex-1 items-center gap-3">
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white p-1.5"
-            style={{ boxShadow: "0 6px 16px rgba(11,53,89,0.25)" }}
-          >
-            <MyraMark className="h-full w-full" />
-          </div>
+          <MyraMark className="h-9 w-9 shrink-0" />
           <div className="hidden leading-tight sm:block">
             <div className="font-heading text-sm font-semibold">Myra</div>
             <div className="text-[10px] uppercase tracking-wider text-muted">Marketing Agent</div>

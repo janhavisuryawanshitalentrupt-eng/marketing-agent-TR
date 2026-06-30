@@ -674,27 +674,40 @@ export async function streamChat(
   attachments?: { name: string; text: string; id?: number; kind?: string }[],
   signal?: AbortSignal,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({
-        message,
-        conversation_id: conversationId,
-        attachments: attachments && attachments.length ? attachments : undefined,
-      }),
-      signal,
-    });
-  } catch (e) {
-    if ((e as Error)?.name === "AbortError") return; // superseded by a newer turn — silent
-    // network/DNS/CORS failure before any response — route through onError, never throw.
-    handlers.onError?.((e as Error)?.message || "Connection failed");
-    return;
+  const payload = JSON.stringify({
+    message,
+    conversation_id: conversationId,
+    attachments: attachments && attachments.length ? attachments : undefined,
+  });
+  // Transient gateway errors (502/503/504) and pre-response network blips happen when the backend is
+  // briefly restarting (e.g. a deploy). Retry the INITIAL connection a couple times before surfacing
+  // an error so a short blip doesn't dump the user to "network error". We only retry before any data
+  // has streamed — never mid-stream, which would duplicate a partial reply.
+  const TRANSIENT = new Set([502, 503, 504]);
+  let res: Response | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: payload,
+        signal,
+      });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") return; // superseded by a newer turn — silent
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+        continue; // network blip before any response — retry
+      }
+      handlers.onError?.("Couldn’t reach the server — please try again in a moment.");
+      return;
+    }
+    if (res.ok || !TRANSIENT.has(res.status) || attempt >= 2) break;
+    await new Promise((r) => setTimeout(r, 700 * (attempt + 1))); // backend restarting — retry
   }
 
-  if (!res.ok || !res.body) {
-    handlers.onError?.(`Request failed (${res.status})`);
+  if (!res || !res.ok || !res.body) {
+    handlers.onError?.(res ? `Request failed (${res.status})` : "Connection failed");
     return;
   }
 
