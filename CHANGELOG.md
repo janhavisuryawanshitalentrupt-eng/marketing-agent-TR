@@ -3,6 +3,17 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Content & viewing (2026-06-30)
+- **No more stamped logo on generated images.** The Talentrupt "TR" badge that was composited onto every
+  AI image is removed — images ship clean and use the full canvas (the "keep the corner empty" reservation
+  is gone). The no‑wordmark guard stays so the model still won't *draw* a brand name. (Team‑photo posts and
+  the deterministic fallback are separate paths and unchanged.)
+- **Images/videos preview in‑app, not a new tab.** The "view" (eye) action — and clicking the image — now
+  opens an in‑app lightbox modal (download + close) instead of `target="_blank"`. (`AssetCard.tsx`.)
+- **External campaign "Content calendar" → "Content ideas."** It's now an inspiration board (dated
+  post/image/deck ideas you can reschedule); the per‑row Generate/Open was removed — generate from Chat or
+  Create. Backend/data untouched.
+
 ## Image design variety (2026-06-30)
 - **Designs lock to the post's TOPIC (not off-theme).** The art-director now plans a topic-specific
   `scene` (the concrete imagery to depict — analytics dashboards for a data post, a yoga pose for a yoga

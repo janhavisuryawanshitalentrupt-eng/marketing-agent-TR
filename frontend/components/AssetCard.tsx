@@ -81,43 +81,85 @@ function PostCard({ asset }: { asset: Asset }) {
   );
 }
 
-function ImageCard({ asset }: { asset: Asset }) {
+// In-app lightbox — images/videos open here (in the same tab) instead of a new browser tab.
+function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const url = fileUrl(asset.file_url);
+  const isVideo = asset.type === "video";
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt={asset.title} className="w-full max-w-sm" />
-      <div className="flex items-center justify-between gap-2 p-3">
-        <span className="truncate text-xs text-muted">{asset.title}</span>
-        <div className="flex shrink-0 items-center gap-1">
-          <a href={url} target="_blank" rel="noreferrer" title="Preview" aria-label="Preview" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
-            <EyeIcon />
-          </a>
-          <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
-            <DownloadIcon />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="relative flex max-h-[92vh] w-auto max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2.5">
+          <span className="truncate font-heading text-sm font-semibold">{asset.title}</span>
+          <div className="flex shrink-0 items-center gap-1">
+            <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
+              <DownloadIcon />
+            </button>
+            <button onClick={onClose} type="button" aria-label="Close preview" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center justify-center overflow-auto bg-[var(--surface-2)] p-3">
+          {isVideo ? (
+            <video src={url} className="max-h-[78vh] w-auto rounded-lg" controls autoPlay loop playsInline />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={asset.title} className="max-h-[78vh] w-auto rounded-lg" />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function VideoCard({ asset }: { asset: Asset }) {
+function ImageCard({ asset }: { asset: Asset }) {
   const url = fileUrl(asset.file_url);
+  const [preview, setPreview] = useState(false);
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
-      <video src={url} className="w-full max-w-sm" autoPlay loop muted playsInline />
+      <button type="button" onClick={() => setPreview(true)} title="View" aria-label="View image" className="block w-full">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={asset.title} className="w-full max-w-sm cursor-zoom-in" />
+      </button>
       <div className="flex items-center justify-between gap-2 p-3">
         <span className="truncate text-xs text-muted">{asset.title}</span>
         <div className="flex shrink-0 items-center gap-1">
-          <a href={url} target="_blank" rel="noreferrer" title="Preview" aria-label="Preview" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+          <button onClick={() => setPreview(true)} type="button" title="View" aria-label="View" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
             <EyeIcon />
-          </a>
+          </button>
           <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
             <DownloadIcon />
           </button>
         </div>
       </div>
+      {preview && <MediaPreviewModal asset={asset} onClose={() => setPreview(false)} />}
+    </div>
+  );
+}
+
+function VideoCard({ asset }: { asset: Asset }) {
+  const url = fileUrl(asset.file_url);
+  const [preview, setPreview] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
+      <button type="button" onClick={() => setPreview(true)} title="View" aria-label="View video" className="block w-full">
+        <video src={url} className="w-full max-w-sm" autoPlay loop muted playsInline />
+      </button>
+      <div className="flex items-center justify-between gap-2 p-3">
+        <span className="truncate text-xs text-muted">{asset.title}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <button onClick={() => setPreview(true)} type="button" title="View" aria-label="View" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+            <EyeIcon />
+          </button>
+          <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
+            <DownloadIcon />
+          </button>
+        </div>
+      </div>
+      {preview && <MediaPreviewModal asset={asset} onClose={() => setPreview(false)} />}
     </div>
   );
 }

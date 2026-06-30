@@ -8,8 +8,6 @@ import {
   deleteCampaignProspect,
   exportCampaignProspects,
   deleteAsset,
-  fileUrl,
-  generateCampaignItem,
   getCampaign,
   getCampaignMessages,
   getCampaignProspects,
@@ -542,7 +540,7 @@ function CampaignDetailView({
       {/* View toggle: scored target clients vs the content calendar */}
       <div className="mb-3 mt-6 flex items-center gap-1">
         <button onClick={() => setView("clients")} className={segCls(view === "clients")}>Target clients</button>
-        <button onClick={() => setView("calendar")} className={segCls(view === "calendar")}>Content calendar</button>
+        <button onClick={() => setView("calendar")} className={segCls(view === "calendar")}>Content ideas</button>
       </div>
       {view === "calendar" ? (
         // Keyed by campaign id so switching folders remounts the calendar with THIS campaign's
@@ -703,9 +701,10 @@ function CampaignClients({ campaignId, campaignName }: { campaignId: number; cam
   );
 }
 
+// Content IDEAS for an external campaign — a dated plan of post/image/deck ideas the user can take into
+// Chat or Create to actually generate. (No generate/open here; this is an inspiration board.)
 function CampaignCalendar({ items: initial }: { items: CampaignItem[] }) {
   const [items, setItems] = useState<CampaignItem[]>(initial);
-  const [busyId, setBusyId] = useState<number | null>(null);
 
   async function reschedule(id: number, date: string) {
     if (!date) return;
@@ -717,22 +716,11 @@ function CampaignCalendar({ items: initial }: { items: CampaignItem[] }) {
       /* leave the optimistic value; a reopen re-syncs */
     }
   }
-  async function generate(id: number) {
-    setBusyId(id);
-    try {
-      const up = await generateCampaignItem(id);
-      setItems((prev) => prev.map((i) => (i.id === id ? up : i)));
-    } catch {
-      /* ignore */
-    } finally {
-      setBusyId(null);
-    }
-  }
 
   if (!items.length) {
     return (
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-sm text-muted">
-        No scheduled content for this campaign yet.
+        No content ideas for this campaign yet.
       </div>
     );
   }
@@ -745,34 +733,24 @@ function CampaignCalendar({ items: initial }: { items: CampaignItem[] }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted">
+        Content ideas for this campaign — take any idea into <span className="text-foreground">Chat</span> or{" "}
+        <span className="text-foreground">Create</span> to generate the post, image, or deck.
+      </p>
       {Object.entries(groups).map(([date, its]) => (
         <div key={date}>
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{date}</div>
           <div className="space-y-1.5">
             {its.map((it) => (
-              <div key={it.id} className="hover-row flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+              <div key={it.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
                 <span className="chip bg-[var(--surface-2)]">{it.channel}</span>
                 <span className="chip bg-[var(--surface-2)]">{it.format}</span>
                 <span className="min-w-0 flex-1 truncate">{it.topic || it.hook}</span>
-                {it.status === "generated" ? (
-                  <span className="chip bg-emerald-400/10 text-emerald-300">generated</span>
-                ) : (
-                  <button
-                    onClick={() => generate(it.id)}
-                    disabled={busyId === it.id}
-                    className="text-[11px] text-[var(--brand-red)] hover:underline disabled:opacity-50"
-                  >
-                    {busyId === it.id ? "Generating…" : "Generate"}
-                  </button>
-                )}
-                {it.status === "generated" && it.asset?.file_url ? (
-                  <a href={fileUrl(it.asset.file_url)} target="_blank" rel="noreferrer" className="text-[11px] text-[var(--brand-red)] hover:underline">Open</a>
-                ) : null}
                 <input
                   type="date"
                   value={(it.scheduled_date || "").slice(0, 10)}
                   onChange={(e) => reschedule(it.id, e.target.value)}
-                  title="Reschedule"
+                  title="Reschedule this idea"
                   className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px]"
                 />
               </div>
