@@ -417,13 +417,17 @@ _SCENE_TYPES = [
 
 def _scene_prompt(headline: str, question: str, variant: int) -> str:
     scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
+    msg = " ".join(x for x in (headline, question) if x).strip()
+    theme = (f'The post message is: "{msg[:120]}" — let the mood, imagery and motifs SUBTLY evoke that '
+             "(achievement/celebration, welcome, teamwork, growth, milestone, etc.), tastefully and "
+             "on-brand. " if msg else "")
     return (
-        f"A richly designed, premium social-media BACKGROUND graphic for a corporate appreciation post: "
-        f"{scene}. Brand palette: deep navy #0B3559, coral red #F6404C accents, warm cream #EBE9DF. "
+        f"A richly designed, premium social-media BACKGROUND graphic for a corporate post: {scene}. "
+        f"{theme}Brand palette: deep navy #0B3559, coral red #F6404C accents, warm cream #EBE9DF. "
         "High-end editorial and cinematic, dynamic and polished like a professional marketing design — "
-        "NOT a plain flat color. ABSOLUTELY NO people, NO person, NO faces, NO text, NO words, NO "
-        "letters, NO logos. Keep the LEFT third and the BOTTOM area clean for a person and a caption to "
-        "be placed later. Square 1:1 composition."
+        "NOT a plain flat colour. ABSOLUTELY NO people, NO person, NO faces, NO text, NO words, NO "
+        "letters, NO logos. Keep the RIGHT side and the BOTTOM-LEFT relatively clean/uncluttered so a "
+        "person photo (right) and a caption (left) can be placed on top. Square 1:1 composition."
     )
 
 
@@ -474,21 +478,43 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=RED)
 
-    target_h = int(H * 0.82)
-    scale = target_h / hero.height
-    if hero.width * scale > W * 0.6:
-        scale = (W * 0.6) / hero.width
-    hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
-    try:
-        hero = hero.filter(ImageFilter.SHARPEN)
-    except Exception:
-        pass
-    hx, hy = W - hero.width - 30, H - hero.height
-    shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))  # soft drop shadow so it doesn't look pasted
-    shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
-    shadow = shadow.filter(ImageFilter.GaussianBlur(20))
-    canvas.paste(shadow, (hx + 14, hy + 10), shadow)
-    canvas.paste(hero, (hx, hy), hero)
+    # If rembg produced a real cut-out (transparent regions), FLOAT the person on the scene; otherwise
+    # (no rembg on this host) place the REAL photo in a designed rounded frame — reads as an intentional
+    # 'featured' card, not a pasted rectangle. The face is the real pixels either way.
+    cut_ok = hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
+    if cut_ok:
+        target_h = int(H * 0.82)
+        scale = target_h / hero.height
+        if hero.width * scale > W * 0.6:
+            scale = (W * 0.6) / hero.width
+        hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
+        try:
+            hero = hero.filter(ImageFilter.SHARPEN)
+        except Exception:
+            pass
+        hx, hy = W - hero.width - 30, H - hero.height
+        shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))  # soft drop shadow so it doesn't look pasted
+        shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
+        shadow = shadow.filter(ImageFilter.GaussianBlur(20))
+        canvas.paste(shadow, (hx + 14, hy + 10), shadow)
+        canvas.paste(hero, (hx, hy), hero)
+    else:
+        fw, fh = int(W * 0.50), int(H * 0.72)
+        fx, fy = W - fw - 54, (H - fh) // 2 + 24
+        card = _cover_fit(photo, fw, fh)
+        try:
+            card = card.filter(ImageFilter.UnsharpMask(radius=1.4, percent=90, threshold=3))
+        except Exception:
+            pass
+        rad = 42
+        sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        ImageDraw.Draw(sh).rounded_rectangle([fx - 4, fy - 4, fx + fw + 4, fy + fh + 4], radius=rad + 6, fill=(0, 0, 0, 130))
+        sh = sh.filter(ImageFilter.GaussianBlur(24))
+        canvas.paste(sh, (0, 0), sh)  # soft drop shadow under the card
+        mask = Image.new("L", (fw, fh), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, fw, fh], radius=rad, fill=255)
+        canvas.paste(card, (fx, fy), mask)
+        d.rounded_rectangle([fx - 5, fy - 5, fx + fw + 5, fy + fh + 5], radius=rad + 5, outline=CREAM, width=6)  # crisp frame
 
     pad = 70
     y = _draw_headline(d, pad, 92, headline or "On a Mission!", W - 470, accent_box=(variant % 2 == 0))

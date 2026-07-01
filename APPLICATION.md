@@ -71,7 +71,9 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   frames; and a clean brand **footer band** (`_brand_footer`) carrying the official wordmark beneath the
   art so the logo never covers content) and a deterministic compositor fallback. `decks.py` — PPTX.
   `pdf.py` — branded PDFs. `teampost.py` — real-person posts (NEVER an AI face), with the official
-  **wordmark** placed in the layout's reserved bottom margin (`common.paste_wordmark`, navy/white variants).
+  **wordmark** in the layout's reserved bottom margin. Employee/`@mention` posts default to an
+  **AI-designed scene** (`build_ai_scene`: gpt-image-2 makes an on-theme branded background from the post's
+  message; the real photo is floated via `rembg` if present, else placed in a designed framed card).
   `refine.py` — regenerate/refine an asset into a new version.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
   the ingested TR library. **Campaign** generation grounds in the campaign's **brief** (`Campaign.goal`),

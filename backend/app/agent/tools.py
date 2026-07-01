@@ -779,6 +779,13 @@ _INSTRUCTION_RE = re.compile(
 )
 
 
+_FILLER_WORDS = {
+    "and", "the", "a", "an", "same", "for", "also", "too", "this", "that", "these", "those", "them",
+    "it", "do", "to", "as", "well", "one", "more", "again", "of", "with", "on", "please", "can", "you",
+    "make", "create", "generate", "image", "post", "him", "her", "similar", "like", "another",
+}
+
+
 def _clean_headline(message: str, name: str = "") -> str:
     """Turn a raw user request into a clean post headline: drop the person's name and any leading
     'create an image of / make a post about …' instruction phrasing, so the literal prompt is never
@@ -791,7 +798,9 @@ def _clean_headline(message: str, name: str = "") -> str:
         prev = m
         m = _INSTRUCTION_RE.sub("", m, count=1).strip()
     m = re.sub(r"^(?:of|for|about|featuring|with|on|the)\s+", "", m, flags=re.I)  # leftover preposition
-    return re.sub(r"\s+", " ", m).strip(" -,:;.")
+    m = re.sub(r"\s+", " ", m).strip(" -,:;.")
+    words = re.findall(r"[a-z']+", m.lower())
+    return "" if (words and all(w in _FILLER_WORDS for w in words)) else m  # filler-only => no real headline
 
 
 async def _polish_headline(message: str) -> str:
@@ -1003,12 +1012,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     message = await _polish_headline(_clean_headline((args.get("message") or "").strip(), match.name))
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     style_arg = (args.get("style") or "").strip().lower()
-    if style_arg in ("ai", "scene"):
-        style = "ai"  # AI background + real cut-out (best with rembg installed)
-    elif style_arg in teampost.STYLE_NAMES:
-        style = style_arg
+    if style_arg in teampost.STYLE_NAMES and style_arg not in ("ai", "scene"):
+        style = style_arg  # user explicitly asked for a plain template format
     else:
-        style = random.choice(["magazine", "split", "framed"])  # real-photo templates (no AI face, no rembg)
+        style = "ai"  # DEFAULT: AI-designed scene (gpt-image-2 background), real face composited unchanged
     try:
         path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style)
     except Exception:

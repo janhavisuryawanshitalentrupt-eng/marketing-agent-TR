@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Designed employee posts (2026-07-01)
+- **Employee posts are now AI-DESIGNED, not flat templates.** An `@mention` (or any "feature <person>")
+  now defaults to the **AI-scene** path: gpt-image-2 generates a rich, on-theme branded background — tied
+  to the post's **message** (a "deadline success" post gets an achievement mood; a "welcome" post a
+  welcome mood) — and the person's **REAL photo** is composited on it (face never AI-generated). Where the
+  cut-out lib (`rembg`) is present the person floats on the scene; otherwise the real photo is placed in a
+  designed rounded **framed card** (not a pasted rectangle). Big step up from the flat navy panel.
+- **Headline no longer echoes a filler prompt.** A vague back-reference like *"and the same for @Pooja"*
+  now falls back to a proper headline (it carries no real message) instead of printing "And The Same For".
+
 ## Vibe prospecting (2026-07-01)
 - **Describe your ideal client in plain English → a ranked list of real companies.** A "vibe" layer on
   top of the existing discovery engine (reuses all the real web-research, fit-scoring, contacts + pipeline):
