@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Navy-sidebar theme + polished reply UI (2026-07-01)
+- **Deep-navy left rails.** Every navigation/history rail — Chat conversations, Create history, the
+  Campaigns list, and the Folders list — is now a deep-navy panel (matching the app design), with a red
+  "New …" button on top and light-on-navy list items. It's driven by a single `.rail` class in
+  `globals.css` that re-scopes the theme tokens locally (`--surface`, `--muted`, `--foreground`,
+  `--border`, and the active `--brand-navy` highlight), so the existing rail utilities adapt to navy with
+  no per-element edits. The top header is now solid white. (Business Dev's prospect list stays light — it's
+  a data panel with colored status chips, not a nav rail.)
+- **Redesigned assistant replies.** Across Chat, Create and both campaign chats, a reply now shows the
+  **Myra "M" avatar** beside it, a clean card (soft shadow, chat-style corner), and a compact action row
+  (copy the reply + quick 👍/👎). User messages show your initials avatar. Copy is real; the thumbs are a
+  local acknowledgement.
+- **Myra logo & wordmark untouched** — this was a colour-theme + layout pass only; the Myra mark and "Myra"
+  text are unchanged.
+- Verified end-to-end: navy rails compile correctly (`.rail{…;background:#0b3559}`), reply avatars/actions
+  render in all four chat surfaces, no dark-on-navy invisibility, production build clean.
+
 ## "@" palette in campaign chat + unified chat UI (2026-07-01)
 - **The "@" mention palette now works in the internal-campaign chat**, exactly like Chat and Create.
   Type `@` in a campaign's studio and you get **People** (real teammates from the Folders library — mention

@@ -3,8 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteAsset, getAssets, getKnowledgeStatus, regenerateAsset, uploadBrandFile } from "@/lib/api";
 import type { Asset, KnowledgeStatus } from "@/lib/types";
+import { useAuth } from "./AuthGate";
 import { useCreate } from "./ChatProvider";
 import { AssetCard } from "./AssetCard";
+import { Avatar } from "./Avatar";
+import { MyraAvatar } from "./MyraLogo";
+import { ReplyActions } from "./ReplyActions";
 import { Markdown } from "./Markdown";
 import { EmptyState } from "./EmptyState";
 import { useAtMentions, AtMenu } from "@/lib/atMentions";
@@ -39,6 +43,8 @@ export function CreateView() {
     removeAttachment,
     attaching,
   } = useCreate();
+  const { username } = useAuth();
+  const displayName = (username.split("@")[0] || "You").replace(/^\w/, (c) => c.toUpperCase());
   const [tab, setTab] = useState<"generate" | "past" | "brand">("generate");
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -93,12 +99,9 @@ export function CreateView() {
   return (
     <div className="flex h-full">
       {/* History rail — past generation sessions (conversation + the image/deck it made) */}
-      <div className="hidden w-56 shrink-0 flex-col border-r border-[var(--border)] md:flex">
+      <div className="rail hidden w-56 shrink-0 flex-col border-r border-[var(--border)] md:flex">
         <div className="p-3">
-          <button
-            onClick={startNew}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm transition hover:border-[var(--brand-red)]"
-          >
+          <button onClick={startNew} className="btn-primary w-full">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New
           </button>
@@ -195,40 +198,45 @@ export function CreateView() {
 
               {messages.map((m, i) =>
                 m.role === "user" ? (
-                  <div key={i} className="flex justify-end">
-                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
+                  <div key={i} className="flex items-start justify-end gap-2.5">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
                       {m.content}
                     </div>
+                    <Avatar name={displayName} size={30} />
                   </div>
                 ) : (
-                  <div key={i} className="flex flex-col items-start gap-2">
-                    {(m.content || m.pending) && (
-                      <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
-                        {m.content ? <Markdown content={m.content} /> : <Dots />}
-                      </div>
-                    )}
-                    {m.chips && m.chips.length > 0 && i === messages.length - 1 && (
-                      <div className="flex max-w-2xl flex-wrap gap-1.5">
-                        {m.chips.map((c, j) => (
-                          <button
-                            key={`${i}-${j}`}
-                            type="button"
-                            disabled={busy}
-                            onClick={() => submit(c)}
-                            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-50"
-                          >
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {m.assets && m.assets.length > 0 && (
-                      <div className="grid w-full max-w-2xl gap-2 sm:grid-cols-2">
-                        {m.assets.map((a, j) => (
-                          <AssetCard key={`${a.type}-${a.id}-${j}`} asset={a} />
-                        ))}
-                      </div>
-                    )}
+                  <div key={i} className="flex items-start gap-2.5">
+                    <MyraAvatar />
+                    <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+                      {(m.content || m.pending) && (
+                        <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm shadow-sm">
+                          {m.content ? <Markdown content={m.content} /> : <Dots />}
+                        </div>
+                      )}
+                      {m.content && !m.pending && <ReplyActions text={m.content} />}
+                      {m.chips && m.chips.length > 0 && i === messages.length - 1 && (
+                        <div className="flex max-w-2xl flex-wrap gap-1.5">
+                          {m.chips.map((c, j) => (
+                            <button
+                              key={`${i}-${j}`}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => submit(c)}
+                              className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-50"
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {m.assets && m.assets.length > 0 && (
+                        <div className="grid w-full max-w-2xl gap-2 sm:grid-cols-2">
+                          {m.assets.map((a, j) => (
+                            <AssetCard key={`${a.type}-${a.id}-${j}`} asset={a} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ),
               )}

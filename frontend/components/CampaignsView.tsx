@@ -35,7 +35,10 @@ import type {
   ClientStrategy,
 } from "@/lib/types";
 import { AssetCard } from "./AssetCard";
+import { useAuth } from "./AuthGate";
 import { Avatar } from "./Avatar";
+import { MyraAvatar } from "./MyraLogo";
+import { ReplyActions } from "./ReplyActions";
 import { EmptyState } from "./EmptyState";
 import { Markdown } from "./Markdown";
 import { useAtMentions, AtMenu, CAMPAIGN_AT_COMMANDS } from "@/lib/atMentions";
@@ -242,7 +245,7 @@ export function CampaignsView() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
         {/* Rail */}
-        <div className="flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
+        <div className="rail flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
           <div className="space-y-3 p-3">
             {/* Internal (promote Talentrupt) vs External (client-targeting) folders */}
             <div className="flex rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
@@ -399,6 +402,8 @@ function NewCampaignChat({ onPlanned }: { onPlanned: (c: CampaignDetail) => void
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { username } = useAuth();
+  const displayName = (username.split("@")[0] || "You").replace(/^\w/, (c) => c.toUpperCase());
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -436,12 +441,17 @@ function NewCampaignChat({ onPlanned }: { onPlanned: (c: CampaignDetail) => void
       <div ref={scrollRef} className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
         {messages.map((m, i) =>
           m.role === "user" ? (
-            <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl bg-[var(--brand-navy)] px-4 py-2.5 text-sm text-cream">{m.content}</div>
+            <div key={i} className="flex items-start justify-end gap-2.5">
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-2.5 text-sm text-cream">{m.content}</div>
+              <Avatar name={displayName} size={30} />
             </div>
           ) : (
-            <div key={i} className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm">{m.content}</div>
+            <div key={i} className="flex items-start gap-2.5">
+              <MyraAvatar />
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+                <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm shadow-sm">{m.content}</div>
+                {!busy && <ReplyActions text={m.content} />}
+              </div>
             </div>
           ),
         )}
@@ -1159,6 +1169,8 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   // "@" palette (people from Folders + quick actions) — same behavior as the Chat/Create boxes.
   const { atMenu, showAtMenu, menuSel, setMenuSel, pickCommand, handleAtKey, onInputChange } =
     useAtMentions(input, setInput, busy, taRef, CAMPAIGN_AT_COMMANDS);
+  const { username } = useAuth();
+  const displayName = (username.split("@")[0] || "You").replace(/^\w/, (c) => c.toUpperCase());
 
   // Restore the saved thread (with its asset cards). On a brand-new campaign with a brief, AUTO-GENERATE
   // the starter pack from that brief (chat is then for edits); otherwise greet.
@@ -1379,34 +1391,39 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
             <div className="mx-auto w-full min-w-0 max-w-3xl space-y-5 px-1">
               {messages.map((m, i) =>
                 m.role === "user" ? (
-                  <div key={i} className="flex justify-end">
-                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
+                  <div key={i} className="flex items-start justify-end gap-2.5">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
                       {m.content}
                     </div>
+                    <Avatar name={displayName} size={30} />
                   </div>
                 ) : (
-                  <div key={i} className="flex min-w-0 flex-col items-start gap-2">
-                    {(m.content || m.pending) && (
-                      <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
-                        {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
-                      </div>
-                    )}
-                    {m.chips && m.chips.length > 0 && !busy && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {m.chips.map((c) => (
-                          <button key={c} onClick={() => send(c)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {m.assets && m.assets.length > 0 && (
-                      <div className="grid w-full max-w-2xl gap-2">
-                        {m.assets.map((a, j) => (
-                          <DeletableAsset key={`${a.type}-${a.id}-${j}`} asset={a} onDelete={handleDeleteAsset} />
-                        ))}
-                      </div>
-                    )}
+                  <div key={i} className="flex items-start gap-2.5">
+                    <MyraAvatar />
+                    <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+                      {(m.content || m.pending) && (
+                        <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm shadow-sm">
+                          {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
+                        </div>
+                      )}
+                      {m.content && !m.pending && <ReplyActions text={m.content} />}
+                      {m.chips && m.chips.length > 0 && !busy && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {m.chips.map((c) => (
+                            <button key={c} onClick={() => send(c)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {m.assets && m.assets.length > 0 && (
+                        <div className="grid w-full max-w-2xl gap-2">
+                          {m.assets.map((a, j) => (
+                            <DeletableAsset key={`${a.type}-${a.id}-${j}`} asset={a} onDelete={handleDeleteAsset} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ),
               )}

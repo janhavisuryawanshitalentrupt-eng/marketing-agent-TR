@@ -38,3 +38,18 @@ export function MyraMark({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Small Myra avatar tile shown beside an assistant reply (like a chat sender bubble).
+ * A white rounded-square card with the M mark — reads on the light content area in either theme.
+ */
+export function MyraAvatar({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-white text-[#0b3559] shadow-sm ${className}`}
+      aria-hidden
+    >
+      <MyraMark className="h-5 w-5" />
+    </span>
+  );
+}

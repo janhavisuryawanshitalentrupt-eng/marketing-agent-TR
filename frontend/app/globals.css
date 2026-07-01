@@ -76,6 +76,24 @@ body {
     radial-gradient(900px 520px at -10% 110%, rgba(14, 67, 115, 0.10), transparent 60%),
     var(--background);
 }
+
+/* Left navigation / history rails: the deep-navy chrome from the design.
+   This block re-scopes the theme tokens locally, so existing utilities inside a rail
+   (text-muted, hover surfaces, borders, and the active brand-navy highlight) automatically
+   read light-on-navy with no per-element edits. Background is a literal navy because the block
+   also remaps the brand-navy token (used for the active-row highlight). */
+.rail {
+  background: #0b3559;
+  color: #f4f6f9;
+  --surface: rgba(255, 255, 255, 0.10);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --surface-3: rgba(255, 255, 255, 0.14);
+  --foreground: #ffffff;
+  --muted: rgba(232, 238, 246, 0.62);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --brand-navy: rgba(255, 255, 255, 0.15); /* active row highlight → a soft white wash on the navy */
+}
 :root[data-theme="light"] * { scrollbar-color: rgba(11, 53, 89, 0.25) transparent; }
 :root[data-theme="light"] *::-webkit-scrollbar-thumb { background: rgba(11, 53, 89, 0.25); }
 :root[data-theme="light"] *::-webkit-scrollbar-thumb:hover { background: rgba(11, 53, 89, 0.4); }

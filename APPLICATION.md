@@ -22,6 +22,11 @@ only: the **content** the app produces is still Talentrupt's (brand grounding, "
 ## 2. Stack & architecture
 - **Frontend:** Next.js 16 (React 19), Tailwind v4. Built as a **static export** (`output: 'export'` →
   `frontend/out`). Client-side SPA; talks to the backend over `/api`.
+- **Theme:** light is the default (`data-theme="light"`; dark still toggleable). Left navigation/history
+  rails are a deep-navy panel via the `.rail` class in `app/globals.css` (it re-scopes theme tokens locally
+  so rail utilities read light-on-navy). Chat replies use a shared reply chrome — `MyraAvatar` (from
+  `MyraLogo.tsx`) + `ReplyActions` (copy / 👍👎) beside each assistant message, user-initials `Avatar` on
+  user messages — consistent across Chat, Create and both campaign chats.
 - **Backend:** FastAPI + SQLAlchemy 2 + SQLite (WAL). Pydantic-settings reads `backend/.env`.
 - **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-2` (images; auto-falls back to `gpt-image-1` if the key lacks access), `text-embedding-3-small` (RAG).
   Providers are gated: `LLM_PROVIDER`/`IMAGE_PROVIDER` must be `openai` or you get a deterministic fallback.

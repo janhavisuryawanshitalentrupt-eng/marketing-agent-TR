@@ -77,7 +77,7 @@ export function FoldersView() {
   return (
     <div className="flex h-full min-h-0">
       {/* Rail: folders */}
-      <div className="flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
+      <div className="rail flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
         <div className="p-3">
           <button onClick={onNewFolder} className="btn-primary w-full">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>

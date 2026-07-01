@@ -94,7 +94,7 @@ export function Shell() {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       {/* Top nav bar */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/70 px-5 py-2.5 backdrop-blur">
+      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-2.5">
         {/* Brand (left) */}
         <div className="flex flex-1 items-center gap-3">
           <MyraMark className="h-9 w-9 shrink-0" />
