@@ -77,6 +77,14 @@ class Settings(BaseSettings):
     openai_image_quality: str = "high"  # low | medium | high | auto
     openai_image_size: str = "1024x1024"
 
+    # --- Employee photo cut-out (background removal) --------------------
+    # For "floating on the scene" employee posts we can remove the photo background via a hosted API
+    # (keeps the 2GB droplet free of rembg/onnxruntime). "none" -> no API; the composer falls back to the
+    # designed framed card. "removebg" -> api.remove.bg; "photoroom" -> Photoroom. Set the key to enable.
+    # The API only strips the BACKGROUND — the real face pixels are never altered.
+    bg_removal_provider: str = "none"      # none | removebg | photoroom
+    bg_removal_api_key: str = ""
+
     # --- Auth (dev) -----------------------------------------------------
     admin_username: str = "Admin@talentrupt.com"
     admin_password: str = "Admin123"

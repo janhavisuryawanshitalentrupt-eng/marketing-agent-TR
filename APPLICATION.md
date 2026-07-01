@@ -77,10 +77,16 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   frames; and a clean brand **footer band** (`_brand_footer`) carrying the official wordmark beneath the
   art so the logo never covers content) and a deterministic compositor fallback. `decks.py` — PPTX.
   `pdf.py` — branded PDFs. `teampost.py` — real-person posts (NEVER an AI face), with the official
-  **wordmark** in the layout's reserved bottom margin. Employee/`@mention` posts default to an
-  **AI-designed scene** (`build_ai_scene`: gpt-image-2 makes an on-theme branded background from the post's
-  message; the real photo is floated via `rembg` if present, else placed in a designed framed card).
-  `refine.py` — regenerate/refine an asset into a new version.
+  **wordmark** in a reserved margin. Employee/`@mention` posts rotate across brand **skins** (`SKINS`:
+  light / cream / navy / red / photo — so it isn't navy every time) and reference **series** renderers
+  (`spotlight_series` = Man-on-a-Mission with a red-box keyword + script "Featuring [Name]" + arrow;
+  `welcome`; `anniversary` = "X Strong Years"; `grid` = multi-employee "One Year Strong"). The series is
+  auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The `photo`
+  skin uses `build_ai_scene` (gpt-image-2 makes a VARIED on-theme background; real photo floated via a
+  cut-out or a designed framed card). **Nothing overrides:** each layout keeps text left of the photo and
+  the wordmark in a reserved margin, verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api`
+  (hosted, opt-in via `BG_REMOVAL_API_KEY`; keeps rembg off the droplet) — background only, face untouched.
+  `common.script_font` = bundled Caveat (OFL). `refine.py` — regenerate/refine an asset into a new version.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
   the ingested TR library. **Campaign** generation grounds in the campaign's **brief** (`Campaign.goal`),
   threaded into every generator so content stays on the campaign's theme (no off-theme RPO leakage).

@@ -31,6 +31,16 @@ _BODY_CANDIDATES = [
     "C:/Windows/Fonts/arial.ttf",
     "C:/Windows/Fonts/Montserrat-Regular.ttf",
 ]
+# Handwritten/script accent for "Featuring [Name]" & anniversary numbers. The bundled Caveat (SIL OFL)
+# ships with the repo so the look is identical on the dev box AND on Linux prod; OS script fonts and the
+# heading font are graceful fallbacks so a missing TTF can never crash rendering.
+_BUNDLED_FONTS = Path(__file__).resolve().parent.parent / "brand" / "fonts"
+_SCRIPT_CANDIDATES = [
+    str(_BUNDLED_FONTS / "Caveat-Bold.ttf"),
+    "C:/Windows/Fonts/segoesc.ttf",   # Segoe Script (dev-box hand feel)
+    "C:/Windows/Fonts/segoeprb.ttf",  # Segoe Print Bold
+    "C:/Windows/Fonts/segoeuib.ttf",  # last resort: heading font (never crashes)
+]
 
 
 def _first_existing(candidates: list[str]) -> str | None:
@@ -48,6 +58,20 @@ def heading_font(size: int) -> ImageFont.FreeTypeFont:
 def body_font(size: int) -> ImageFont.FreeTypeFont:
     path = _first_existing(_BODY_CANDIDATES)
     return ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
+
+
+def script_font(size: int) -> ImageFont.FreeTypeFont:
+    """Handwritten/script accent font (bundled Caveat). Best-effort selects the Bold master on the
+    variable font; falls back to an OS script font, then the heading font — never raises."""
+    path = _first_existing(_SCRIPT_CANDIDATES)
+    if not path:
+        return heading_font(size)
+    f = ImageFont.truetype(path, size)
+    try:
+        f.set_variation_by_name("Bold")  # Caveat is a variable font; pick the bold master when present
+    except Exception:
+        pass
+    return f
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:

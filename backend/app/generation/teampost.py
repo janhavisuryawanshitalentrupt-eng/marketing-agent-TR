@@ -12,14 +12,19 @@ isn't installed, so the feature never breaks. No LLM / image-API — pure PIL.
 from __future__ import annotations
 
 import io
+import logging
 import math
 import random
 import re
+from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from ..models import Brand
-from .common import body_font, heading_font, paste_wordmark, public_url, storage_subdir, unique_name
+from . import cutout
+from .common import body_font, heading_font, paste_wordmark, public_url, script_font, storage_subdir, unique_name
+
+log = logging.getLogger("talentrupt.teampost")
 
 W = H = 1080
 RAIL_W = 16
@@ -28,14 +33,70 @@ NAVY2 = (0x12, 0x44, 0x6E)
 RED = (0xF6, 0x40, 0x4C)
 CREAM = (0xEB, 0xE9, 0xDF)
 WHITE = (255, 255, 255)
+INK = (0x14, 0x22, 0x3A)      # near-navy ink for text on light skins
+SUBINK = (0x46, 0x56, 0x6E)   # muted navy for sublines on light skins
 
-STYLE_NAMES = ["spotlight", "magazine", "split", "framed"]
+
+# --- Brand "skins": full on-brand palette treatments so output isn't navy-every-time ----------------
+@dataclass(frozen=True)
+class Skin:
+    key: str
+    bg: tuple            # background fill (the "photo" skin paints its own scene)
+    text: tuple          # headline text colour
+    sub: tuple           # subline / body text colour
+    accent: tuple        # keyword box, rails, arrows (RED; NAVY on the red skin)
+    on_accent: tuple     # text drawn ON the accent box
+    name: tuple          # featured-name colour
+    frame: tuple         # photo-card frame colour
+    wm_dark: bool        # True -> white wordmark (dark bg); False -> navy wordmark (light bg)
+    shade: tuple         # subtle geometric-accent shade for the background
+    is_photo: bool = False
+
+
+SKINS = {
+    "light": Skin("light", (0xF7, 0xF5, 0xEF), NAVY, SUBINK, RED, WHITE, NAVY, NAVY, False, (0xE3, 0xDF, 0xD2)),
+    "cream": Skin("cream", CREAM, NAVY, SUBINK, RED, WHITE, NAVY, NAVY, False, (0xDD, 0xD8, 0xC8)),
+    "red": Skin("red", RED, WHITE, CREAM, NAVY, WHITE, WHITE, WHITE, True, (0xD2, 0x2A, 0x35)),
+    "navy": Skin("navy", NAVY, WHITE, CREAM, RED, WHITE, WHITE, CREAM, True, NAVY2),
+    "photo": Skin("photo", NAVY, WHITE, CREAM, RED, WHITE, WHITE, CREAM, True, NAVY2, is_photo=True),
+}
+DETERMINISTIC_SKINS = ["light", "cream", "navy", "red"]
+ALL_SKINS = DETERMINISTIC_SKINS + ["photo"]
+_SKIN_ROT: dict[str, int] = {}
+
+
+def pick_skin(owner: str = "", include_photo: bool = True) -> str:
+    """Rotate through the skins with no immediate repeat, so consecutive posts for an owner differ
+    (light / cream / navy / red / photographic) instead of navy-every-time."""
+    pool = ALL_SKINS if include_photo else DETERMINISTIC_SKINS
+    i = _SKIN_ROT.get(owner, -1) + 1
+    _SKIN_ROT[owner] = i
+    return pool[i % len(pool)]
+
+
+def resolve_skin(key: str) -> Skin:
+    return SKINS.get((key or "").lower(), SKINS["navy"])
+
+
+STYLE_NAMES = ["spotlight", "magazine", "split", "framed",
+               "spotlight_series", "welcome", "anniversary", "grid"]
+SERIES_STYLES = ["spotlight_series", "welcome", "anniversary"]  # skin-aware renderers (take a Skin)
 
 
 # --- shared helpers --------------------------------------------------------
 def _cutout(img: Image.Image) -> Image.Image:
-    """Background-removed RGBA of the subject (offline rembg). Returns the original as opaque RGBA if
-    rembg isn't available, so the post still renders rather than failing."""
+    """Background-removed RGBA of the subject. Tries the hosted background-removal API first (when a key
+    is configured — keeps rembg off the small droplet), then offline rembg, else returns the original as
+    opaque RGBA (the composer then uses the designed framed card). The face is never altered."""
+    try:  # hosted API (remove.bg / Photoroom) — no-op unless bg_removal_api_key is set
+        import io as _io
+        api = cutout.remove_bg_api(img_to_png_bytes(img)) if cutout.cutout_available() else None
+        if api:
+            out = Image.open(_io.BytesIO(api)).convert("RGBA")
+            bbox = out.getbbox()
+            return out.crop(bbox) if bbox else out
+    except Exception:
+        pass
     try:
         from rembg import remove  # heavy import; only loaded when a cut-out post is built
         out = remove(img).convert("RGBA")
@@ -43,6 +104,12 @@ def _cutout(img: Image.Image) -> Image.Image:
         return out.crop(bbox) if bbox else out
     except Exception:
         return img.convert("RGBA")
+
+
+def img_to_png_bytes(img: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _cover_fit(img: Image.Image, w: int, h: int) -> Image.Image:
@@ -229,6 +296,220 @@ def _draw_featuring(d, x, y, name, role, name_size=58) -> None:
         _role_badge(d, x, y + 40 + 72, role)
 
 
+# --- advanced primitives (keyword box, script, accents, safe placement, overlap guard) -------------
+def _draw_headline_highlight(d, x, y, text, max_w, skin, keyword="", size=104, max_lines=3):
+    """Headline in the skin's text colour with a filled accent box hugging ONE keyword (default: the
+    last word) — the reference 'red-box a word' look. Auto-shrinks so a long word can't spill onto the
+    photo. Returns (y_below, bbox)."""
+    text = (text or "On a Mission!").strip()
+    f = heading_font(size)
+    lines = _wrap(d, text, f, max_w)
+    while (len(lines) > max_lines or any(d.textlength(ln, font=f) > max_w for ln in lines)) and size > 34:
+        size -= 5
+        f = heading_font(size)
+        lines = _wrap(d, text, f, max_w)
+    kw = re.sub(r"[^\w]", "", keyword or "").lower()
+    if not kw:
+        words_all = [w for w in re.split(r"\s+", text) if w]
+        kw = re.sub(r"[^\w]", "", words_all[-1]).lower() if words_all else ""
+    target = None
+    for li, ln in enumerate(lines):
+        for wi, wd in enumerate(ln.split(" ")):
+            if kw and re.sub(r"[^\w]", "", wd).lower() == kw:
+                target = (li, wi)
+                break
+        if target:
+            break
+    lh = int(f.size * 1.18) + 10
+    top, maxx = y, x
+    space = d.textlength(" ", font=f)
+    for li, ln in enumerate(lines):
+        wx = x
+        for wi, wd in enumerate(ln.split(" ")):
+            ww = d.textlength(wd, font=f)
+            if target == (li, wi):
+                d.rounded_rectangle([wx - 8, y - 2, min(x + max_w, wx + ww + 10), y + f.size + 12],
+                                    radius=9, fill=skin.accent)
+                d.text((wx, y + 3), wd, font=f, fill=skin.on_accent)
+            else:
+                d.text((wx, y + 3), wd, font=f, fill=skin.text)
+            wx += ww + space
+        maxx = max(maxx, wx - space)
+        y += lh
+    if target is None:  # keyword didn't survive wrapping -> underline the block in the accent colour
+        d.rectangle([x, y - 4, min(x + max_w, int(maxx)), y + 8], fill=skin.accent)
+        y += 16
+    return y, (x - 10, top - 4, int(maxx) + 12, y)
+
+
+def _draw_featuring_script(d, x, y, name, role, skin, name_size=52):
+    """'Featuring [Name]' — the name in the handwritten script font + a role badge. Compact; returns its
+    bbox so the caller can keep it clear of the wordmark below."""
+    if not name:
+        return (x, y, x, y)
+    d.text((x, y), "Featuring", font=body_font(26), fill=skin.sub)
+    sf = script_font(int(name_size * 1.12))
+    ny = y + 28
+    d.text((x, ny), name, font=sf, fill=skin.name)
+    nb = d.textbbox((x, ny), name, font=sf)
+    by = nb[3] + 4
+    right = max(nb[2], x + 200)
+    if role:
+        _role_badge(d, x, by, role, fill=skin.accent, fg=skin.on_accent)
+        by += 56
+        right = max(right, x + 40 + int(d.textlength(role, font=body_font(30))) + 64)
+    return (x - 4, y - 4, right + 6, by)
+
+
+# decorative accents — callers place them ONLY in reserved zones (never over the photo or text).
+def _accent_dot_grid(d, x, y, cols, rows, gap=26, r=4, fill=NAVY2):
+    for i in range(cols):
+        for j in range(rows):
+            cx, cy = x + i * gap, y + j * gap
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=fill)
+
+
+def _accent_arc(d, cx, cy, radius=150, start=0, n=26, step=7, r=4, fill=WHITE):
+    for i in range(n):
+        a = math.radians(start + i * step)
+        px, py = int(cx + radius * math.cos(a)), int(cy + radius * math.sin(a))
+        d.ellipse([px - r, py - r, px + r, py + r], fill=fill)
+
+
+def _accent_chevrons(d, x, y, n=3, size=22, gap=14, color=RED, width=6):
+    for i in range(n):
+        ox = x + i * gap
+        d.line([(ox, y), (ox + size * 0.62, y + size * 0.5), (ox, y + size)], fill=color, width=width, joint="curve")
+
+
+def _accent_starburst(d, cx, cy, r_out=70, r_in=30, points=12, color=RED):
+    pts = []
+    for i in range(points * 2):
+        rr = r_out if i % 2 == 0 else r_in
+        a = math.radians(i * 180.0 / points)
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    d.polygon(pts, fill=color)
+
+
+def _accent_arrow(d, x0, y0, x1, y1, color=RED, width=7, curve=0.28):
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    dx, dy = x1 - x0, y1 - y0
+    cxp, cyp = mx - dy * curve, my + dx * curve
+    pts = [((1 - t) ** 2 * x0 + 2 * (1 - t) * t * cxp + t * t * x1,
+            (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cyp + t * t * y1) for t in [i / 24 for i in range(25)]]
+    d.line(pts, fill=color, width=width, joint="curve")
+    ax, ay = pts[-1]
+    bx, by = pts[-4]
+    ang = math.atan2(ay - by, ax - bx)
+    for da in (math.radians(150), math.radians(-150)):
+        d.line([(ax, ay), (ax + 22 * math.cos(ang + da), ay + 22 * math.sin(ang + da))], fill=color, width=width)
+
+
+def _accent_squiggle(d, x, y, w, amp=8, color=RED, width=5):
+    pts = [(x + i, y + amp * math.sin(i / 22.0)) for i in range(0, int(w) + 1, 6)]
+    d.line(pts, fill=color, width=width, joint="curve")
+
+
+def _intersect(a, b, margin=0):
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    return not (ax1 + margin <= bx0 or bx1 + margin <= ax0 or ay1 + margin <= by0 or by1 + margin <= ay0)
+
+
+def _ensure_clear(label, *boxes) -> bool:
+    """Verify the given bounding boxes are mutually disjoint — the "nothing overrides" guarantee. The
+    layout math keeps text left of the photo and the wordmark in a reserved margin; this logs a warning
+    if that's ever violated so a regression can't ship silently."""
+    bs = [b for b in boxes if b]
+    for i in range(len(bs)):
+        for j in range(i + 1, len(bs)):
+            if _intersect(bs[i], bs[j]):
+                log.warning("OVERLAP in %s: %s vs %s", label, bs[i], bs[j])
+                return False
+    return True
+
+
+def _place_person(canvas, d, skin, photo, hero, target_h_frac=0.82, max_w_frac=0.55, right_pad=30):
+    """Float the cut-out person on the RIGHT (real cut-out) or a premium rounded framed card (fallback).
+    Returns (person_left, person_box) so callers clamp all text to the LEFT of person_left. The width cap
+    (<=0.55 W) guarantees person_left stays >= ~456, so the clamped headline (min 340) can never reach it."""
+    cut_ok = hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
+    if cut_ok:
+        target_h = int(H * target_h_frac)
+        scale = target_h / hero.height
+        if hero.width * scale > W * max_w_frac:
+            scale = (W * max_w_frac) / hero.width
+        hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
+        try:
+            hero = hero.filter(ImageFilter.SHARPEN)
+        except Exception:
+            pass
+        hx, hy = W - hero.width - right_pad, H - hero.height
+        shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))
+        shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
+        shadow = shadow.filter(ImageFilter.GaussianBlur(20))
+        canvas.paste(shadow, (hx + 14, hy + 10), shadow)
+        canvas.paste(hero, (hx, hy), hero)
+        return hx, (hx, hy, hx + hero.width, hy + hero.height)
+    # framed-card fallback (skin-aware double frame + red corner tab so it reads as an editorial card)
+    fw, fh = int(W * 0.50), int(H * 0.72)
+    fx, fy = W - fw - 54, (H - fh) // 2 + 24
+    card = _cover_fit(photo, fw, fh)
+    try:
+        card = card.filter(ImageFilter.UnsharpMask(radius=1.4, percent=90, threshold=3))
+    except Exception:
+        pass
+    rad = 42
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle([fx - 4, fy - 4, fx + fw + 4, fy + fh + 4], radius=rad + 6, fill=(0, 0, 0, 130))
+    sh = sh.filter(ImageFilter.GaussianBlur(24))
+    canvas.paste(sh, (0, 0), sh)
+    mask = Image.new("L", (fw, fh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, fw, fh], radius=rad, fill=255)
+    canvas.paste(card, (fx, fy), mask)
+    d.rounded_rectangle([fx - 6, fy - 6, fx + fw + 6, fy + fh + 6], radius=rad + 6, outline=skin.frame, width=6)
+    d.rounded_rectangle([fx - 12, fy - 12, fx + fw + 12, fy + fh + 12], radius=rad + 10, outline=skin.accent, width=3)
+    d.rounded_rectangle([fx + fw - 40, fy - 16, fx + fw + 16, fy + 26], radius=10, fill=skin.accent)
+    return fx, (fx - 12, fy - 12, fx + fw + 12, fy + fh + 12)
+
+
+def _paint_scene_bg(canvas, d, skin, variant) -> None:
+    """Fill the background for a skin + tasteful accents kept OUT of the text/photo zones."""
+    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)  # signature left rail
+    if skin.key in ("navy", "red"):
+        rects, (ax, ay, a0) = _BACKDROPS[variant % len(_BACKDROPS)]
+        for (x, y, w, h, rot) in rects:  # geometric shapes on the right — the person covers most
+            g = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            ImageDraw.Draw(g).rounded_rectangle([0, 0, w, h], radius=40, fill=(*skin.shade, 150))
+            gr = g.rotate(rot, expand=True)
+            canvas.paste(gr, (x, y), gr)
+        _accent_arc(d, ax, ay, 150, a0, 26, 7, 4, WHITE)
+    else:  # light / cream: a subtle dot cluster in the top-right corner (above/behind the person)
+        _accent_dot_grid(d, W - 150, 44, 5, 4, gap=24, r=4, fill=skin.shade)
+
+
+def _extract_years(text: str) -> str:
+    """The anniversary number — e.g. '7' from '7 years', '7 strong years', 'celebrating 7 years'. Only
+    when the text is actually about an anniversary (mentions year(s)/anniversary)."""
+    t = (text or "").lower()
+    if not re.search(r"\byears?\b|\byrs?\b|anniversar", t):
+        return ""
+    m = re.search(r"\b(\d{1,2})\b", t)
+    return m.group(1) if m else ""
+
+
+def detect_series(text: str) -> str:
+    """Pick the reference series from the message: anniversary / welcome / grid / spotlight_series."""
+    t = (text or "").lower()
+    if _extract_years(t) or "anniversary" in t or "workversary" in t or "work-versary" in t:
+        return "anniversary"
+    if any(w in t for w in ("welcome", "welcoming", "joining", "joins", "joined", "new hire", "onboard", "onboarding")):
+        return "welcome"
+    if any(w in t for w in ("team", "everyone", "group", "all of us", "one year strong", "the crew", "the squad")):
+        return "grid"
+    return "spotlight_series"
+
+
 # --- formats ---------------------------------------------------------------
 def _layout_spotlight(photo, name, role, headline, question, variant) -> Image.Image:
     canvas = Image.new("RGB", (W, H), NAVY)
@@ -366,29 +647,169 @@ def _layout_framed(photo, name, role, headline, question, variant) -> Image.Imag
     return canvas
 
 
+# --- skin-aware series formats (the reference "employee feature" looks, on a rotating skin) ---------
+def _layout_spotlight_series(photo, name, role, headline, question, variant, skin, keyword="", kicker=""):
+    """Flagship 'Man on a Mission / Women Crush Wednesday': person one side, red-box keyword headline,
+    script 'Featuring [Name]' + a hand-drawn arrow, role badge — rendered on the given skin."""
+    canvas = Image.new("RGB", (W, H), skin.bg)
+    d = ImageDraw.Draw(canvas)
+    _paint_scene_bg(canvas, d, skin, variant)
+    hero = _cutout(photo)
+    person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+    pad = 70
+    hl_w = max(340, person_left - pad - 30)
+    y = 92
+    if kicker:
+        d.text((pad, y), kicker.upper(), font=body_font(28), fill=skin.accent)
+        y += 44
+    y, head_box = _draw_headline_highlight(d, pad, y, headline, hl_w, skin, keyword=keyword)
+    sub_box = None
+    if question:
+        qf = body_font(34)
+        sy = y + 12
+        avail = (H - 320) - sy  # keep the subline clear of the "Featuring" block below
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, avail // 44)]:
+            d.text((pad, sy), ln, font=qf, fill=skin.sub)
+            sy += 44
+        sub_box = (pad, y + 12, pad + hl_w, sy)
+    feat_box = _draw_featuring_script(d, pad, H - 300, name, role, skin)
+    arrow_box = None
+    if name and person_left - feat_box[2] > 150:
+        ax0 = feat_box[2] + 24
+        _accent_arrow(d, ax0, H - 200, person_left - 26, H - 168, color=skin.accent)
+        arrow_box = (ax0, H - 232, person_left - 26, H - 150)
+    wm = paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=skin.wm_dark)
+    wm_box = (pad, H - 60, pad + 240, H - 16) if wm else None
+    _ensure_clear("spotlight_series/" + skin.key, person_box, head_box, sub_box, feat_box, arrow_box, wm_box)
+    return canvas
+
+
+def _layout_welcome(photo, name, role, headline, question, variant, skin):
+    first = name.split()[0] if name else "Aboard"
+    return _layout_spotlight_series(photo, name, role, headline or f"Welcome, {first}!", question, variant,
+                                    skin, keyword="Welcome", kicker="New to the team")
+
+
+def _layout_anniversary(photo, name, role, headline, question, variant, skin):
+    """'X Strong Years': giant script number, name + role, a short story/quote, real photo — on a skin."""
+    canvas = Image.new("RGB", (W, H), skin.bg)
+    d = ImageDraw.Draw(canvas)
+    _paint_scene_bg(canvas, d, skin, variant)
+    hero = _cutout(photo)
+    person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+    pad = 70
+    hl_w = max(340, person_left - pad - 30)
+    yrs = _extract_years(f"{headline} {question}")
+    big = script_font(200)
+    label = yrs if yrs else "Strong"
+    d.text((pad, 44), label, font=big, fill=skin.accent)
+    nb = d.textbbox((pad, 44), label, font=big)
+    y = nb[3] - 6
+    hf = heading_font(56)
+    for ln in _wrap(d, "STRONG YEARS" if yrs else "YEARS STRONG", hf, hl_w):
+        d.text((pad, y), ln, font=hf, fill=skin.text)
+        y += 66
+    y += 6
+    _accent_squiggle(d, pad, y, min(hl_w, 300), color=skin.accent)
+    y += 28
+    if name:
+        d.text((pad, y), name, font=heading_font(54), fill=skin.name)
+        y += 70
+        if role:
+            _role_badge(d, pad, y, role, fill=skin.accent, fg=skin.on_accent)
+            y += 66
+    if question:
+        qf = body_font(32)
+        sy = y + 6
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 100) - sy) // 42)]:
+            d.text((pad, sy), ln, font=qf, fill=skin.sub)
+            sy += 42
+        y = sy
+    wm = paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=skin.wm_dark)
+    wm_box = (pad, H - 60, pad + 240, H - 16) if wm else None
+    _ensure_clear("anniversary/" + skin.key, person_box, (pad - 4, 40, pad + hl_w, min(y, H - 66)), wm_box)
+    return canvas
+
+
+def build_team_grid(brand, photos: list[bytes], labels: list[tuple[str, str]],
+                    headline: str = "", skin=None, variant: int = 0) -> tuple[str, str, dict]:
+    """'One Year Strong': a rounded-card grid of multiple employees, each with a name strip. No cut-out
+    needed (crowd of framed cards) → safe on prod today. Rendered on a skin."""
+    sk = skin if isinstance(skin, Skin) else resolve_skin(skin or "navy")
+    photos = photos[:9] or [b""]
+    n = len(photos)
+    cols = 1 if n == 1 else (2 if n <= 4 else 3)
+    rows = math.ceil(n / cols)
+    canvas = Image.new("RGB", (W, H), sk.bg)
+    d = ImageDraw.Draw(canvas)
+    _paint_scene_bg(canvas, d, sk, variant)
+    pad = 60
+    _draw_headline_highlight(d, pad, 56, headline or "One Year Strong", W - 2 * pad, sk, size=72, max_lines=2)
+    top, bottom, g, strip = 210, H - 108, 26, 52
+    cw = (W - 2 * pad - (cols - 1) * g) // cols
+    ch = (bottom - top - (rows - 1) * g) // rows
+    for idx, pb in enumerate(photos):
+        r, c = divmod(idx, cols)
+        cx, cy = pad + c * (cw + g), top + r * (ch + g)
+        try:
+            img = ImageOps.exif_transpose(Image.open(io.BytesIO(pb)).convert("RGB"))
+        except Exception:
+            continue
+        ph = _cover_fit(img, cw, ch - strip)
+        mask = Image.new("L", (cw, ch - strip), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, cw, ch - strip], radius=26, fill=255)
+        canvas.paste(ph, (cx, cy), mask)
+        d.rounded_rectangle([cx - 3, cy - 3, cx + cw + 3, cy + ch - strip + 3], radius=29, outline=sk.frame, width=3)
+        nm = labels[idx][0] if idx < len(labels) else ""
+        if nm:
+            nf = heading_font(30)
+            tw = d.textlength(nm, font=nf)
+            d.text((cx + (cw - tw) // 2, cy + ch - strip + 12), nm, font=nf, fill=sk.name)
+    paste_wordmark(canvas, 0, H - 58, W, 40, dark_bg=sk.wm_dark, align="center")
+    file_name = unique_name("tr-team", "png")
+    path = storage_subdir("images") / file_name
+    canvas.convert("RGB").save(str(path), "PNG")
+    return str(path), file_name, {
+        "url": public_url("images", file_name), "renderer": "team_grid", "style": "grid",
+        "skin": sk.key, "size": f"{W}x{H}", "kind": "team",
+    }
+
+
 _LAYOUTS = {
     "spotlight": _layout_spotlight,
     "magazine": _layout_magazine,
     "split": _layout_split,
     "framed": _layout_framed,
 }
+_SERIES = {
+    "spotlight_series": _layout_spotlight_series,
+    "welcome": _layout_welcome,
+    "anniversary": _layout_anniversary,
+}
 
 
 def build_team_image(
     brand: Brand | None, photo_bytes: bytes, name: str, role: str = "",
     headline: str = "", question: str = "", variant: int = 0, style: str = "spotlight",
+    skin: str = "navy",
 ) -> tuple[str, str, dict]:
-    """Compose a branded feature post around a real photo in one of STYLE_NAMES formats. `variant`
-    rotates background/scale/accent within a format. Returns (path, file_name, meta) — same shape as
-    images._render. Raises on an unreadable photo (caller surfaces a message; never an AI face)."""
+    """Compose a branded feature post around a real photo. Legacy styles (spotlight/magazine/split/framed)
+    are navy; the SERIES styles (spotlight_series/welcome/anniversary) render on the given `skin`, so the
+    same person isn't always shown navy. Returns (path, file_name, meta). Never an AI face."""
     try:  # team photos may be HEIC (iPhone) — register the opener when available
         import pillow_heif
         pillow_heif.register_heif_opener()
     except Exception:
         pass
     photo = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
-    style = style if style in _LAYOUTS else "spotlight"
-    canvas = _LAYOUTS[style](photo, name, role, headline, question, variant)
+    sk = resolve_skin(skin)
+    if style in _SERIES:
+        canvas = _SERIES[style](photo, name, role, headline, question, variant, sk)
+        skin_key = sk.key
+    else:
+        style = style if style in _LAYOUTS else "spotlight"
+        canvas = _LAYOUTS[style](photo, name, role, headline, question, variant)
+        skin_key = "navy"
 
     file_name = unique_name("tr-team", "png")
     path = storage_subdir("images") / file_name
@@ -397,39 +818,44 @@ def build_team_image(
         "url": public_url("images", file_name),
         "renderer": f"team_{style}",
         "style": style,
+        "skin": skin_key,
         "size": f"{W}x{H}",
         "kind": "team",
     }
 
 
 # --- AI-scene format: gpt-image-1 makes the BACKGROUND, the REAL cut-out person goes on top ----------
+# Deliberately span DIFFERENT dominant tones (light / warm / red / navy / office) so the photo skin
+# doesn't come out navy every time.
 _SCENE_TYPES = [
-    "a bold abstract brand backdrop: deep navy with dynamic flowing coral-red ribbons and soft "
-    "rounded geometric shapes, energetic and celebratory, with depth and a soft glow",
-    "a premium modern office environment, bright and aspirational, floor-to-ceiling windows with "
-    "soft city bokeh, clean editorial composition, warm daylight",
-    "an elegant dark-navy studio backdrop with a gentle spotlight, floating golden particles and "
-    "soft out-of-focus confetti, celebratory and upscale",
-    "a contemporary tech-forward abstract scene: navy gradient with subtle glowing connected-dot "
+    "a bright, airy, minimal studio backdrop in soft off-white and warm cream with gentle coral-red "
+    "geometric accents and soft shadows, clean and premium, plenty of light",
+    "a warm congratulatory backdrop: soft golden bokeh, a smooth gradient from warm cream to soft gold, "
+    "tasteful sparkle and gentle light rays, light and uplifting, magazine-cover feel",
+    "a bold coral-red-forward abstract scene with deep navy accents and soft rounded geometric shapes, "
+    "confident and energetic, dynamic depth",
+    "a premium modern office environment, bright and aspirational, floor-to-ceiling windows with soft "
+    "city bokeh, clean editorial composition, warm daylight, mostly light tones",
+    "a bold abstract brand backdrop: deep navy with dynamic flowing coral-red ribbons and soft rounded "
+    "geometric shapes, energetic and celebratory, depth and a soft glow",
+    "a contemporary tech-forward abstract scene: a cool gradient with subtle glowing connected-dot "
     "network lines and coral accents, sleek and professional, soft depth",
-    "a warm congratulatory backdrop, soft bokeh lights, smooth gradient from deep navy to warm cream, "
-    "tasteful sparkle and gentle light rays, magazine-cover feel",
 ]
 
 
 def _scene_prompt(headline: str, question: str, variant: int) -> str:
     scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
     msg = " ".join(x for x in (headline, question) if x).strip()
-    theme = (f'The post message is: "{msg[:120]}" — let the mood, imagery and motifs SUBTLY evoke that '
-             "(achievement/celebration, welcome, teamwork, growth, milestone, etc.), tastefully and "
-             "on-brand. " if msg else "")
+    theme = (f'The post message is: "{msg[:120]}" — let the mood/imagery SUBTLY evoke it (celebration, '
+             "welcome, teamwork, growth, milestone), tastefully and on-brand. " if msg else "")
     return (
         f"A richly designed, premium social-media BACKGROUND graphic for a corporate post: {scene}. "
-        f"{theme}Brand palette: deep navy #0B3559, coral red #F6404C accents, warm cream #EBE9DF. "
-        "High-end editorial and cinematic, dynamic and polished like a professional marketing design — "
-        "NOT a plain flat colour. ABSOLUTELY NO people, NO person, NO faces, NO text, NO words, NO "
-        "letters, NO logos. Keep the RIGHT side and the BOTTOM-LEFT relatively clean/uncluttered so a "
-        "person photo (right) and a caption (left) can be placed on top. Square 1:1 composition."
+        f"{theme}Talentrupt brand palette: deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — use "
+        "them tastefully and VARY the dominant tone per the scene above (do NOT make it uniformly dark "
+        "navy). High-end editorial and cinematic, polished — NOT a plain flat colour. ABSOLUTELY NO "
+        "people, NO person, NO faces, NO text, NO words, NO letters, NO logos. Keep the RIGHT side and "
+        "the BOTTOM-LEFT relatively clean so a person photo (right) and a caption (left) sit cleanly on "
+        "top. Square 1:1 composition."
     )
 
 
@@ -448,10 +874,10 @@ def _ai_scrim(canvas: Image.Image) -> Image.Image:
     return Image.alpha_composite(canvas.convert("RGBA"), layer).convert("RGB")
 
 
-async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0):
-    """Premium AI background: gpt-image-1 (the OpenAI key) generates an on-brand SCENE, the REAL person
-    is cut out (face + body untouched) and placed on it, then branded text/logo. The face is NEVER
-    AI-generated. Falls back to the navy spotlight template if the image provider is unavailable."""
+async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
+    """Premium AI background: gpt-image-2 (the OpenAI key) generates a VARIED on-brand SCENE, the REAL
+    person is cut out (face + body untouched) and placed on it, then branded text/logo. The face is NEVER
+    AI-generated. Falls back to a deterministic series template (a random skin) if the provider is down."""
     from ..providers import llm
     try:
         import pillow_heif
@@ -467,80 +893,45 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
             data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
             if data:
                 bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
-                try:  # crisp up any soft/hazy gpt-image-1 background (matches the generate_image path)
+                try:  # crisp up any soft/hazy background (matches the generate_image path)
                     bg = bg.filter(ImageFilter.UnsharpMask(radius=2, percent=130, threshold=2))
                 except Exception:
                     pass
         except Exception:
             bg = None
-    if bg is None:  # provider down -> deterministic navy template (still the real face)
-        return build_team_image(brand, photo_bytes, name, role, headline, question, variant, style="spotlight")
+    if bg is None:  # provider down -> deterministic series template on a VARIED skin (still the real face)
+        return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
+                                style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
 
     canvas = _ai_scrim(bg)
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, 0, RAIL_W, H], fill=RED)
-
-    # If rembg produced a real cut-out (transparent regions), FLOAT the person on the scene; otherwise
-    # (no rembg on this host) place the REAL photo in a designed rounded frame — reads as an intentional
-    # 'featured' card, not a pasted rectangle. The face is the real pixels either way.
-    cut_ok = hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
-    if cut_ok:
-        target_h = int(H * 0.82)
-        scale = target_h / hero.height
-        if hero.width * scale > W * 0.6:
-            scale = (W * 0.6) / hero.width
-        hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
-        try:
-            hero = hero.filter(ImageFilter.SHARPEN)
-        except Exception:
-            pass
-        hx, hy = W - hero.width - 30, H - hero.height
-        person_left = hx
-        shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))  # soft drop shadow so it doesn't look pasted
-        shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
-        shadow = shadow.filter(ImageFilter.GaussianBlur(20))
-        canvas.paste(shadow, (hx + 14, hy + 10), shadow)
-        canvas.paste(hero, (hx, hy), hero)
-    else:
-        fw, fh = int(W * 0.50), int(H * 0.72)
-        fx, fy = W - fw - 54, (H - fh) // 2 + 24
-        person_left = fx
-        card = _cover_fit(photo, fw, fh)
-        try:
-            card = card.filter(ImageFilter.UnsharpMask(radius=1.4, percent=90, threshold=3))
-        except Exception:
-            pass
-        rad = 42
-        sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        ImageDraw.Draw(sh).rounded_rectangle([fx - 4, fy - 4, fx + fw + 4, fy + fh + 4], radius=rad + 6, fill=(0, 0, 0, 130))
-        sh = sh.filter(ImageFilter.GaussianBlur(24))
-        canvas.paste(sh, (0, 0), sh)  # soft drop shadow under the card
-        mask = Image.new("L", (fw, fh), 0)
-        ImageDraw.Draw(mask).rounded_rectangle([0, 0, fw, fh], radius=rad, fill=255)
-        canvas.paste(card, (fx, fy), mask)
-        d.rounded_rectangle([fx - 5, fy - 5, fx + fw + 5, fy + fh + 5], radius=rad + 5, outline=CREAM, width=6)  # crisp frame
-
+    skin = SKINS["photo"]
+    person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
     pad = 70
     hl_w = max(340, person_left - pad - 30)  # never let the caption run under the person / photo card
-    y = _draw_headline(d, pad, 92, headline or "On a Mission!", hl_w, accent_box=(variant % 2 == 0))
+    y, head_box = _draw_headline_highlight(d, pad, 92, headline or "On a Mission!", hl_w, skin, keyword=keyword)
+    sub_box = None
     if question:
         qf = body_font(34)
-        y += 10
-        for ln in _wrap(d, question, qf, hl_w):
-            d.text((pad, y), ln, font=qf, fill=CREAM)
-            y += 44
-    _draw_featuring(d, pad, H - 250, name, role)
+        sy = y + 10
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 290) - (y + 10)) // 44)]:
+            d.text((pad, sy), ln, font=qf, fill=skin.sub)
+            sy += 44
+        sub_box = (pad, y + 10, pad + hl_w, sy)
+    feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin)
     try:
-        paste_wordmark(canvas, 70, H - 64, 240, 46, dark_bg=True)
+        paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=True)
     except Exception:
         pass
+    _ensure_clear("ai_scene", person_box, head_box, sub_box, feat_box)
 
     file_name = unique_name("tr-team", "png")
     path = storage_subdir("images") / file_name
     canvas.convert("RGB").save(str(path), "PNG")
     return str(path), file_name, {
         "url": public_url("images", file_name), "renderer": "team_ai_scene",
-        "style": "ai", "size": f"{W}x{H}", "kind": "team",
+        "style": "ai", "skin": "photo", "size": f"{W}x{H}", "kind": "team",
     }
 
 

@@ -3,6 +3,28 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Advanced, varied employee posts — brand skins + reference series (2026-07-01)
+Learned from 40+ real Talentrupt posts and rebuilt the employee-image engine (`generation/teampost.py`).
+- **Not navy every time.** Introduced brand **skins** — `light` (clean white), `cream` (warm), `navy`,
+  `red`, and `photo` (a gpt-image-2 photographic scene, now with VARIED non-navy moods). Employee posts
+  now **rotate** across them (no immediate repeat), so consecutive posts look different. Ask for a look
+  and it's honoured ("on white" → light, "photographic" → photo).
+- **Reference "series" templates.** New skin-aware renderers matching the real posts: **spotlight_series**
+  ("Man on a Mission / Women Crush Wednesday" — red-box keyword headline, script "Featuring [Name]" + a
+  hand-drawn arrow, role badge), **welcome** (new-hire), **anniversary** ("X Strong Years" — giant script
+  number + story), and a multi-employee **grid** ("One Year Strong"). The agent auto-picks the series from
+  the message ("7 years" → anniversary, "welcome" → welcome, "the team" → grid) or you can name it.
+- **Nothing overrides — verified.** Every layout computes fixed non-overlapping regions (photo one side,
+  text clamped to the other, wordmark in a reserved margin) and a final `_ensure_clear` guard asserts the
+  photo / headline / subline / name / badge / wordmark bounding boxes are mutually disjoint. Rendered the
+  full matrix (styles × skins × both cut-out branches + edge cases) — **0 overlaps**.
+- **Real cut-outs (opt-in).** Added a hosted background-removal hook (`generation/cutout.py`, remove.bg /
+  Photoroom) gated by `BG_REMOVAL_API_KEY` — set it to float the person on the scene; without it (default)
+  the person sits in a premium framed card. Keeps the heavy `rembg`/`onnxruntime` off the 2GB droplet. The
+  API only strips the background — the face is never altered.
+- **Script font.** Bundled Caveat (SIL OFL) for the handwritten "Featuring [Name]" accent, with graceful
+  fallbacks (`common.script_font`).
+
 ## Reply thumbs now react visibly (2026-07-01)
 - **👍/👎 give clear feedback.** Clicking a thumb under a reply now flips it from a grey outline to a
   solid, accent-coloured fill (with a small press animation) and toggles off on a second click — so the

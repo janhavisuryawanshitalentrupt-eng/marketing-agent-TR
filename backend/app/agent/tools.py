@@ -759,14 +759,35 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
                       "In the Spotlight."]
 
 
-async def _build_one(brand, raw, name, role, headline, subline, style):
-    """Render one featured-person post. style 'ai' -> gpt-image-1 background + real cut-out (async);
-    otherwise the deterministic navy template. Both keep the REAL face."""
-    if style == "ai":
+async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy"):
+    """Render one featured-person post. 'ai' style / 'photo' skin -> a VARIED gpt-image-2 scene + real
+    cut-out (async); otherwise a deterministic series/legacy template on the given SKIN (light/cream/navy/
+    red — so it isn't navy every time). Both keep the REAL face."""
+    if style == "ai" or skin == "photo":
         return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
                                              question=subline, variant=random.randint(0, 5))
     return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
-                                     question=subline, variant=random.randint(0, 5), style=style)
+                                     question=subline, variant=random.randint(0, 5), style=style, skin=skin)
+
+
+# Conservative multi-word triggers so the user can request a look ("on white", "cream background",
+# "photographic scene") without a stray colour word (e.g. "red shirt") flipping the skin.
+_SKIN_TRIGGERS = [
+    ("photographic", "photo"), ("realistic scene", "photo"), ("photo background", "photo"),
+    ("photo scene", "photo"), ("real background", "photo"),
+    ("on white", "light"), ("white background", "light"), ("light theme", "light"), ("clean white", "light"),
+    ("cream", "cream"), ("warm background", "cream"),
+    ("navy theme", "navy"), ("dark navy", "navy"), ("navy background", "navy"),
+    ("red theme", "red"), ("bold red", "red"), ("red background", "red"),
+]
+
+
+def _skin_from_text(text: str) -> str:
+    t = (text or "").lower()
+    for kw, sk in _SKIN_TRIGGERS:
+        if kw in t:
+            return sk
+    return ""
 
 
 _INSTRUCTION_RE = re.compile(
@@ -1015,26 +1036,55 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     except Exception:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}
-    message = await _polish_headline(_clean_headline((args.get("message") or "").strip(), match.name), match.name)
+    raw_msg = (args.get("message") or "").strip()
+    message = await _polish_headline(_clean_headline(raw_msg, match.name), match.name)
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     style_arg = (args.get("style") or "").strip().lower()
-    if style_arg in teampost.STYLE_NAMES and style_arg not in ("ai", "scene"):
-        style = style_arg  # user explicitly asked for a plain template format
+    skin_arg = (args.get("skin") or "").strip().lower()
+    # SKIN: explicit -> requested-in-message -> rotate (so it's not navy every time; rotation includes an
+    # occasional photographic gpt-image-2 scene). STYLE: explicit renderer wins; ai/scene/photo -> photo
+    # scene; otherwise auto-detect the reference series from the message.
+    skin = skin_arg if skin_arg in teampost.SKINS else (_skin_from_text(raw_msg) or teampost.pick_skin(owner))
+    if style_arg in teampost.STYLE_NAMES:
+        style = style_arg
+    elif style_arg in ("ai", "scene", "photo"):
+        style, skin = "ai", "photo"
     else:
-        style = "ai"  # DEFAULT: AI-designed scene (gpt-image-2 background), real face composited unchanged
+        style = teampost.detect_series(raw_msg)  # spotlight_series | welcome | anniversary | grid
     try:
-        path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style)
+        if style == "grid":  # 'One Year Strong' grid — needs several employees for this account
+            people = [e for e in db.query(Employee).filter(Employee.owner == owner).all() if e.photo_path]
+            photos, labels = [], []
+            for e in people[:9]:
+                try:
+                    with open(e.photo_path, "rb") as f:
+                        photos.append(f.read())
+                    labels.append((e.name, e.role or ""))
+                except Exception:
+                    continue
+            if len(photos) >= 2:
+                gs = skin if skin != "photo" else random.choice(teampost.DETERMINISTIC_SKINS)
+                path, fname, meta = teampost.build_team_grid(brand, photos, labels, headline=head or "One Year Strong",
+                                                             skin=gs, variant=random.randint(0, 5))
+            else:  # only one person available -> feature them individually
+                style = "spotlight_series"
+                path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style,
+                                                     skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False))
+        else:
+            path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style, skin)
     except Exception:
         return {"summary": "Couldn't build the post — please try again.", "assets": []}
+    used_skin = meta.get("skin", skin)
     title = match.name + (f" — {match.role}" if match.role else "")
     a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
                     body={"person": match.name, "role": match.role, "headline": head, "subline": sub,
-                          "kind": "team", "style": style, "employee_id": match.id},
+                          "kind": "team", "style": style, "skin": used_skin, "employee_id": match.id},
                     file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
                     owner=owner)
     return {"summary": f"Created a post featuring {match.name}"
             + (f" ({match.role})" if match.role else "")
-            + " using their real photo from Folders — face unchanged.", "assets": [serialize_asset(a)]}
+            + f" — {used_skin} theme, using their real photo from Folders (face unchanged).",
+            "assets": [serialize_asset(a)]}
 
 
 EXECUTORS = {
@@ -1239,9 +1289,12 @@ TOOL_SCHEMAS = [
         "name that's in their Folders.",
         {
             "name": {"type": "string", "description": "The employee's name, exactly as @mentioned (e.g. 'Nishant Trivedi'). The leading @ is optional."},
-            "message": {"type": "string", "description": "What the post should say / be about (e.g. 'welcoming our newest clients'). Used as the headline + subline."},
-            "style": {"type": "string", "enum": ["magazine", "split", "framed", "spotlight", "scene"],
-                      "description": "Optional FORMAT. magazine/split/framed/spotlight = the real photo in a branded layout (default, rotates). 'scene' = the person on an AI-generated background — only when the user explicitly asks for an AI scene/background."},
+            "message": {"type": "string", "description": "What the post should say / be about (e.g. 'welcoming our newest clients', '7 years at Talentrupt', 'feature the whole team'). Used as the headline + subline, AND to auto-pick the series (welcome / anniversary / team-grid)."},
+            "style": {"type": "string",
+                      "enum": ["spotlight_series", "welcome", "anniversary", "grid", "magazine", "split", "framed", "spotlight", "scene"],
+                      "description": "Optional FORMAT. Omit to auto-pick from the message (recommended). spotlight_series = flagship 'Man on a Mission' feature; welcome = new-hire; anniversary = 'X years'; grid = a multi-employee team grid; magazine/split/framed/spotlight = legacy navy layouts; 'scene'/'ai' = the person on an AI-generated photographic background (only when the user asks for an AI scene)."},
+            "skin": {"type": "string", "enum": ["light", "cream", "navy", "red", "photo"],
+                     "description": "Optional COLOUR THEME. Omit to auto-rotate (light/cream/navy/red/photographic) so posts aren't navy every time. Set only when the user asks for a specific look (e.g. 'on white' -> light, 'photographic background' -> photo)."},
         },
         ["name"]),
     _fn("build_deck",
