@@ -954,10 +954,84 @@ def _ai_scrim(canvas: Image.Image) -> Image.Image:
     return Image.alpha_composite(canvas.convert("RGBA"), layer).convert("RGB")
 
 
+# --- AI PORTRAIT: feed the REAL photo into gpt-image-1's edit endpoint so the SAME person is re-posed /
+# re-lit / re-dressed into a VARIED premium scene (identity locked). This is the "best AI picture using the
+# employee's photo" path — every look is different, so posts stop looking identical. Rotating art-directions
+# span DIFFERENT settings, poses, wardrobe and dominant tones (never navy-every-time).
+_PORTRAIT_LOOKS = [
+    "in a bright, modern open-plan office with soft daylight from floor-to-ceiling windows and gentle city "
+    "bokeh behind them; a relaxed, confident three-quarter stance; smart business-casual (a crisp shirt or "
+    "a light blazer)",
+    "against a clean off-white studio seamless backdrop with soft, even, flattering studio light; a warm, "
+    "professional head-and-shoulders pose looking to camera; sharp smart-formal attire",
+    "in a warm, editorial golden-hour setting with soft bokeh and gentle light rays; an easy, self-assured "
+    "pose with arms lightly crossed; polished smart-casual with magazine-cover warmth",
+    "against a bold on-brand abstract backdrop of deep navy with flowing coral-red geometric shapes and a "
+    "soft rim light; a strong, direct, empowered pose; a sharp dark blazer",
+    "on a contemporary rooftop with a softly blurred city skyline and bright aspirational daylight; standing "
+    "tall and forward-looking; refined modern business attire",
+    "in a minimal cream-and-coral geometric set with a single soft shadow; a calm, approachable, slightly "
+    "leaning pose; a clean contemporary smart-casual outfit",
+    "in a sleek, tech-forward space with a cool gradient and subtle glowing connected-dot network lines and "
+    "coral accents; a dynamic, modern pose; crisp professional attire",
+    "in a collaborative co-working space with warm natural light and soft depth behind; an approachable, "
+    "genuine expression; smart-casual professional wear",
+]
+
+
+def _portrait_prompt(headline: str, question: str, variant: int) -> str:
+    """Art-direct one identity-locked portrait edit. `variant` rotates the look so consecutive posts for the
+    same person differ. The person is composed RIGHT so the deterministic caption/wordmark sit clean LEFT."""
+    look = _PORTRAIT_LOOKS[variant % len(_PORTRAIT_LOOKS)]
+    msg = " ".join(x for x in (headline, question) if x).strip()
+    theme = (f' The post celebrates: "{msg[:100]}" — let the mood echo it tastefully.' if msg else "")
+    return (
+        "Restyle the SAME person from the provided photo into a premium, photorealistic corporate "
+        "social-media portrait. "
+        "CRITICAL IDENTITY LOCK: it must remain unmistakably the SAME individual — keep their exact face, "
+        "facial features, bone structure, skin tone, hair and hairstyle, facial hair, age and gender, "
+        "clearly recognisable as the person in the photo. Do NOT replace them with a different face and do "
+        "NOT beautify them into someone else. "
+        f"You MAY change their pose, framing, lighting, background and outfit for the best professional "
+        f"look: place them {look}.{theme} "
+        "COMPOSITION: a clean 1:1 square; compose the person on the RIGHT with their head in the upper-right; "
+        "keep the LEFT ~40% as calm, softly-lit, uncluttered negative space for a caption. Talentrupt brand "
+        "palette — deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — used tastefully, and VARY the "
+        "dominant tone per the setting above (do NOT make it uniformly dark navy). Crisp focus, flattering "
+        "light, high-end editorial quality. Absolutely NO text, NO words, NO letters, NO logos, NO watermarks."
+    )
+
+
+async def _ai_portrait_canvas(photo: Image.Image, headline: str, question: str, variant: int):
+    """Re-render the SAME person (identity-locked) into a varied premium scene via the image-EDIT endpoint.
+    Returns a 1080 RGB canvas with the person baked in, or None on failure/moderation refusal so the caller
+    falls back to the safe real cut-out composite."""
+    from ..providers import llm
+    try:
+        src = photo.copy()
+        src.thumbnail((1024, 1024), Image.LANCZOS)  # ample detail for the face; keeps the upload snappy
+        data = await llm.generate_image_edit(
+            _portrait_prompt(headline, question, variant), [img_to_png_bytes(src)],
+            size="1024x1024", input_fidelity="high", mime="image/png",
+        )
+        if not data:
+            return None
+        canvas = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+        try:
+            canvas = canvas.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
+        except Exception:
+            pass
+        return canvas
+    except Exception:
+        return None
+
+
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Premium AI background: gpt-image-2 (the OpenAI key) generates a VARIED on-brand SCENE, the REAL
-    person is cut out (face + body untouched) and placed on it, then branded text/logo. The face is NEVER
-    AI-generated. Falls back to a deterministic series template (a random skin) if the provider is down."""
+    """Premium AI portrait: the OpenAI key re-renders the SAME person (identity-locked, input_fidelity=high)
+    into a VARIED on-brand scene — new pose/lighting/background/wardrobe every time, so posts stop looking
+    identical. Falls back to the SAFE real cut-out composite (face = original pixels) if the edit refuses,
+    then to a deterministic series template if the provider is down entirely. Branded caption + logo are
+    deterministic overlays on the reserved LEFT, never over the person."""
     from ..providers import llm
     try:
         import pillow_heif
@@ -965,31 +1039,42 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     except Exception:
         pass
     photo = _enhance_photo(ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB")))
-    hero = _cutout(photo)
-
-    bg = None
-    if llm.image_provider_available():
-        try:
-            data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
-            if data:
-                bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
-                try:  # crisp up any soft/hazy background (matches the generate_image path)
-                    bg = bg.filter(ImageFilter.UnsharpMask(radius=2, percent=130, threshold=2))
-                except Exception:
-                    pass
-        except Exception:
-            bg = None
-    if bg is None:  # provider down -> deterministic series template on a VARIED skin (still the real face)
-        return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
-                                style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
-
-    canvas = _ai_scrim(bg)
-    d = ImageDraw.Draw(canvas)
     skin = SKINS["photo"]
-    person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+
+    # PRIMARY: true image-to-image — the real photo becomes the model INPUT (person re-rendered on the right).
+    edited = await _ai_portrait_canvas(photo, headline, question, variant) if llm.image_provider_available() else None
+    if edited is not None:
+        canvas = _ai_scrim(edited)
+        d = ImageDraw.Draw(canvas)
+        person_left = int(W * 0.50)               # person is baked into the RIGHT half of the pixels
+        person_box = (person_left, 0, W, H)       # reserve it so the caption never geometrically overlaps
+        renderer = "team_ai_portrait"
+    else:
+        # FALLBACK: generate a background only, then composite the untouched REAL cut-out (face = originals).
+        hero = _cutout(photo)
+        bg = None
+        if llm.image_provider_available():
+            try:
+                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
+                if data:
+                    bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+                    try:  # crisp up any soft/hazy background (matches the generate_image path)
+                        bg = bg.filter(ImageFilter.UnsharpMask(radius=2, percent=130, threshold=2))
+                    except Exception:
+                        pass
+            except Exception:
+                bg = None
+        if bg is None:  # provider down -> deterministic series template on a VARIED skin (still the real face)
+            return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
+                                    style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
+        canvas = _ai_scrim(bg)
+        d = ImageDraw.Draw(canvas)
+        person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+        renderer = "team_ai_scene"
+
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
     pad = 70
-    hl_w = max(340, person_left - pad - 30)  # never let the caption run under the person / photo card
+    hl_w = max(340, person_left - pad - 30)  # never let the caption run under the person
     y, head_box = _draw_headline_highlight(d, pad, 92, headline or "On a Mission!", hl_w, skin, keyword=keyword)
     sub_box = None
     if question:
@@ -1010,7 +1095,7 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     path = storage_subdir("images") / file_name
     canvas.convert("RGB").save(str(path), "PNG")
     return str(path), file_name, {
-        "url": public_url("images", file_name), "renderer": "team_ai_scene",
+        "url": public_url("images", file_name), "renderer": renderer,
         "style": "ai", "skin": "photo", "size": f"{W}x{H}", "kind": "team",
     }
 

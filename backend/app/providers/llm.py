@@ -110,15 +110,21 @@ async def generate_image_bytes(
 
 
 async def generate_image_edit(
-    prompt: str, references: list[bytes], size: str | None = None, quality: str | None = None
+    prompt: str, references: list[bytes], size: str | None = None, quality: str | None = None,
+    input_fidelity: str | None = None, mime: str = "image/jpeg",
 ) -> bytes:
-    """Generate an image guided by reference images (style transfer from real past posts). Tries the
-    configured model, falling back to gpt-image-1 if that model is rejected. Returns raw PNG bytes."""
+    """Generate an image guided by reference images. Two uses:
+      - STYLE TRANSFER from real past posts (default: lossy JPEG refs, no fidelity lock).
+      - IDENTITY-PRESERVING person edit — pass mime='image/png' + input_fidelity='high' so gpt-image-1
+        keeps the SAME person's face/features while it repose/reframes/re-lights them (the employee AI
+        portrait path). input_fidelity is a gpt-image-1 param; if a model rejects it the loop falls back.
+    Tries the configured model, falling back to gpt-image-1 if that model is rejected. Returns PNG bytes."""
     global LAST_IMAGE_MODEL
     url = f"{settings.openai_base_url.rstrip('/')}/images/edits"
     headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+    ext = "png" if "png" in mime else "jpg"
     files = [
-        ("image[]", (f"ref{i}.jpg", data, "image/jpeg"))
+        ("image[]", (f"ref{i}.{ext}", data, mime))
         for i, data in enumerate(references)
     ]
     last_err: Exception | None = None
@@ -129,6 +135,8 @@ async def generate_image_edit(
             "size": size or settings.openai_image_size,
             "quality": quality or settings.openai_image_quality,
         }
+        if input_fidelity:  # preserve faces/logos when editing a real photo (gpt-image-1)
+            form["input_fidelity"] = input_fidelity
         try:
             async with httpx.AsyncClient(timeout=300) as client:
                 resp = await client.post(url, headers=headers, data=form, files=files)

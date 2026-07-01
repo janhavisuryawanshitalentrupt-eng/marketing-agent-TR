@@ -80,9 +80,13 @@ export function makeChatStore(endpoint: string, kind: string) {
         const live = () => genRef.current === myGen;
         setBusy(true);
         setStatus("");
+        // Snapshot the attachments (by value) onto the user message so the transcript shows the file(s)
+        // next to the prompt. The composer's `attachments` state is cleared after the turn, so this copy
+        // is what the past bubble keeps.
+        const sentAttachments = attachments.length ? [...attachments] : undefined;
         setMessages((m) => [
           ...m,
-          { role: "user", content: trimmed },
+          { role: "user", content: trimmed, attachments: sentAttachments },
           { role: "assistant", content: "", pending: true },
         ]);
         let gotAsset = false; // keep a staged photo until it's actually used in a generated asset
@@ -189,14 +193,18 @@ export function makeChatStore(endpoint: string, kind: string) {
     const attach = useCallback(async (file: File) => {
       setInFlight((n) => n + 1);
       setStatus("");
+      // Capture a local object URL up-front so an IMAGE attachment can show a real thumbnail in the
+      // transcript immediately (the backend upload returns no servable URL). Live-session only.
+      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
       try {
         const meta = await uploadAttachment(file);
         setAttachments((a) =>
           a.some((x) => x.name === meta.filename)
             ? a
-            : [...a, { id: meta.id, name: meta.filename, text: meta.text, kind: meta.kind, chars: meta.chars }],
+            : [...a, { id: meta.id, name: meta.filename, text: meta.text, kind: meta.kind, chars: meta.chars, previewUrl }],
         );
       } catch (e) {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
         setStatus(`⚠️ ${(e as Error).message}`);
       } finally {
         setInFlight((n) => n - 1);

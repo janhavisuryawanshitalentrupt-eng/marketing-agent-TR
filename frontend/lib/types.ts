@@ -35,6 +35,9 @@ export interface ChatMessage {
   assets?: Asset[];
   // Tappable quick-pick replies the Create agent offers under a conversational question.
   chips?: string[];
+  // Files the user attached on THIS turn — snapshotted onto the message so the transcript shows them
+  // next to the prompt (live-session only; not persisted with the conversation).
+  attachments?: Attachment[];
 }
 
 export interface Attachment {
@@ -43,6 +46,9 @@ export interface Attachment {
   text: string;
   kind: string; // image | pdf | text
   chars: number;
+  // Client-side object URL for an image attachment, captured at attach time so the transcript can show
+  // a real thumbnail instantly (live session only — blob URLs don't survive a reload).
+  previewUrl?: string;
 }
 
 export interface Conversation {

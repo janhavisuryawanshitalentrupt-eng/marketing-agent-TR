@@ -192,14 +192,56 @@ export function ChatPanel() {
               if (m.role === "user") {
                 return (
                   <div key={i} className="flex items-start justify-end gap-2.5">
-                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
-                      {m.content}
+                    <div className="flex max-w-[85%] flex-col items-end gap-1.5">
+                      {m.attachments && m.attachments.length > 0 && (
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          {m.attachments.map((a) =>
+                            a.previewUrl && a.kind === "image" ? (
+                              <a
+                                key={a.id}
+                                href={a.previewUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={`Open ${a.name}`}
+                                className="block"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={a.previewUrl}
+                                  alt={a.name}
+                                  className="h-24 w-24 cursor-zoom-in rounded-xl border border-[var(--border)] object-cover shadow-sm transition hover:opacity-90"
+                                />
+                              </a>
+                            ) : (
+                              <span
+                                key={a.id}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-[11px]"
+                                title={a.name}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" />
+                                </svg>
+                                <span className="max-w-[160px] truncate">{a.name}</span>
+                              </span>
+                            ),
+                          )}
+                        </div>
+                      )}
+                      {m.content && (
+                        <div className="whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
+                          {m.content}
+                        </div>
+                      )}
                     </div>
                     <Avatar name={displayName} size={30} />
                   </div>
                 );
               }
               const img = m.assets?.find((a) => a.type === "image") || null;
+              // A person/employee post drives the AI-portrait engine, so offer look-oriented refine chips.
+              const isPersonPost =
+                !!img && ((img.meta?.kind as string) === "team" ||
+                  (img.body?.kind as string) === "team" || !!img.body?.person);
               return (
                 <div key={i} className="flex items-start gap-2.5">
                   <MyraAvatar />
@@ -224,7 +266,7 @@ export function ChatPanel() {
                       />
                     )}
                     {!m.pending && img && i === messages.length - 1 && (
-                      <RefineChips onPick={submit} disabled={busy} />
+                      <RefineChips onPick={submit} disabled={busy} kind={isPersonPost ? "person" : "image"} />
                     )}
                   </div>
                 </div>

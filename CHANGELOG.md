@@ -3,6 +3,28 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## AI portraits from a real photo + attachment display + Folders photo preview (2026-07-01)
+Four things: employee posts now vary for real, attachments show in chat, and Folders photos open.
+- **True image-to-image "AI portraits" (biggest change).** Employee/`@mention` posts no longer paste the
+  same cut-out onto a background every time. The person's REAL photo is now fed into gpt-image-1's EDIT
+  endpoint with `input_fidelity: high`, so the model **re-renders the SAME person** (identity locked — same
+  face/features/skin/hair) into a genuinely different premium scene each time: new **pose, lighting,
+  background and even wardrobe**. Eight rotating art-directions (bright office, studio, golden-hour, bold
+  brand, rooftop, cream-geometric, tech, co-working) mean consecutive posts look different, not identical.
+  Verified end-to-end (`teampost.build_ai_scene` → `_ai_portrait_canvas` → `llm.generate_image_edit`).
+  *Note on identity:* an AI edit preserves LIKENESS but is not pixel-identical to the original photo. If
+  the edit is refused or the provider is down, it falls back to the safe real cut-out composite, then to a
+  deterministic template — so a post is never broken.
+- **Attachments now show in the chat.** When you attach a file with a prompt, the transcript shows the file
+  next to your message — a real thumbnail for an image, a labelled chip for a PDF/text file (it was already
+  being read by the backend; now it's visible too). Click an image thumbnail to open it.
+- **Post-generation options are look-aware.** After an employee post, the one-tap refine chips now offer
+  *"Try a different look", "More formal", "Different background", "Bright office", "Clean studio",
+  "Outdoor/rooftop", "Bolder brand colours"* — each re-runs the AI portrait with a new look (same face) so
+  you can quickly get a different image if you don't like the first.
+- **Folders: click a photo to view it full-size.** Employee photos in the Folders library open in an in-app
+  lightbox (with Download + Close, click-outside and Esc to dismiss) — matching the app's existing preview.
+
 ## Professional employee posts — auto-enhance + designed scene + prod cut-outs (2026-07-01)
 Made employee posts look ChatGPT-grade professional while keeping the real face exactly as-is.
 - **Auto-enhance (identity unchanged).** Every employee photo is now cleaned before compositing —

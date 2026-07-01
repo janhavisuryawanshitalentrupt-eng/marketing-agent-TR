@@ -6,6 +6,7 @@ import {
   createFolder,
   deleteEmployee,
   deleteFolder,
+  downloadFile,
   fileUrl,
   getEmployees,
   getFolders,
@@ -21,6 +22,7 @@ export function FoldersView() {
   const [addName, setAddName] = useState("");
   const [addRole, setAddRole] = useState("");
   const [addBusy, setAddBusy] = useState(false);
+  const [preview, setPreview] = useState<Employee | null>(null); // photo lightbox target
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadFolders = useCallback(async () => {
@@ -173,8 +175,16 @@ export function FoldersView() {
                 {employees.map((emp) => (
                   <div key={emp.id} className="group relative flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                     {emp.file_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={fileUrl(emp.file_url)} alt={emp.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPreview(emp)}
+                        title={`View ${emp.name}'s photo`}
+                        aria-label={`View ${emp.name}'s photo`}
+                        className="shrink-0 rounded-lg"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={fileUrl(emp.file_url)} alt={emp.name} className="h-12 w-12 cursor-zoom-in rounded-lg object-cover transition hover:opacity-90" />
+                      </button>
                     ) : (
                       <div className="h-12 w-12 shrink-0 rounded-lg bg-[var(--surface-2)]" />
                     )}
@@ -196,6 +206,53 @@ export function FoldersView() {
             )}
           </div>
         )}
+      </div>
+
+      {preview && preview.file_url && (
+        <EmployeePhotoModal emp={preview} onClose={() => setPreview(null)} />
+      )}
+    </div>
+  );
+}
+
+// In-app lightbox for an employee's uploaded photo — mirrors AssetCard's MediaPreviewModal so the app
+// has one consistent preview look. Click the backdrop or press Escape to close.
+function EmployeePhotoModal({ emp, onClose }: { emp: Employee; onClose: () => void }) {
+  const url = fileUrl(emp.file_url);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="relative flex max-h-[92vh] w-auto max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2.5">
+          <span className="min-w-0 truncate font-heading text-sm font-semibold">
+            {emp.name}{emp.role ? ` — ${emp.role}` : ""}
+          </span>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => downloadFile(url, `${emp.name || "employee"}.jpg`).catch(() => {})}
+              type="button"
+              title="Download"
+              aria-label="Download"
+              className="rounded-lg p-1.5 text-muted transition hover:text-foreground"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+            </button>
+            <button onClick={onClose} type="button" aria-label="Close preview" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center justify-center overflow-auto bg-[var(--surface-2)] p-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={emp.name} className="max-h-[78vh] w-auto rounded-lg" />
+        </div>
       </div>
     </div>
   );
