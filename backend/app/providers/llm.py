@@ -128,7 +128,12 @@ async def generate_image_edit(
         for i, data in enumerate(references)
     ]
     last_err: Exception | None = None
-    for model in _image_models():
+    # /images/edits is a gpt-image-1 capability today — gpt-image-2 currently 400s on the edit endpoint —
+    # so try the known edit-capable model FIRST. Otherwise (when gpt-image-2 is the configured model) every
+    # edit wastes a failed call before falling back. Any other configured model stays in the list after it,
+    # in case a future model gains edit support.
+    edit_models = ["gpt-image-1"] + [m for m in _image_models() if m != "gpt-image-1"]
+    for model in edit_models:
         form = {
             "model": model,
             "prompt": prompt,
