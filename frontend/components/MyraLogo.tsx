@@ -6,7 +6,7 @@
  */
 export function MyraMark({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 48 48" className={className} role="img" aria-label="Myra logo">
+    <svg viewBox="0 0 64 64" className={className} role="img" aria-label="Myra logo">
       <defs>
         <linearGradient id="myra-badge" x1="0" y1="0" x2="0.4" y2="1">
           <stop offset="0" stopColor="#134a79" />
@@ -19,18 +19,12 @@ export function MyraMark({ className = "" }: { className?: string }) {
         </linearGradient>
       </defs>
       {/* navy badge tile with a hairline light border so it also reads on dark surfaces */}
-      <rect x="3.5" y="3.5" width="41" height="41" rx="11.5" fill="url(#myra-badge)" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-      {/* soft top-left facet for a subtle 3D badge feel */}
-      <path d="M8 19 Q8 8 19 8 L27 8 Z" fill="#ffffff" opacity="0.05" />
-      {/* coral angular "M" */}
-      <path
-        d="M14 33.5 L14 15.5 L24 26.5 L34 15.5 L34 33.5"
-        fill="none"
-        stroke="url(#myra-coral)"
-        strokeWidth="5.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#myra-badge)" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" />
+      {/* the Myra "M": two white legs + a coral inner V + a coral swoosh over the top */}
+      <rect x="17.5" y="23" width="7" height="23" rx="3.5" fill="#ffffff" />
+      <rect x="39.5" y="23" width="7" height="23" rx="3.5" fill="#ffffff" />
+      <path d="M21 25 L32 39.5 L43 25" fill="none" stroke="url(#myra-coral)" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M22 20.5 C31 13 40 14.5 44 19.5" fill="none" stroke="url(#myra-coral)" strokeWidth="3.4" strokeLinecap="round" opacity="0.92" />
     </svg>
   );
 }

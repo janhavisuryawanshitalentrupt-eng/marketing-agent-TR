@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Logo fix + sidebar row icons (2026-07-01)
+- **Myra mark corrected.** The badge now carries the real Myra "M" — two white legs + a coral inner V +
+  the coral swoosh over the top — on the navy tile, instead of the flat single-stroke coral "M" from the
+  first pass. (UI only; the "Myra" wordmark is still untouched and no Talentrupt wordmark in the chrome.)
+- **Icons on the sidebar rows.** Each Chat conversation row now has a chat-bubble glyph on the left (and
+  Create's history rows an image glyph), matching the design — a small leading icon + the title.
+
 ## New Myra badge logo + image refine chips (2026-07-01)
 - **New Myra logo.** The Myra mark is now an app-icon-style **navy rounded badge with a coral "M"**
   (`MyraMark` in `MyraLogo.tsx`) — self-contained so it reads on the white header, the light chat area

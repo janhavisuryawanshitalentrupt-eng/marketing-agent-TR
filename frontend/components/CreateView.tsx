@@ -116,14 +116,15 @@ export function CreateView() {
             <div key={c.id} className="group relative">
               <button
                 onClick={() => open(c.id)}
-                className={`mb-0.5 block w-full truncate rounded-lg px-3 py-2 pr-8 text-left text-sm transition ${
+                className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-8 text-left text-sm transition ${
                   conversationId === c.id && tab === "generate"
                     ? "bg-[var(--brand-navy)] text-cream"
                     : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
                 }`}
                 title={c.title}
               >
-                {c.title}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-80"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
+                <span className="min-w-0 flex-1 truncate">{c.title}</span>
               </button>
               <button
                 onClick={(e) => {
