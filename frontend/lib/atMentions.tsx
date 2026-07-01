@@ -1,9 +1,9 @@
 "use client";
 
-// Shared "@" mention palette for every chat box (Chat, Create, Campaign). Typing "@" surfaces
-// teammates from the Folders library (mention one to feature their REAL photo) plus quick actions.
-// Keeping it in one module guarantees the three chat inputs behave identically — wire it up with
-// `useAtMentions` + `<AtMenu/>` instead of copy-pasting the logic per view.
+// Shared mention/command palette for every chat box (Chat, Campaign). Typing "@" surfaces teammates
+// from the Folders library (mention one to feature their REAL photo); typing "/" surfaces create actions
+// (image / deck / PDF …). Two separate triggers so each list stays focused. Keeping it in one module
+// guarantees the inputs behave identically — wire it up with `useAtMentions` + `<AtMenu/>`.
 
 import { useEffect, useState } from "react";
 import { fileUrl, getAllEmployees } from "@/lib/api";
@@ -40,47 +40,56 @@ export function useAtMentions(
   commands: AtCommand[] = DEFAULT_AT_COMMANDS,
 ) {
   const [menuSel, setMenuSel] = useState(0);
-  const [atDismissed, setAtDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [people, setPeople] = useState<Employee[]>([]);
-  // Employees from the Folders library populate the picker (mention one to feature their real photo).
+  // Employees from the Folders library populate the "@" picker (mention one to feature their real photo).
   useEffect(() => { getAllEmployees().then(setPeople).catch(() => {}); }, []);
 
-  const atMatch = atDismissed ? null : input.match(/(^|\s)@(\w*)$/);
-  const atQuery = atMatch ? atMatch[2].toLowerCase() : null;
+  // Two SEPARATE triggers (Slack/Notion style): "@name" -> teammates from Folders; "/cmd" -> create
+  // actions (image / deck / PDF …). Each surfaces ONLY its own set — "@" never lists create actions and
+  // "/" never lists people.
+  const atMatch = dismissed ? null : input.match(/(^|\s)@(\w*)$/);
+  const slashMatch = dismissed ? null : input.match(/(^|\s)\/([\w-]*)$/);
+  const trigger: "@" | "/" | null = atMatch ? "@" : slashMatch ? "/" : null;
+  const query = (atMatch ? atMatch[2] : slashMatch ? slashMatch[2] : "").toLowerCase();
   const atMenu: AtItem[] =
-    atQuery === null
-      ? []
-      : [
-          ...people
-            .filter((e) => e.name.toLowerCase().includes(atQuery) || (e.role || "").toLowerCase().includes(atQuery))
-            .slice(0, 6)
-            .map((e) => ({ key: `emp-${e.id}`, label: e.name, hint: e.role || "team member",
-                           insert: `@${e.name} `, kind: "person" as const, thumb: e.file_url ?? null })),
-          ...commands
-            .filter((c) => c.key.includes(atQuery) || c.label.toLowerCase().includes(atQuery))
-            .map((c) => ({ ...c, kind: "command" as const, thumb: null })),
-        ];
+    trigger === "@"
+      ? people
+          .filter((e) => e.name.toLowerCase().includes(query) || (e.role || "").toLowerCase().includes(query))
+          .slice(0, 8)
+          .map((e) => ({ key: `emp-${e.id}`, label: e.name, hint: e.role || "team member",
+                         insert: `@${e.name} `, kind: "person" as const, thumb: e.file_url ?? null }))
+      : trigger === "/"
+      ? commands
+          .filter((c) => c.key.includes(query) || c.label.toLowerCase().includes(query))
+          .map((c) => ({ ...c, kind: "command" as const, thumb: null }))
+      : [];
   const showAtMenu = atMenu.length > 0 && !busy;
 
   function pickCommand(c: { insert: string }) {
-    setInput((prev) => prev.replace(/(^|\s)@(\w*)$/, (_m, lead) => lead + c.insert));
+    // Derive the trigger from the CURRENT text (not a captured value) so it always replaces the right
+    // token — a trailing "/cmd" or "@name" — regardless of render timing.
+    setInput((prev) => {
+      const re = /(^|\s)\/[\w-]*$/.test(prev) ? /(^|\s)\/([\w-]*)$/ : /(^|\s)@(\w*)$/;
+      return prev.replace(re, (_m, lead) => lead + c.insert);
+    });
     setMenuSel(0);
-    setAtDismissed(false);
+    setDismissed(false);
     requestAnimationFrame(() => taRef.current?.focus());
   }
 
-  // Call FIRST in the textarea onKeyDown. Returns true when the "@" menu consumed the key.
+  // Call FIRST in the textarea onKeyDown. Returns true when the "@" / "/" menu consumed the key.
   function handleAtKey(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
     if (!showAtMenu) return false;
     if (e.key === "ArrowDown") { e.preventDefault(); setMenuSel((i) => (i + 1) % atMenu.length); return true; }
     if (e.key === "ArrowUp") { e.preventDefault(); setMenuSel((i) => (i - 1 + atMenu.length) % atMenu.length); return true; }
     if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickCommand(atMenu[Math.min(menuSel, atMenu.length - 1)]); return true; }
-    if (e.key === "Escape") { e.preventDefault(); setAtDismissed(true); return true; }
+    if (e.key === "Escape") { e.preventDefault(); setDismissed(true); return true; }
     return false;
   }
 
-  // Call in the textarea onChange (after setInput) so re-typing "@" re-opens a dismissed menu.
-  function onInputChange() { setAtDismissed(false); }
+  // Call in the textarea onChange (after setInput) so re-typing "@" / "/" re-opens a dismissed menu.
+  function onInputChange() { setDismissed(false); }
 
   return { atMenu, showAtMenu, menuSel, setMenuSel, pickCommand, handleAtKey, onInputChange };
 }
@@ -98,7 +107,7 @@ export function AtMenu({
     <div className="absolute bottom-full left-0 z-30 mb-2 max-h-80 w-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg">
       {atMenu.map((c, i) => {
         const prev = atMenu[i - 1];
-        const header = !prev || prev.kind !== c.kind ? (c.kind === "person" ? "People" : "Quick actions") : null;
+        const header = !prev || prev.kind !== c.kind ? (c.kind === "person" ? "People" : "Create") : null;
         const active = i === Math.min(menuSel, atMenu.length - 1);
         return (
           <div key={c.key}>
@@ -121,7 +130,7 @@ export function AtMenu({
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--brand-navy)] text-[10px] font-semibold text-cream">{c.label.charAt(0)}</span>
                 )
               ) : (
-                <span className="font-medium text-[var(--brand-red)]">@</span>
+                <span className="font-medium text-[var(--brand-red)]">/</span>
               )}
               <span className="flex-1 truncate">{c.label}</span>
               <span className="shrink-0 text-[11px] text-muted">{c.hint}</span>

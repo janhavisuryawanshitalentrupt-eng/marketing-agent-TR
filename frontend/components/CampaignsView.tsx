@@ -1475,7 +1475,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                     onChange={(e) => { setInput(e.target.value); onInputChange(); }}
                     onKeyDown={onKeyDown}
                     rows={1}
-                    placeholder="Refine the content, or type @ for people & quick actions…"
+                    placeholder="Refine the content — type / to create, @ for teammates…"
                     className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                   />
                   <button onClick={() => send(input)} disabled={busy || attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
@@ -1486,7 +1486,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                 </div>
               </div>
               <p className="mt-2 text-center text-[11px] text-muted">
-                Enter to send · Shift+Enter for a new line · type @ for people &amp; quick actions
+                Enter to send · Shift+Enter for a new line · type / to create, @ for teammates
               </p>
             </div>
           </div>

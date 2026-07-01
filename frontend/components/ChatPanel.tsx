@@ -303,7 +303,7 @@ export function ChatPanel() {
                   onChange={(e) => { setInput(e.target.value); onInputChange(); }}
                   onKeyDown={onKeyDown}
                   rows={1}
-                  placeholder="Ask anything, or describe what to find or create…  (type @ for people & quick actions)"
+                  placeholder="Ask anything, or describe what to create…  (type / to create, @ for teammates)"
                   className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                 />
                 <button

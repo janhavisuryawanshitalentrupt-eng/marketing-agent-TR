@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Split the input palette: `/` to create, `@` for teammates (2026-07-01)
+- The chat/campaign input palette now has **two focused triggers** (Slack/Notion style): typing **`/`**
+  surfaces only the **create actions** (Create image / deck / PDF / post / find prospects), and **`@`**
+  surfaces only **teammates** from the Folders library. `@` no longer lists create actions and `/` no
+  longer lists people. Selecting inserts the right text (the pick derives its trigger from the current
+  text, so it can't replace the wrong token). Placeholders updated to "type / to create, @ for teammates".
+
 ## Merge Create into Chat + remove Brand-kit UI (2026-07-01)
 - **One section: Chat.** The Create section is merged into **Chat**, which now handles everything — chat,
   Q&A, prospecting, AND image/deck/PDF generation (it already had all the generation tools). "Create" is
