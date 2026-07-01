@@ -6,25 +6,18 @@
  */
 export function MyraMark({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 64 64" className={className} role="img" aria-label="Myra logo">
-      <defs>
-        <linearGradient id="myra-badge" x1="0" y1="0" x2="0.4" y2="1">
-          <stop offset="0" stopColor="#134a79" />
-          <stop offset="1" stopColor="#0a2c4b" />
-        </linearGradient>
-        <linearGradient id="myra-coral" x1="0.1" y1="0" x2="0.5" y2="1">
-          <stop offset="0" stopColor="#ff9f5e" />
-          <stop offset="0.5" stopColor="#ff6a54" />
-          <stop offset="1" stopColor="#ff4f72" />
-        </linearGradient>
-      </defs>
-      {/* navy badge tile with a hairline light border so it also reads on dark surfaces */}
-      <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#myra-badge)" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" />
-      {/* the Myra "M": two white legs + a coral inner V + a coral swoosh over the top */}
-      <rect x="17.5" y="23" width="7" height="23" rx="3.5" fill="#ffffff" />
-      <rect x="39.5" y="23" width="7" height="23" rx="3.5" fill="#ffffff" />
-      <path d="M21 25 L32 39.5 L43 25" fill="none" stroke="url(#myra-coral)" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M22 20.5 C31 13 40 14.5 44 19.5" fill="none" stroke="url(#myra-coral)" strokeWidth="3.4" strokeLinecap="round" opacity="0.92" />
+    <svg viewBox="0 0 100 100" className={className} role="img" aria-label="Myra logo">
+      {/* White disc backing. In the light theme it blends into the white header (you see just the M);
+          in the dark theme it gives the navy legs a light backdrop — so one mark works on both. */}
+      <circle cx="50" cy="50" r="49" fill="#ffffff" stroke="rgba(11,53,89,0.15)" strokeWidth="1" />
+      {/* navy legs (left slightly lighter, as if lit from upper-left) */}
+      <path d="M30 46 L39 52 L39 82 L30 76 Z" fill="#12244d" />
+      <path d="M70 46 L61 52 L61 82 L70 76 Z" fill="#0b1732" />
+      {/* red isometric "roof" + centre spike; the right roof face is a touch darker for the 3D fold */}
+      <path d="M30 46 L50 24 L70 46 L61 52 L50 82 L39 52 Z" fill="#ef2b36" />
+      <path d="M50 24 L70 46 L61 52 L50 35 Z" fill="#d3272f" />
+      {/* white diamond notch in the top face */}
+      <path d="M50 32 L42 42 L50 52 L58 42 Z" fill="#ffffff" />
     </svg>
   );
 }

@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Logo → the real isometric-cube "M" (2026-07-01)
+- **Myra mark rebuilt to the actual logo** — the 3D isometric cube "M": a red roof with a white diamond
+  notch, a red centre spike, and two navy legs, on a white disc (`MyraMark` in `MyraLogo.tsx`, hand-traced
+  to SVG so it stays crisp at every size). The white disc is the theme adjustment: it blends into the white
+  light-theme header (you just see the M) and gives the navy legs a light backdrop on the dark theme, so a
+  single mark reads on both. Used in the header, reply avatar, and login / loading screens.
+
 ## Logo fix + sidebar row icons (2026-07-01)
 - **Myra mark corrected.** The badge now carries the real Myra "M" — two white legs + a coral inner V +
   the coral swoosh over the top — on the navy tile, instead of the flat single-stroke coral "M" from the
