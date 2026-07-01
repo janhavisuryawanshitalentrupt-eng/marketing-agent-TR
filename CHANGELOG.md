@@ -3,6 +3,11 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Reply thumbs now react visibly (2026-07-01)
+- **👍/👎 give clear feedback.** Clicking a thumb under a reply now flips it from a grey outline to a
+  solid, accent-coloured fill (with a small press animation) and toggles off on a second click — so the
+  user can actually react. It's a local reaction (per message, no backend), which is what was asked for.
+
 ## Logo → the real isometric-cube "M" (2026-07-01)
 - **Myra mark rebuilt to the actual logo** — the 3D isometric cube "M": a red roof with a white diamond
   notch, a red centre spike, and two navy legs, on a white disc (`MyraMark` in `MyraLogo.tsx`, hand-traced

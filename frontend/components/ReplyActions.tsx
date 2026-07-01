@@ -3,10 +3,46 @@
 import { useState } from "react";
 import { downloadFile, fileUrl } from "@/lib/api";
 
+// Outline (default) + solid (reacted) thumb glyphs — swapping to the solid fill makes a click obvious.
+const THUMB_UP_OUTLINE = "M7 10v11M2 13v6a2 2 0 002 2h13.4a2 2 0 002-1.6l1.4-7A2 2 0 0018.8 10H13V4a2 2 0 00-2-2L7 10z";
+const THUMB_DOWN_OUTLINE = "M17 14V3M22 11V5a2 2 0 00-2-2H6.6a2 2 0 00-2 1.6l-1.4 7A2 2 0 005.2 14H11v6a2 2 0 002 2l4-8z";
+const THUMB_UP_SOLID = "M7.493 18.75c-.425 0-.82-.236-.974-.632A7.48 7.48 0 016 15.375c0-1.75.599-3.358 1.602-4.634.151-.192.373-.309.6-.397.473-.183.89-.514 1.212-.924a9.042 9.042 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75 2.25 2.25 0 012.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H14.23c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23h-.777ZM2.331 10.977a11.969 11.969 0 00-.831 4.398 12 12 0 00.52 3.507c.26.85 1.084 1.368 1.973 1.368H4.9c.445 0 .72-.498.523-.898a8.963 8.963 0 01-.924-3.977c0-1.708.476-3.305 1.302-4.666.245-.403-.028-.959-.5-.959H4.25c-.832 0-1.612.453-1.918 1.227Z";
+const THUMB_DOWN_SOLID = "M15.73 5.25h1.035A7.465 7.465 0 0118 9.375a7.465 7.465 0 01-1.235 4.125h-.148c-.806 0-1.534.446-2.031 1.08a9.04 9.04 0 01-2.861 2.4c-.723.384-1.35.956-1.653 1.715a4.498 4.498 0 00-.322 1.672V21a.75.75 0 01-.75.75 2.25 2.25 0 01-2.25-2.25c0-1.152.26-2.243.723-3.218.266-.558-.107-1.282-.725-1.282H3.622c-1.026 0-1.945-.694-2.054-1.715A12.134 12.134 0 011.5 11.25c0-2.848.992-5.464 2.649-7.521C4.537 3.247 5.136 3 5.754 3H9.77a4.5 4.5 0 011.423.23l3.114 1.04a4.5 4.5 0 001.423.23ZM21.669 13.023c.536-1.362.831-2.845.831-4.398 0-1.22-.182-2.398-.52-3.507-.26-.85-1.084-1.368-1.973-1.368H19.1c-.445 0-.72.498-.523.898.591 1.2.924 2.55.924 3.977a8.958 8.958 0 01-1.302 4.666c-.245.403.028.959.5.959h1.053c.832 0 1.612-.453 1.918-1.227Z";
+
+function Thumb({ dir, active, onToggle }: { dir: "up" | "down"; active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      aria-label={dir === "up" ? "Good response" : "Bad response"}
+      title={dir === "up" ? "Good response" : "Bad response"}
+      className={`rounded-md p-1.5 transition active:scale-90 ${
+        active
+          ? "text-[var(--brand-red)]"
+          : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
+      }`}
+    >
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill={active ? "currentColor" : "none"}
+        stroke={active ? "none" : "currentColor"}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d={dir === "up" ? (active ? THUMB_UP_SOLID : THUMB_UP_OUTLINE) : active ? THUMB_DOWN_SOLID : THUMB_DOWN_OUTLINE} />
+      </svg>
+    </button>
+  );
+}
+
 /**
- * Compact action row under an assistant reply (copy + quick feedback, plus download when the reply
- * produced a file) — the controls shown in the chat design. Copy is real (writes the reply text to the
- * clipboard); download saves the asset; the thumbs are a local visual acknowledgement only (no backend).
+ * Compact action row under an assistant reply — quick feedback (👍/👎), copy, and download when the reply
+ * produced a file. The thumbs are a local reaction the user can toggle on/off (a solid fill + accent colour
+ * confirm the click); copy writes the reply to the clipboard; download saves the asset. No backend calls.
  */
 export function ReplyActions({
   text,
@@ -30,27 +66,11 @@ export function ReplyActions({
     }
   }
 
-  const btn = "rounded-md p-1.5 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground";
+  const btn = "rounded-md p-1.5 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground active:scale-90";
   return (
     <div className="flex items-center gap-0.5 pl-1">
-      <button
-        type="button"
-        onClick={() => setVote((v) => (v === "up" ? null : "up"))}
-        aria-label="Good response"
-        title="Good response"
-        className={`${btn} ${vote === "up" ? "text-[var(--brand-red)] hover:text-[var(--brand-red)]" : ""}`}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v11M2 13v6a2 2 0 002 2h13.4a2 2 0 002-1.6l1.4-7A2 2 0 0018.8 10H13V4a2 2 0 00-2-2L7 10z" /></svg>
-      </button>
-      <button
-        type="button"
-        onClick={() => setVote((v) => (v === "down" ? null : "down"))}
-        aria-label="Bad response"
-        title="Bad response"
-        className={`${btn} ${vote === "down" ? "text-[var(--brand-red)] hover:text-[var(--brand-red)]" : ""}`}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14V3M22 11V5a2 2 0 00-2-2H6.6a2 2 0 00-2 1.6l-1.4 7A2 2 0 005.2 14H11v6a2 2 0 002 2l4-8z" /></svg>
-      </button>
+      <Thumb dir="up" active={vote === "up"} onToggle={() => setVote((v) => (v === "up" ? null : "up"))} />
+      <Thumb dir="down" active={vote === "down"} onToggle={() => setVote((v) => (v === "down" ? null : "down"))} />
       <button type="button" onClick={copy} aria-label={copied ? "Copied" : "Copy reply"} title={copied ? "Copied" : "Copy"} className={btn}>
         {copied ? (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
