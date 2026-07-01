@@ -82,6 +82,9 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 ## 7. Agent (`backend/app/agent/`)
 - `orchestrator.run(db, conversation_id, text, mode, attachments, campaign_id, owner)` — drives the tool
   loop and streams events (meta/status/token/asset/chips/done/error). `mode` ∈ chat | create | campaign.
+  A **brief-intake** (`create_intake`) asks a short chip-driven brief before generating a vague asset —
+  in Create/Campaign always, and in **Chat** for creation requests (`is_visual_create_request`); an
+  `@mention` short-circuits straight to the person post before the intake.
 - `tools.py` — the tool registry + executors (`generate_posts`, `generate_image`, `generate_team_image`,
   `feature_uploaded_person`, `feature_employee` (feature a Folders employee by @name using their real
   photo), `build_deck`, `build_pdf`, `discover_prospects`, `vibe_prospect` (**vibe prospecting** — NL

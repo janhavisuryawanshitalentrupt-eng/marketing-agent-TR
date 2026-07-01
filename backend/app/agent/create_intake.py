@@ -7,7 +7,8 @@ a deck or PDF asks about purpose/audience/tone/length (document questions, not i
 request, a "your call", or clear impatience generates straight away; the intake is capped so it never
 interrogates endlessly.
 
-Gated to mode=='create' by the orchestrator; Chat never asks.
+Run for mode=='create'/'campaign' always, and in Chat for visual/document CREATION requests (gated by
+`is_visual_create_request`) — so Chat asks 'what kind of image?' too, but never for prospecting/Q&A.
 """
 from __future__ import annotations
 
@@ -63,6 +64,18 @@ _FORMAT_ANCHOR = {
 
 
 _FORMAT_KW = {"deck": _DECK_KW, "pdf": _PDF_KW, "image": _IMAGE_KW}
+
+# Verbs that signal the user wants something CREATED (vs. asking a question or requesting other work).
+_CREATE_VERBS = ("create", "make", "generate", "design", "build", "draw", "produce", "craft", "render",
+                 "give me", "i want", "i need", "can you make", "could you make", "let's make", "whip up")
+
+
+def is_visual_create_request(text: str) -> bool:
+    """True if `text` reads as a request to CREATE a visual/document asset (image/post/graphic/deck/PDF).
+    Used to gate the brief-intake in CHAT — so Chat asks 'what kind of image?' like Create does, but ONLY
+    for creation requests, never for prospecting, Q&A, or other chat work."""
+    t = (text or "").lower()
+    return any(v in t for v in _CREATE_VERBS) and any(k in t for k in _IMAGE_KW + _DECK_KW + _PDF_KW)
 
 
 def _detect_format(messages: list[dict]) -> str:

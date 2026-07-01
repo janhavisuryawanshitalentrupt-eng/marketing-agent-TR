@@ -3,6 +3,17 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Chat brief-intake + no-overlap (2026-07-01)
+- **Chat asks "what kind of image?" too.** The Create studio's brief-intake (a short, chip-driven
+  back-and-forth about look/style/audience before generating) now also runs in **Chat** — but ONLY for
+  visual/document **creation** requests (gated by `create_intake.is_visual_create_request`), so
+  prospecting, Q&A and other chat work are never interrupted. A specific request or "your call" still
+  generates immediately, and `@mention` posts skip it (they're already specific).
+- **No text/logo overlap in employee posts.** In the AI-scene layout the headline + subtext width is now
+  clamped to the space to the LEFT of the person/photo card (`person_left`), so a long headline can never
+  run under the photo. The wordmark sits in its own reserved margin below the card. (AI images already
+  reserve a clean footer band for the wordmark, so no overlap there either.)
+
 ## Designed employee posts (2026-07-01)
 - **Employee posts are now AI-DESIGNED, not flat templates.** An `@mention` (or any "feature <person>")
   now defaults to the **AI-scene** path: gpt-image-2 generates a rich, on-theme branded background — tied

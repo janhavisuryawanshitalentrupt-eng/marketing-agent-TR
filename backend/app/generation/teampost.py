@@ -493,6 +493,7 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         except Exception:
             pass
         hx, hy = W - hero.width - 30, H - hero.height
+        person_left = hx
         shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))  # soft drop shadow so it doesn't look pasted
         shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
         shadow = shadow.filter(ImageFilter.GaussianBlur(20))
@@ -501,6 +502,7 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     else:
         fw, fh = int(W * 0.50), int(H * 0.72)
         fx, fy = W - fw - 54, (H - fh) // 2 + 24
+        person_left = fx
         card = _cover_fit(photo, fw, fh)
         try:
             card = card.filter(ImageFilter.UnsharpMask(radius=1.4, percent=90, threshold=3))
@@ -517,11 +519,12 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         d.rounded_rectangle([fx - 5, fy - 5, fx + fw + 5, fy + fh + 5], radius=rad + 5, outline=CREAM, width=6)  # crisp frame
 
     pad = 70
-    y = _draw_headline(d, pad, 92, headline or "On a Mission!", W - 470, accent_box=(variant % 2 == 0))
+    hl_w = max(340, person_left - pad - 30)  # never let the caption run under the person / photo card
+    y = _draw_headline(d, pad, 92, headline or "On a Mission!", hl_w, accent_box=(variant % 2 == 0))
     if question:
         qf = body_font(34)
         y += 10
-        for ln in _wrap(d, question, qf, 440):
+        for ln in _wrap(d, question, qf, hl_w):
             d.text((pad, y), ln, font=qf, fill=CREAM)
             y += 44
     _draw_featuring(d, pad, H - 250, name, role)

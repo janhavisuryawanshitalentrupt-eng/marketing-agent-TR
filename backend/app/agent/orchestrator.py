@@ -214,12 +214,16 @@ async def run(
             yield {"event": "done", "data": result.get("summary") or "Done."}
             return
 
-    # CREATE / CAMPAIGN intake: a vague NEW request gets a short conversational nudge + tappable
-    # quick-picks instead of generating blind. Specific / "your call" / answering / refine fall straight
-    # through. SKIP the intake when a photo is attached — generate on THIS turn so the attachment (which
-    # rides only one message) isn't lost to a follow-up question. In campaign mode the campaign brief is
-    # passed as context so the intake never re-asks the topic.
-    if mode in ("create", "campaign") and not attached_imgs:
+    # BRIEF INTAKE: a vague NEW asset request gets a short conversational nudge + tappable quick-picks
+    # instead of generating blind. Runs in Create/Campaign always, and in CHAT when the message is a
+    # visual/document CREATION request (so Chat asks 'what kind of image?' too — but never for prospecting
+    # or Q&A). Specific / "your call" / answering / refine fall straight through. SKIP when a photo is
+    # attached (generate THIS turn so the one-message attachment isn't lost). Campaign brief is passed so
+    # the intake never re-asks the topic.
+    intake_here = mode in ("create", "campaign") or (
+        mode == "chat" and create_intake.is_visual_create_request(user_text)
+    )
+    if intake_here and not attached_imgs:
         try:
             intent = await create_intake.interpret_create_intent(brand, messages, context=campaign_ctx)
         except Exception:
