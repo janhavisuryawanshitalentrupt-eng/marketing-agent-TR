@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Merge Create into Chat + remove Brand-kit UI (2026-07-01)
+- **One section: Chat.** The Create section is merged into **Chat**, which now handles everything — chat,
+  Q&A, prospecting, AND image/deck/PDF generation (it already had all the generation tools). "Create" is
+  removed from the top nav; `/create` redirects to Chat.
+- **"Your generations" moved into Chat.** A top toggle **Chat / Your generations** — the generations tab
+  is the gallery of everything created (images/decks/PDFs) with All/Images/Decks/Documents filters and
+  regenerate / refine / delete (new self-contained `GenerationsGallery.tsx`; `CreateView.tsx` retired).
+- **Brand kit removed from the frontend.** The Brand-kit tab/panel is gone from the UI; brand assets +
+  grounding stay managed in the **backend** only (as requested).
+
 ## Advanced, varied employee posts — brand skins + reference series (2026-07-01)
 Learned from 40+ real Talentrupt posts and rebuilt the employee-image engine (`generation/teampost.py`).
 - **Not navy every time.** Introduced brand **skins** — `light` (clean white), `cream` (warm), `navy`,

@@ -7,7 +7,6 @@ import { useAuth } from "./AuthGate";
 import { Avatar } from "./Avatar";
 import { MyraMark } from "./MyraLogo";
 import { ChatPanel } from "./ChatPanel";
-import { CreateView } from "./CreateView";
 import { CampaignsView } from "./CampaignsView";
 import { BusinessView } from "./BusinessView";
 import { FoldersView } from "./FoldersView";
@@ -19,7 +18,6 @@ type NavItem = { href: string; label: string; icon: string; adminOnly?: boolean 
 // Tasks & Analytics are ADMIN-ONLY — hidden for non-admin members (and their APIs are admin-gated too).
 const NAV: NavItem[] = [
   { href: "/", label: "Chat", icon: "M4 4h16v12H7l-3 3V4z" },
-  { href: "/create", label: "Create", icon: "M4 5h16v14H4zM4 14l4-4 4 4 3-3 5 5" },
   { href: "/campaigns", label: "Campaigns", icon: "M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" },
   { href: "/business", label: "Business Dev", icon: "M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" },
   { href: "/folders", label: "Folders", icon: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" },
@@ -77,8 +75,7 @@ export function Shell() {
   // (a discovery, a generation, a draft) survives switching sections. The route's pathname
   // just decides which one is visible.
   const views = [
-    { key: "/", active: pathname === "/", node: <ChatPanel /> },
-    { key: "/create", active: pathname.startsWith("/create"), node: <CreateView /> },
+    { key: "/", active: pathname === "/" || pathname.startsWith("/create"), node: <ChatPanel /> },
     { key: "/campaigns", active: pathname.startsWith("/campaigns"), node: <CampaignsView /> },
     { key: "/business", active: pathname.startsWith("/business"), node: <BusinessView /> },
     { key: "/folders", active: pathname.startsWith("/folders"), node: <FoldersView /> },

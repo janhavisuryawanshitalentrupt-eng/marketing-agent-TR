@@ -43,11 +43,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 ## 3. Sections (features)
 | Section | What it does | Who can see it |
 |---|---|---|
-| **Chat** | All-access assistant with tools (generate content, prospect, read app data) — streams via SSE | all |
-| **Create** | Visual/document generation studio (image / deck / PDF) | all |
+| **Chat** | The single all-access section: chat + Q&A + prospecting AND image/deck/PDF **generation** (all via tools; streams via SSE). A top toggle **Chat / Your generations** opens the gallery of everything created (filters + regenerate/refine/delete). (Create was merged in; `/create` redirects here. Brand-kit UI removed — brand is backend-only.) | all |
 | **Campaigns** | **Internal** (promote Talentrupt: chat-driven content folder grounded in a brief) + **External** (client-targeting: sector → prospects → dated content calendar) | all |
 | **Business Dev** | Find/analyze real hiring companies as prospects (incl. **vibe prospecting** — describe the ideal client in plain English → ranked real list); outreach drafts; pipeline tracking | all |
-| **Folders** | **Reference photo library** of employees (photo + name + role). Feature them in **Create/Chat** by typing **`@`their name** → a post with their **real** photo (never an AI face) | all |
+| **Folders** | **Reference photo library** of employees (photo + name + role). Feature them in **Chat** by typing **`@`their name** → a post with their **real** photo (never an AI face) | all |
 | **Tasks** | Follow-up reminders | **admin only** |
 | **Analytics** | Pipeline/outreach/content rollup | **admin only** |
 

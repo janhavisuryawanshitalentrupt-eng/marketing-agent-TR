@@ -8,14 +8,15 @@ import { Avatar } from "./Avatar";
 import { MyraAvatar } from "./MyraLogo";
 import { ReplyActions } from "./ReplyActions";
 import { RefineChips } from "./RefineChips";
+import { GenerationsGallery } from "./GenerationsGallery";
 import { Markdown } from "./Markdown";
 import { useAtMentions, AtMenu, type AtCommand } from "@/lib/atMentions";
 
 const SUGGESTIONS = [
-  "Find 5 US healthcare staffing agencies ready for RPO support",
-  "Draft 3 LinkedIn captions about scaling recruiting",
-  "Design an image for a data-driven hiring post",
-  "What can this app do?",
+  "Create an image for a data-driven hiring post",
+  "Build a pitch deck for staffing agencies",
+  "Make a one-pager PDF on our RPO services",
+  "Find 5 US healthcare staffing agencies for RPO",
 ];
 
 // Chat understands the widest set of actions, so its "@" palette adds "post" and "prospects".
@@ -46,6 +47,7 @@ export function ChatPanel() {
     deleteConversation,
   } = useChat();
   const [input, setInput] = useState("");
+  const [tab, setTab] = useState<"chat" | "generations">("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -134,15 +136,33 @@ export function ChatPanel() {
 
       {/* Chat column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-end border-b border-[var(--border)] px-6 py-2.5 md:hidden">
+        <header className="flex items-center gap-3 border-b border-[var(--border)] px-6 py-2.5">
           <button
             onClick={newChat}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground md:hidden"
           >
             New chat
           </button>
+          <div className="ml-auto flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+            <button
+              onClick={() => setTab("chat")}
+              className={`rounded-md px-3 py-1.5 transition ${tab === "chat" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setTab("generations")}
+              className={`rounded-md px-3 py-1.5 transition ${tab === "generations" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+            >
+              Your generations
+            </button>
+          </div>
         </header>
 
+        {tab === "generations" ? (
+          <GenerationsGallery />
+        ) : (
+        <>
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto w-full max-w-3xl space-y-5">
             {empty && (
@@ -304,6 +324,8 @@ export function ChatPanel() {
             </p>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
