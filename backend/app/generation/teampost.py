@@ -18,7 +18,7 @@ import random
 import re
 from dataclasses import dataclass
 
-from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from ..models import Brand
 from . import cutout
@@ -125,6 +125,21 @@ def _cover_fit(img: Image.Image, w: int, h: int) -> Image.Image:
         y = (img.height - nh) // 2
         img = img.crop((0, y, img.width, y + nh))
     return img.resize((w, h), Image.LANCZOS)
+
+
+def _enhance_photo(img: Image.Image) -> Image.Image:
+    """Tasteful auto-cleanup so a casual phone photo reads more professional — even lighting, cleaner
+    colour, a touch of sharpness. Pixel-level only; the person's IDENTITY / face is never changed."""
+    try:
+        img = img.convert("RGB")
+        img = ImageOps.autocontrast(img, cutoff=1)          # even out exposure
+        img = ImageEnhance.Brightness(img).enhance(1.03)
+        img = ImageEnhance.Color(img).enhance(1.06)          # a little more life in the colour
+        img = ImageEnhance.Contrast(img).enhance(1.05)
+        img = ImageEnhance.Sharpness(img).enhance(1.18)      # crisper without looking processed
+    except Exception:
+        pass
+    return img
 
 
 def _wrap(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
@@ -275,15 +290,30 @@ def _draw_headline(d, x, y, text, max_w, accent_box=True, size=104, max_lines=3)
     return y
 
 
-def _role_badge(d, x, y, role, fill=WHITE, fg=NAVY) -> None:
-    bf = body_font(30)
+def _fit_font(d, text, font_fn, size, max_w, floor=26):
+    """Return `font_fn(size)` shrunk until `text` fits `max_w` (so a long name/role/tagline can't spill
+    past the text column onto the photo)."""
+    f = font_fn(size)
+    while d.textlength(text, font=f) > max_w and size > floor:
+        size -= 3
+        f = font_fn(size)
+    return f
+
+
+def _role_badge(d, x, y, role, fill=WHITE, fg=NAVY, max_w=None) -> None:
+    fs = 30
+    bf = body_font(fs)
+    if max_w:  # shrink so a long role ("Talent Discovery Specialist") stays within the text column
+        while (24 + 16 + d.textlength(role, font=bf) + 40) > max_w and fs > 18:
+            fs -= 2
+            bf = body_font(fs)
     rw = d.textlength(role, font=bf)
     bw = 24 + 16 + rw
     d.rounded_rectangle([x, y, x + bw + 40, y + 52], radius=26, fill=fill)
     ix, iy = x + 22, y + 16  # mini briefcase, drawn (no emoji-font dependency)
     d.rounded_rectangle([ix, iy + 5, ix + 24, iy + 20], radius=3, fill=fg)
     d.rectangle([ix + 8, iy, ix + 16, iy + 7], outline=fg, width=3)
-    d.text((ix + 36, y + 11), role, font=bf, fill=fg)
+    d.text((ix + 36, y + (52 - fs) // 2 - 2), role, font=bf, fill=fg)
 
 
 def _draw_featuring(d, x, y, name, role, name_size=58) -> None:
@@ -342,23 +372,20 @@ def _draw_headline_highlight(d, x, y, text, max_w, skin, keyword="", size=104, m
     return y, (x - 10, top - 4, int(maxx) + 12, y)
 
 
-def _draw_featuring_script(d, x, y, name, role, skin, name_size=52):
-    """'Featuring [Name]' — the name in the handwritten script font + a role badge. Compact; returns its
-    bbox so the caller can keep it clear of the wordmark below."""
+def _draw_featuring_script(d, x, y, name, role, skin, name_size=52, max_w=None) -> tuple:
+    """'Featuring [Name]' — the name in the handwritten script font + a role badge, both width-clamped to
+    `max_w` so they stay in the text column (never over the photo). Returns its bbox."""
     if not name:
         return (x, y, x, y)
     d.text((x, y), "Featuring", font=body_font(26), fill=skin.sub)
-    sf = script_font(int(name_size * 1.12))
+    sf = _fit_font(d, name, script_font, int(name_size * 1.12), max_w or 9999, floor=34)
     ny = y + 28
     d.text((x, ny), name, font=sf, fill=skin.name)
-    nb = d.textbbox((x, ny), name, font=sf)
-    by = nb[3] + 4
-    right = max(nb[2], x + 200)
+    by = d.textbbox((x, ny), name, font=sf)[3] + 4
     if role:
-        _role_badge(d, x, by, role, fill=skin.accent, fg=skin.on_accent)
+        _role_badge(d, x, by, role, fill=skin.accent, fg=skin.on_accent, max_w=max_w)
         by += 56
-        right = max(right, x + 40 + int(d.textlength(role, font=body_font(30))) + 64)
-    return (x - 4, y - 4, right + 6, by)
+    return (x - 4, y - 4, x + (max_w or 300) + 6, by)  # bbox right clamped to the text column
 
 
 # decorative accents — callers place them ONLY in reserved zones (never over the photo or text).
@@ -410,6 +437,39 @@ def _accent_squiggle(d, x, y, w, amp=8, color=RED, width=5):
     d.line(pts, fill=color, width=width, joint="curve")
 
 
+_CONFETTI = [RED, NAVY, (0xF5, 0xC0, 0x42), (0xFF, 0x7A, 0x52), (0x2A, 0x6E, 0xD6), CREAM]
+
+
+def _confetti(d, x0, y0, x1, y1, n, seed) -> None:
+    """Scatter small celebratory shapes (tilted ticker-tape, dots, ribbons) in a zone. Callers pass the
+    top / right band so it never covers the text column."""
+    rnd = random.Random(int(seed) * 7 + 13)
+    for _ in range(n):
+        x, y = rnd.randint(int(x0), int(x1)), rnd.randint(int(y0), int(y1))
+        col = rnd.choice(_CONFETTI)
+        k = rnd.randint(0, 2)
+        if k == 0:  # tilted ticker-tape rectangle
+            w, h = rnd.randint(8, 16), rnd.randint(4, 7)
+            a = math.radians(rnd.randint(0, 180))
+            ca, sa = math.cos(a), math.sin(a)
+            pts = [(-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2)]
+            d.polygon([(x + px * ca - py * sa, y + px * sa + py * ca) for px, py in pts], fill=col)
+        elif k == 1:  # dot
+            s = rnd.randint(4, 8)
+            d.ellipse([x, y, x + s, y + s], fill=col)
+        else:  # short ribbon
+            d.line([(x, y), (x + rnd.randint(8, 16), y + rnd.randint(-6, 8))], fill=col, width=3)
+
+
+def _pro_scene(canvas, d, skin, variant) -> None:
+    """Premium backdrop for a featured person: the signature rail + a scatter of confetti in the top-right
+    band + a small dot cluster. The navy 'halo' behind the person is drawn in _place_person (it needs the
+    person's exact position). Drawn BEFORE the person so they sit on top."""
+    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
+    _confetti(d, W * 0.36, 34, W - 28, H * 0.34, 26, variant)
+    _accent_dot_grid(d, 84, 132, 4, 3, gap=22, r=4, fill=skin.shade)
+
+
 def _intersect(a, b, margin=0):
     ax0, ay0, ax1, ay1 = a
     bx0, by0, bx1, by1 = b
@@ -429,11 +489,16 @@ def _ensure_clear(label, *boxes) -> bool:
     return True
 
 
-def _place_person(canvas, d, skin, photo, hero, target_h_frac=0.82, max_w_frac=0.55, right_pad=30):
+def _place_person(canvas, d, skin, photo, hero, target_h_frac=0.82, max_w_frac=0.55, right_pad=30, backdrop=False):
     """Float the cut-out person on the RIGHT (real cut-out) or a premium rounded framed card (fallback).
     Returns (person_left, person_box) so callers clamp all text to the LEFT of person_left. The width cap
-    (<=0.55 W) guarantees person_left stays >= ~456, so the clamped headline (min 340) can never reach it."""
-    cut_ok = hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
+    (<=0.55 W) guarantees person_left stays >= ~456, so the clamped headline (min 340) can never reach it.
+    `backdrop` draws a navy 'halo' circle behind the cut-out person (sized to them → never reaches text)."""
+    # A real cut-out has transparency AND covers a decent part of the frame. A tiny bbox means the
+    # remover only caught a fragment (e.g. just the head) — upscaling that looks bad, so fall back to
+    # the clean framed photo instead. (remove.bg on prod yields full, clean cut-outs.)
+    cut_ok = (hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
+              and hero.width >= photo.width * 0.42 and hero.height >= photo.height * 0.45)
     if cut_ok:
         target_h = int(H * target_h_frac)
         scale = target_h / hero.height
@@ -445,6 +510,13 @@ def _place_person(canvas, d, skin, photo, hero, target_h_frac=0.82, max_w_frac=0
         except Exception:
             pass
         hx, hy = W - hero.width - right_pad, H - hero.height
+        if backdrop:  # navy halo behind the person (upper body); radius stays right of the text column
+            r = int(hero.width * 0.46)
+            ccx, ccy = hx + hero.width // 2, hy + int(hero.height * 0.30)
+            halo = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            ImageDraw.Draw(halo).ellipse([ccx - r, ccy - r, ccx + r, ccy + r],
+                                         fill=(*(NAVY2 if skin.key == "navy" else NAVY), 255))
+            canvas.paste(halo, (0, 0), halo)
         shadow = Image.new("RGBA", hero.size, (0, 0, 0, 0))
         shadow.paste((0, 0, 0, 150), (0, 0), hero.split()[-1])
         shadow = shadow.filter(ImageFilter.GaussianBlur(20))
@@ -648,39 +720,46 @@ def _layout_framed(photo, name, role, headline, question, variant) -> Image.Imag
 
 
 # --- skin-aware series formats (the reference "employee feature" looks, on a rotating skin) ---------
+_TAGLINES = [
+    "Let's build the future, together!",
+    "Here's to what's next!",
+    "Making great things happen.",
+    "Onward and upward!",
+    "Ready to make an impact!",
+]
+
+
 def _layout_spotlight_series(photo, name, role, headline, question, variant, skin, keyword="", kicker=""):
-    """Flagship 'Man on a Mission / Women Crush Wednesday': person one side, red-box keyword headline,
-    script 'Featuring [Name]' + a hand-drawn arrow, role badge — rendered on the given skin."""
+    """Premium featured-person post: the ENHANCED real cut-out floating on a navy halo with confetti,
+    wordmark leading top-left, a red-box keyword headline, a script tagline, and 'Featuring [Name]' +
+    role badge — on the given skin. (Casual photo -> clean, professional post; face never changed.)"""
+    photo = _enhance_photo(photo)
     canvas = Image.new("RGB", (W, H), skin.bg)
     d = ImageDraw.Draw(canvas)
-    _paint_scene_bg(canvas, d, skin, variant)
+    _pro_scene(canvas, d, skin, variant)
     hero = _cutout(photo)
-    person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+    person_left, person_box = _place_person(canvas, d, skin, photo, hero, backdrop=True)
     pad = 70
     hl_w = max(340, person_left - pad - 30)
-    y = 92
+    paste_wordmark(canvas, pad, 52, 230, 40, dark_bg=skin.wm_dark)  # wordmark leads, top-left
+    y = 128
     if kicker:
-        d.text((pad, y), kicker.upper(), font=body_font(28), fill=skin.accent)
+        d.text((pad, y), kicker.upper(), font=heading_font(26), fill=skin.accent)
         y += 44
     y, head_box = _draw_headline_highlight(d, pad, y, headline, hl_w, skin, keyword=keyword)
     sub_box = None
     if question:
-        qf = body_font(34)
+        qf = body_font(32)
         sy = y + 12
-        avail = (H - 320) - sy  # keep the subline clear of the "Featuring" block below
-        for ln in _wrap(d, question, qf, hl_w)[: max(1, avail // 44)]:
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 420) - (y + 12)) // 42)]:
             d.text((pad, sy), ln, font=qf, fill=skin.sub)
-            sy += 44
+            sy += 42
         sub_box = (pad, y + 12, pad + hl_w, sy)
-    feat_box = _draw_featuring_script(d, pad, H - 300, name, role, skin)
-    arrow_box = None
-    if name and person_left - feat_box[2] > 150:
-        ax0 = feat_box[2] + 24
-        _accent_arrow(d, ax0, H - 200, person_left - 26, H - 168, color=skin.accent)
-        arrow_box = (ax0, H - 232, person_left - 26, H - 150)
-    wm = paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=skin.wm_dark)
-    wm_box = (pad, H - 60, pad + 240, H - 16) if wm else None
-    _ensure_clear("spotlight_series/" + skin.key, person_box, head_box, sub_box, feat_box, arrow_box, wm_box)
+        y = sy
+    tag = _TAGLINES[variant % len(_TAGLINES)]  # script tagline, width-clamped to the text column
+    d.text((pad, y + 18), tag, font=_fit_font(d, tag, script_font, 48, hl_w, 28), fill=skin.accent)
+    feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin, max_w=hl_w)
+    _ensure_clear("spotlight_series/" + skin.key, person_box, head_box, sub_box, feat_box)
     return canvas
 
 
@@ -691,43 +770,44 @@ def _layout_welcome(photo, name, role, headline, question, variant, skin):
 
 
 def _layout_anniversary(photo, name, role, headline, question, variant, skin):
-    """'X Strong Years': giant script number, name + role, a short story/quote, real photo — on a skin."""
+    """'X Strong Years': giant script number, name + role, a short story/quote — the ENHANCED real cut-out
+    floating on a navy halo with confetti. Face never changed."""
+    photo = _enhance_photo(photo)
     canvas = Image.new("RGB", (W, H), skin.bg)
     d = ImageDraw.Draw(canvas)
-    _paint_scene_bg(canvas, d, skin, variant)
+    _pro_scene(canvas, d, skin, variant)
     hero = _cutout(photo)
-    person_left, person_box = _place_person(canvas, d, skin, photo, hero)
+    person_left, person_box = _place_person(canvas, d, skin, photo, hero, backdrop=True)
     pad = 70
     hl_w = max(340, person_left - pad - 30)
+    paste_wordmark(canvas, pad, 52, 230, 40, dark_bg=skin.wm_dark)
     yrs = _extract_years(f"{headline} {question}")
-    big = script_font(200)
+    big = script_font(190)
     label = yrs if yrs else "Strong"
-    d.text((pad, 44), label, font=big, fill=skin.accent)
-    nb = d.textbbox((pad, 44), label, font=big)
-    y = nb[3] - 6
-    hf = heading_font(56)
+    d.text((pad, 104), label, font=big, fill=skin.accent)
+    nb = d.textbbox((pad, 104), label, font=big)
+    y = nb[3] - 4
+    hf = heading_font(54)
     for ln in _wrap(d, "STRONG YEARS" if yrs else "YEARS STRONG", hf, hl_w):
         d.text((pad, y), ln, font=hf, fill=skin.text)
-        y += 66
+        y += 64
     y += 6
     _accent_squiggle(d, pad, y, min(hl_w, 300), color=skin.accent)
     y += 28
     if name:
-        d.text((pad, y), name, font=heading_font(54), fill=skin.name)
-        y += 70
+        d.text((pad, y), name, font=_fit_font(d, name, heading_font, 52, hl_w, 34), fill=skin.name)
+        y += 66
         if role:
-            _role_badge(d, pad, y, role, fill=skin.accent, fg=skin.on_accent)
-            y += 66
+            _role_badge(d, pad, y, role, fill=skin.accent, fg=skin.on_accent, max_w=hl_w)
+            y += 62
     if question:
-        qf = body_font(32)
+        qf = body_font(30)
         sy = y + 6
-        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 100) - sy) // 42)]:
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 90) - sy) // 40)]:
             d.text((pad, sy), ln, font=qf, fill=skin.sub)
-            sy += 42
+            sy += 40
         y = sy
-    wm = paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=skin.wm_dark)
-    wm_box = (pad, H - 60, pad + 240, H - 16) if wm else None
-    _ensure_clear("anniversary/" + skin.key, person_box, (pad - 4, 40, pad + hl_w, min(y, H - 66)), wm_box)
+    _ensure_clear("anniversary/" + skin.key, person_box, (pad - 4, 52, pad + hl_w, min(y, H - 66)))
     return canvas
 
 
@@ -884,7 +964,7 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         pillow_heif.register_heif_opener()
     except Exception:
         pass
-    photo = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
+    photo = _enhance_photo(ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB")))
     hero = _cutout(photo)
 
     bg = None

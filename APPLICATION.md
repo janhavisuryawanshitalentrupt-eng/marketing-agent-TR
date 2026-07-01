@@ -82,9 +82,14 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   `welcome`; `anniversary` = "X Strong Years"; `grid` = multi-employee "One Year Strong"). The series is
   auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The `photo`
   skin uses `build_ai_scene` (gpt-image-2 makes a VARIED on-theme background; real photo floated via a
-  cut-out or a designed framed card). **Nothing overrides:** each layout keeps text left of the photo and
-  the wordmark in a reserved margin, verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api`
-  (hosted, opt-in via `BG_REMOVAL_API_KEY`; keeps rembg off the droplet) — background only, face untouched.
+  cut-out or a designed framed card). Every employee photo is first **auto-enhanced** (`_enhance_photo` —
+  gentle contrast/colour/sharpness clean-up, pixel-level only, face never altered) and composited onto a
+  **designed scene** (`_pro_scene`: brand-colour confetti + dot-grid; `_place_person` floats the person on a
+  soft navy halo) for a ChatGPT-grade professional look; overflowing names/roles auto-shrink (`_fit_font`).
+  **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
+  verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
+  — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as
+  the OpenAI key; keeps rembg off the droplet) — background only, face untouched; unset → the framed card.
   `common.script_font` = bundled Caveat (OFL). `refine.py` — regenerate/refine an asset into a new version.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
   the ingested TR library. **Campaign** generation grounds in the campaign's **brief** (`Campaign.goal`),

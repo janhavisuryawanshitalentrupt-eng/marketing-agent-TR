@@ -3,6 +3,24 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Professional employee posts — auto-enhance + designed scene + prod cut-outs (2026-07-01)
+Made employee posts look ChatGPT-grade professional while keeping the real face exactly as-is.
+- **Auto-enhance (identity unchanged).** Every employee photo is now cleaned before compositing —
+  `_enhance_photo` runs a gentle auto-contrast + brightness/colour/contrast/sharpness pass (pixel-level
+  only; the face is never redrawn or altered). The person just looks crisp and well-lit on any skin.
+- **Designed scene, not a flat panel.** New `_pro_scene` builds a premium backdrop — a soft brand-colour
+  confetti burst (`_confetti`) + a dot-grid accent in the reserved zones — and `_place_person` now floats
+  the person on a subtle navy halo so a cut-out reads as intentional design (matching the reference look).
+  Long names / roles / taglines auto-shrink to fit (`_fit_font`) so nothing ever overflows the person.
+- **Real cut-outs now activate on prod.** The deploy wires an optional `BG_REMOVAL_API_KEY`
+  (+ `BG_REMOVAL_PROVIDER`) GitHub secret straight into the droplet's `.env` (same encrypted-secret path
+  as the OpenAI key, CRLF-safe, re-exported before `pm2 restart` so `--update-env` can't blank it). Set the
+  secret → the real person is cut out (background removed via remove.bg / Photoroom, **face untouched**) and
+  floated on the designed scene. Unset → the premium framed-card fallback (double frame + red corner tab).
+  Still no heavy `rembg`/`onnxruntime` on the 2GB droplet.
+- **Verified across the rotation.** Rendered spotlight_series / welcome / anniversary on light / cream /
+  navy / red — all premium and legible, **0 overlaps** (`_ensure_clear` never triggered).
+
 ## Split the input palette: `/` to create, `@` for teammates (2026-07-01)
 - The chat/campaign input palette now has **two focused triggers** (Slack/Notion style): typing **`/`**
   surfaces only the **create actions** (Create image / deck / PDF / post / find prospects), and **`@`**
