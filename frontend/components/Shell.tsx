@@ -33,14 +33,14 @@ export function Shell() {
   const isAdmin = role === "admin";
   const nav = NAV.filter((item) => !item.adminOnly || isAdmin);
   const displayName = (username.split("@")[0] || "User").replace(/^\w/, (c) => c.toUpperCase());
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">("light");
 
   useEffect(() => {
     const saved = (typeof window !== "undefined" && localStorage.getItem("tr_theme")) as
       | "dark"
       | "light"
       | null;
-    setTheme(saved || (document.documentElement.dataset.theme as "dark" | "light") || "dark");
+    setTheme(saved || (document.documentElement.dataset.theme as "dark" | "light") || "light");
   }, []);
 
   function toggleTheme() {

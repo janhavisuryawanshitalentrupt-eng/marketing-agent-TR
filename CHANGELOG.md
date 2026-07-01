@@ -3,6 +3,11 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Light theme by default (2026-07-01)
+- **Light is now the default theme.** A fresh load (no saved preference) renders the **light** theme
+  instead of dark — the pre-paint script sets `data-theme="light"` by default and the Shell falls back to
+  light. Anyone who explicitly toggled a theme keeps their choice, and the light/dark toggle is unchanged.
+
 ## Chat brief-intake + no-overlap (2026-07-01)
 - **Chat asks "what kind of image?" too.** The Create studio's brief-intake (a short, chip-driven
   back-and-forth about look/style/audience before generating) now also runs in **Chat** — but ONLY for
