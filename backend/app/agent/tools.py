@@ -803,24 +803,30 @@ def _clean_headline(message: str, name: str = "") -> str:
     return "" if (words and all(w in _FILLER_WORDS for w in words)) else m  # filler-only => no real headline
 
 
-async def _polish_headline(message: str) -> str:
-    """Rewrite a rough phrase into a SHORT, punchy marketing headline via the LLM — so a deterministic
-    @mention (which bypasses the agent) still gets a real headline, not the user's literal words. Best
-    effort: returns the input unchanged on any error or when no AI provider is configured."""
+async def _polish_headline(message: str, name: str = "") -> str:
+    """Turn a rough phrase into a warm, CREATIVE marketing headline — the user gives the CONTEXT, the model
+    writes the copy — using the featured person's FIRST NAME where it reads well (so 'welcoming her at
+    talentrupt' for Pooja -> 'A Warm Welcome to Pooja!', not a literal 'Welcoming Her To Talentrupt').
+    Best-effort: returns the input unchanged on any error or when no AI provider is configured."""
     msg = (message or "").strip()
     if not msg or not llm.provider_available():
         return msg
+    first = (name or "").strip().split()[0] if (name or "").strip() else ""
+    who = (f" This post FEATURES {name} (first name: {first}) — weave in their first name where it reads "
+           "naturally." if first else "")
     try:
         out = await llm.chat_json([
             {"role": "system", "content":
-             "You write short marketing post headlines for Talentrupt, an RPO (recruitment process "
-             "outsourcing) firm. Rewrite the user's rough phrase into ONE punchy headline of 2-5 words, "
-             "Title Case, no end punctuation, no quotes — keep their intent. Reply ONLY as JSON: "
-             "{\"headline\": \"...\"}."},
+             "You are a sharp, creative copywriter for Talentrupt, an RPO (recruitment) firm. The user gives "
+             "the ROUGH CONTEXT of a post; YOU write the headline. Turn it into ONE warm, punchy, genuinely "
+             "CREATIVE marketing headline (about 3-7 words) — Title Case, no quotes, an optional single '!' "
+             "allowed. Be human and natural, NEVER a literal echo of their words (e.g. 'welcoming her at "
+             "talentrupt' -> 'A Warm Welcome to <First>!', NOT 'Welcoming Her To Talentrupt')."
+             + who + " Reply ONLY as JSON: {\"headline\": \"...\"}."},
             {"role": "user", "content": msg},
-        ], temperature=0.5)
+        ], temperature=0.75)
         head = ((out or {}).get("headline") or "").strip().strip('"').strip()
-        return head[:60] if head else msg
+        return head[:70] if head else msg
     except Exception:
         return msg
 
@@ -1009,7 +1015,7 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     except Exception:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}
-    message = await _polish_headline(_clean_headline((args.get("message") or "").strip(), match.name))
+    message = await _polish_headline(_clean_headline((args.get("message") or "").strip(), match.name), match.name)
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     style_arg = (args.get("style") or "").strip().lower()
     if style_arg in teampost.STYLE_NAMES and style_arg not in ("ai", "scene"):

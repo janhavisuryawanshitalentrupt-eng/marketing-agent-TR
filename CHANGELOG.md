@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Creative, name-aware headlines + no text overlap (2026-07-01)
+- **The AI writes the copy, not just cleans it up.** For a featured-person post the headline is now written
+  creatively from your CONTEXT and uses the person's FIRST NAME — so *"@Pooja welcoming her at talentrupt"*
+  becomes **"Pooja Joins the Talentrupt Family!"** (not the literal "Welcoming Her To Talentrupt"). Other
+  examples: a deadline congrats → "Cheers to Vaishnav's Timely Triumph!", a 5-year anniversary → "Cheers to
+  Five Years, Aarav!". You give the intent; the model owns the wording.
+- **Headline can no longer touch the photo.** `_draw_headline` now shrinks the font when a single long word
+  (e.g. "Talentrupt") would overflow the column width — not just when there are too many lines — so the
+  caption never spills onto the person / photo card.
+
 ## Light theme by default (2026-07-01)
 - **Light is now the default theme.** A fresh load (no saved preference) renders the **light** theme
   instead of dark — the pre-paint script sets `data-theme="light"` by default and the Shell falls back to

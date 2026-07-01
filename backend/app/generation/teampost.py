@@ -186,8 +186,10 @@ def _draw_headline(d, x, y, text, max_w, accent_box=True, size=104, max_lines=3)
     text = (text or "On a Mission!").strip()
     f = heading_font(size)
     lines = _wrap(d, text, f, max_w)
-    while len(lines) > max_lines and size > 44:
-        size -= 6
+    # Shrink until the text fits max_lines AND no single line overflows the width — a long word like
+    # "Talentrupt" can't wrap, so without the width check it spills past max_w onto the photo.
+    while (len(lines) > max_lines or any(d.textlength(ln, font=f) > max_w for ln in lines)) and size > 34:
+        size -= 5
         f = heading_font(size)
         lines = _wrap(d, text, f, max_w)
     last_tw = 0
