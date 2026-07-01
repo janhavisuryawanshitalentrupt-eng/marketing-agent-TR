@@ -1,55 +1,44 @@
 /**
- * Myra brand mark — the "M" with theme-aware legs and a coral→pink gradient swoosh.
- * Pure inline SVG, no background tile: the legs use `currentColor` so the mark reads on BOTH
- * light and dark surfaces (inherits the foreground text color of wherever it's placed), while the
- * coral swoosh stays vivid in either theme. Size it via the className (e.g. "h-9 w-9").
+ * Myra brand mark — a navy rounded-badge with a coral "M" (app-icon style).
+ * Self-contained (has its own navy tile + subtle light border), so it reads on any surface:
+ * the white header, the light content area (as the reply avatar), and the login / loading screens.
+ * Size it via the className (e.g. "h-9 w-9").
  */
 export function MyraMark({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="6 4 52 52" className={className} role="img" aria-label="Myra logo">
+    <svg viewBox="0 0 48 48" className={className} role="img" aria-label="Myra logo">
       <defs>
-        <linearGradient id="myra-coral" x1="0.1" y1="0" x2="0.45" y2="1">
+        <linearGradient id="myra-badge" x1="0" y1="0" x2="0.4" y2="1">
+          <stop offset="0" stopColor="#134a79" />
+          <stop offset="1" stopColor="#0a2c4b" />
+        </linearGradient>
+        <linearGradient id="myra-coral" x1="0.1" y1="0" x2="0.5" y2="1">
           <stop offset="0" stopColor="#ff9f5e" />
           <stop offset="0.5" stopColor="#ff6a54" />
           <stop offset="1" stopColor="#ff4f72" />
         </linearGradient>
       </defs>
-      {/* legs — inherit the surrounding text color so they flip with the theme */}
-      <rect x="12.5" y="20" width="9" height="27.5" rx="4.5" fill="currentColor" />
-      <rect x="42.5" y="20" width="9" height="27.5" rx="4.5" fill="currentColor" />
-      {/* coral inner V (middle of the M) */}
+      {/* navy badge tile with a hairline light border so it also reads on dark surfaces */}
+      <rect x="3.5" y="3.5" width="41" height="41" rx="11.5" fill="url(#myra-badge)" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+      {/* soft top-left facet for a subtle 3D badge feel */}
+      <path d="M8 19 Q8 8 19 8 L27 8 Z" fill="#ffffff" opacity="0.05" />
+      {/* coral angular "M" */}
       <path
-        d="M17 22.5 L32 43 L47 22.5"
+        d="M14 33.5 L14 15.5 L24 26.5 L34 15.5 L34 33.5"
         fill="none"
         stroke="url(#myra-coral)"
-        strokeWidth="9"
+        strokeWidth="5.4"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      {/* swoosh arcing over the top */}
-      <path
-        d="M19.5 19.5 C33 7.5 46 11.5 53 19"
-        fill="none"
-        stroke="url(#myra-coral)"
-        strokeWidth="4"
-        strokeLinecap="round"
-        opacity="0.92"
       />
     </svg>
   );
 }
 
 /**
- * Small Myra avatar tile shown beside an assistant reply (like a chat sender bubble).
- * A white rounded-square card with the M mark — reads on the light content area in either theme.
+ * Myra avatar shown beside an assistant reply. The mark is already a self-contained navy badge,
+ * so we just size it (no extra tile) — matching the chat design.
  */
 export function MyraAvatar({ className = "" }: { className?: string }) {
-  return (
-    <span
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-white text-[#0b3559] shadow-sm ${className}`}
-      aria-hidden
-    >
-      <MyraMark className="h-5 w-5" />
-    </span>
-  );
+  return <MyraMark className={`h-8 w-8 shrink-0 ${className}`} />;
 }

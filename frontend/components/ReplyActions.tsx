@@ -1,13 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import { downloadFile, fileUrl } from "@/lib/api";
 
 /**
- * Compact action row under an assistant reply (copy + quick feedback) — the controls shown in the
- * chat design. Copy is real (writes the reply text to the clipboard); the thumbs are a local visual
- * acknowledgement only (no backend). Kept intentionally light so it doesn't compete with the message.
+ * Compact action row under an assistant reply (copy + quick feedback, plus download when the reply
+ * produced a file) — the controls shown in the chat design. Copy is real (writes the reply text to the
+ * clipboard); download saves the asset; the thumbs are a local visual acknowledgement only (no backend).
  */
-export function ReplyActions({ text }: { text: string }) {
+export function ReplyActions({
+  text,
+  downloadUrl,
+  downloadName,
+}: {
+  text: string;
+  downloadUrl?: string | null;
+  downloadName?: string;
+}) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState<"up" | "down" | null>(null);
 
@@ -49,6 +58,17 @@ export function ReplyActions({ text }: { text: string }) {
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
         )}
       </button>
+      {downloadUrl && (
+        <button
+          type="button"
+          onClick={() => downloadFile(fileUrl(downloadUrl), downloadName || "download").catch(() => {})}
+          aria-label="Download"
+          title="Download"
+          className={btn}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+        </button>
+      )}
     </div>
   );
 }

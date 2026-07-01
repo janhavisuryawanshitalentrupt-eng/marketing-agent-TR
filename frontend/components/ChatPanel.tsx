@@ -7,6 +7,7 @@ import { AssetCard } from "./AssetCard";
 import { Avatar } from "./Avatar";
 import { MyraAvatar } from "./MyraLogo";
 import { ReplyActions } from "./ReplyActions";
+import { RefineChips } from "./RefineChips";
 import { Markdown } from "./Markdown";
 import { useAtMentions, AtMenu, type AtCommand } from "@/lib/atMentions";
 
@@ -166,15 +167,19 @@ export function ChatPanel() {
               </div>
             )}
 
-            {messages.map((m, i) =>
-              m.role === "user" ? (
-                <div key={i} className="flex items-start justify-end gap-2.5">
-                  <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
-                    {m.content}
+            {messages.map((m, i) => {
+              if (m.role === "user") {
+                return (
+                  <div key={i} className="flex items-start justify-end gap-2.5">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-3 text-sm leading-relaxed text-cream">
+                      {m.content}
+                    </div>
+                    <Avatar name={displayName} size={30} />
                   </div>
-                  <Avatar name={displayName} size={30} />
-                </div>
-              ) : (
+                );
+              }
+              const img = m.assets?.find((a) => a.type === "image") || null;
+              return (
                 <div key={i} className="flex items-start gap-2.5">
                   <MyraAvatar />
                   <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
@@ -183,7 +188,6 @@ export function ChatPanel() {
                         {m.content ? <Markdown content={m.content} /> : <Dots />}
                       </div>
                     )}
-                    {m.content && !m.pending && <ReplyActions text={m.content} />}
                     {m.assets && m.assets.length > 0 && (
                       <div className="grid w-full max-w-2xl gap-2">
                         {m.assets.map((a, j) => (
@@ -191,10 +195,20 @@ export function ChatPanel() {
                         ))}
                       </div>
                     )}
+                    {m.content && !m.pending && (
+                      <ReplyActions
+                        text={m.content}
+                        downloadUrl={img?.file_url}
+                        downloadName={(img?.file_url || "").split("/").pop() || undefined}
+                      />
+                    )}
+                    {!m.pending && img && i === messages.length - 1 && (
+                      <RefineChips onPick={submit} disabled={busy} />
+                    )}
                   </div>
                 </div>
-              ),
-            )}
+              );
+            })}
 
             {status && (
               <div className="flex justify-start">

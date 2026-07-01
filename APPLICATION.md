@@ -24,9 +24,10 @@ only: the **content** the app produces is still Talentrupt's (brand grounding, "
   `frontend/out`). Client-side SPA; talks to the backend over `/api`.
 - **Theme:** light is the default (`data-theme="light"`; dark still toggleable). Left navigation/history
   rails are a deep-navy panel via the `.rail` class in `app/globals.css` (it re-scopes theme tokens locally
-  so rail utilities read light-on-navy). Chat replies use a shared reply chrome — `MyraAvatar` (from
-  `MyraLogo.tsx`) + `ReplyActions` (copy / 👍👎) beside each assistant message, user-initials `Avatar` on
-  user messages — consistent across Chat, Create and both campaign chats.
+  so rail utilities read light-on-navy). The Myra mark (`MyraLogo.tsx`) is an app-icon-style navy badge with
+  a coral "M" (self-contained → reads on any surface). Chat replies use a shared reply chrome — `MyraAvatar`
+  beside each assistant message, `ReplyActions` (copy / 👍👎 / download) under it, user-initials `Avatar` on
+  user messages, and `RefineChips` (one-tap image tweaks) under an image reply in Chat/Create.
 - **Backend:** FastAPI + SQLAlchemy 2 + SQLite (WAL). Pydantic-settings reads `backend/.env`.
 - **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-2` (images; auto-falls back to `gpt-image-1` if the key lacks access), `text-embedding-3-small` (RAG).
   Providers are gated: `LLM_PROVIDER`/`IMAGE_PROVIDER` must be `openai` or you get a deterministic fallback.

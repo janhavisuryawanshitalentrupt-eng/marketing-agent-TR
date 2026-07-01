@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## New Myra badge logo + image refine chips (2026-07-01)
+- **New Myra logo.** The Myra mark is now an app-icon-style **navy rounded badge with a coral "M"**
+  (`MyraMark` in `MyraLogo.tsx`) — self-contained so it reads on the white header, the light chat area
+  (as the reply avatar), and the login / loading screens. Only the Myra mark changed; the "Myra" wordmark
+  and everything else are untouched, and the Talentrupt wordmark is NOT shown in the chrome.
+- **One-tap image refine chips.** Under an image reply in Chat and Create you now get quick refinements —
+  **Make it square · Add company logo · Use different colours · More options** (which reveals a few more
+  inline). Each just sends a follow-up prompt the agent already understands, so it re-works the last image.
+- **Download on the reply.** The assistant action row now includes a **download** button when the reply
+  produced a file (alongside copy + 👍/👎). The reply also reorders to text → image → actions → chips,
+  matching the design.
+
 ## Navy-sidebar theme + polished reply UI (2026-07-01)
 - **Deep-navy left rails.** Every navigation/history rail — Chat conversations, Create history, the
   Campaigns list, and the Folders list — is now a deep-navy panel (matching the app design), with a red
