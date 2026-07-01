@@ -84,7 +84,12 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   loop and streams events (meta/status/token/asset/chips/done/error). `mode` ∈ chat | create | campaign.
   A **brief-intake** (`create_intake`) asks a short chip-driven brief before generating a vague asset —
   in Create/Campaign always, and in **Chat** for creation requests (`is_visual_create_request`); an
-  `@mention` short-circuits straight to the person post before the intake.
+  `@mention` short-circuits straight to the person post before the intake. So every chat box that can make
+  an image asks "what kind?" first.
+- **"@" palette (frontend).** All three chat boxes (Chat, Create, internal-campaign studio) share one
+  implementation — `frontend/lib/atMentions.tsx` (`useAtMentions` hook + `<AtMenu>`). Typing `@` lists
+  **People** (Folders employees → feature their real photo) + **Quick actions** (Create image/deck/PDF,
+  Write a post; Chat also has Find prospects). The campaign studio's chat mirrors ChatPanel's layout.
 - `tools.py` — the tool registry + executors (`generate_posts`, `generate_image`, `generate_team_image`,
   `feature_uploaded_person`, `feature_employee` (feature a Folders employee by @name using their real
   photo), `build_deck`, `build_pdf`, `discover_prospects`, `vibe_prospect` (**vibe prospecting** — NL

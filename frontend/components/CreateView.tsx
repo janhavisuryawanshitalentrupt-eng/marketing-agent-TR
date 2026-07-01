@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { deleteAsset, fileUrl, getAllEmployees, getAssets, getKnowledgeStatus, regenerateAsset, uploadBrandFile } from "@/lib/api";
-import type { Asset, Employee, KnowledgeStatus } from "@/lib/types";
+import { deleteAsset, getAssets, getKnowledgeStatus, regenerateAsset, uploadBrandFile } from "@/lib/api";
+import type { Asset, KnowledgeStatus } from "@/lib/types";
 import { useCreate } from "./ChatProvider";
 import { AssetCard } from "./AssetCard";
 import { Markdown } from "./Markdown";
 import { EmptyState } from "./EmptyState";
+import { useAtMentions, AtMenu } from "@/lib/atMentions";
 
 const SUGGESTIONS = [
   "Create an image for data-driven hiring",
@@ -21,9 +22,6 @@ const FILTERS = [
   { key: "deck", label: "Decks" },
   { key: "pdf", label: "Documents" },
 ];
-
-// One entry in the "@" palette — an employee (people) or a quick-action command.
-type AtItem = { key: string; label: string; hint: string; insert: string; kind: "person" | "command"; thumb: string | null };
 
 export function CreateView() {
   const {
@@ -48,37 +46,8 @@ export function CreateView() {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // "@" palette: mention a teammate from the Folders library (feature their real photo) or a quick action.
-  const [menuSel, setMenuSel] = useState(0);
-  const [atDismissed, setAtDismissed] = useState(false);
-  const [people, setPeople] = useState<Employee[]>([]);
-  useEffect(() => { getAllEmployees().then(setPeople).catch(() => {}); }, []);
-  const AT_COMMANDS = [
-    { key: "image", label: "Create image", hint: "generate an image", insert: "Create an image of " },
-    { key: "deck", label: "Create deck", hint: "slide deck", insert: "Create a slide deck about " },
-    { key: "pdf", label: "Create PDF", hint: "document", insert: "Write a PDF document about " },
-  ];
-  const atMatch = atDismissed ? null : input.match(/(^|\s)@(\w*)$/);
-  const atQuery = atMatch ? atMatch[2].toLowerCase() : null;
-  const atMenu: AtItem[] =
-    atQuery === null
-      ? []
-      : [
-          ...people
-            .filter((e) => e.name.toLowerCase().includes(atQuery) || (e.role || "").toLowerCase().includes(atQuery))
-            .slice(0, 6)
-            .map((e) => ({ key: `emp-${e.id}`, label: e.name, hint: e.role || "team member",
-                           insert: `@${e.name} `, kind: "person" as const, thumb: e.file_url ?? null })),
-          ...AT_COMMANDS
-            .filter((c) => c.key.includes(atQuery) || c.label.toLowerCase().includes(atQuery))
-            .map((c) => ({ ...c, kind: "command" as const, thumb: null })),
-        ];
-  const showAtMenu = atMenu.length > 0 && !busy;
-  function pickCommand(c: { insert: string }) {
-    setInput((prev) => prev.replace(/(^|\s)@(\w*)$/, (_m, lead) => lead + c.insert));
-    setMenuSel(0);
-    setAtDismissed(false);
-    requestAnimationFrame(() => taRef.current?.focus());
-  }
+  const { atMenu, showAtMenu, menuSel, setMenuSel, pickCommand, handleAtKey, onInputChange } =
+    useAtMentions(input, setInput, busy, taRef);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -98,12 +67,7 @@ export function CreateView() {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (showAtMenu) {
-      if (e.key === "ArrowDown") { e.preventDefault(); setMenuSel((i) => (i + 1) % atMenu.length); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); setMenuSel((i) => (i - 1 + atMenu.length) % atMenu.length); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickCommand(atMenu[Math.min(menuSel, atMenu.length - 1)]); return; }
-      if (e.key === "Escape") { e.preventDefault(); setAtDismissed(true); return; }
-    }
+    if (handleAtKey(e)) return; // "@" menu handled navigation/selection
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit(input);
@@ -318,41 +282,7 @@ export function CreateView() {
                 )}
                 <div className="relative flex items-end gap-2">
                   {showAtMenu && (
-                    <div className="absolute bottom-full left-0 z-30 mb-2 max-h-80 w-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg">
-                      {atMenu.map((c, i) => {
-                        const prev = atMenu[i - 1];
-                        const header = !prev || prev.kind !== c.kind ? (c.kind === "person" ? "People" : "Quick actions") : null;
-                        const active = i === Math.min(menuSel, atMenu.length - 1);
-                        return (
-                          <div key={c.key}>
-                            {header && (
-                              <div className="border-b border-[var(--border)] px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted">{header}</div>
-                            )}
-                            <button
-                              type="button"
-                              onMouseDown={(e) => { e.preventDefault(); pickCommand(c); }}
-                              onMouseEnter={() => setMenuSel(i)}
-                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
-                                active ? "bg-[var(--surface-2)] text-foreground" : "text-muted hover:bg-[var(--surface-2)]"
-                              }`}
-                            >
-                              {c.kind === "person" ? (
-                                c.thumb ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={fileUrl(c.thumb)} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
-                                ) : (
-                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--brand-navy)] text-[10px] font-semibold text-cream">{c.label.charAt(0)}</span>
-                                )
-                              ) : (
-                                <span className="font-medium text-[var(--brand-red)]">@</span>
-                              )}
-                              <span className="flex-1 truncate">{c.label}</span>
-                              <span className="shrink-0 text-[11px] text-muted">{c.hint}</span>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <AtMenu atMenu={atMenu} menuSel={menuSel} setMenuSel={setMenuSel} pickCommand={pickCommand} />
                   )}
                   <input
                     ref={fileRef}
@@ -376,7 +306,7 @@ export function CreateView() {
                   <textarea
                     ref={taRef}
                     value={input}
-                    onChange={(e) => { setInput(e.target.value); setAtDismissed(false); }}
+                    onChange={(e) => { setInput(e.target.value); onInputChange(); }}
                     onKeyDown={onKeyDown}
                     rows={1}
                     placeholder="Describe the image(s) or presentation… or type @ to feature a teammate"

@@ -3,6 +3,25 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## "@" palette in campaign chat + unified chat UI (2026-07-01)
+- **The "@" mention palette now works in the internal-campaign chat**, exactly like Chat and Create.
+  Type `@` in a campaign's studio and you get **People** (real teammates from the Folders library — mention
+  one to feature their real photo) plus **Quick actions** (Create image / deck / PDF / Write a post). The
+  campaign studio already runs the "what kind of image?" brief-intake (it's on for `mode="campaign"`), so
+  every place you can generate an image now both asks the clarifying question AND offers the `@` shortcuts.
+- **One shared `@` implementation.** The palette logic + dropdown were duplicated in ChatPanel and CreateView;
+  they're now a single module (`lib/atMentions.tsx` — `useAtMentions` hook + `<AtMenu>`), used by all three
+  chat boxes so they can't drift apart. Chat keeps its extra "post"/"prospects" actions; the campaign studio
+  uses image/deck/PDF/post.
+- **Campaign chat UI now matches the other chat sections.** The studio's messages + composer were rebuilt to
+  mirror ChatPanel: an open (un-boxed) message area, a centered `max-w-3xl` column, a top-divider composer,
+  and the same "Enter to send · Shift+Enter · type @…" footer hint + placeholder.
+- **Fixed the horizontal scrollbar in the campaign chat.** Generated asset cards (`DeletableAsset`) lacked
+  `min-w-0`, so a card wouldn't shrink to its grid track and spilled ~90px past the column, forcing a
+  horizontal scrollbar. Added `min-w-0` to the asset wrapper (and to the image/video card title so a long
+  title truncates instead of pushing width). Assets now cap cleanly at the column width — no more sideways
+  scroll.
+
 ## Creative, name-aware headlines + no text overlap (2026-07-01)
 - **The AI writes the copy, not just cleans it up.** For a featured-person post the headline is now written
   creatively from your CONTEXT and uses the person's FIRST NAME — so *"@Pooja welcoming her at talentrupt"*

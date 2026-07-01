@@ -38,6 +38,7 @@ import { AssetCard } from "./AssetCard";
 import { Avatar } from "./Avatar";
 import { EmptyState } from "./EmptyState";
 import { Markdown } from "./Markdown";
+import { useAtMentions, AtMenu, CAMPAIGN_AT_COMMANDS } from "@/lib/atMentions";
 
 type CampaignTab = "internal" | "external";
 
@@ -1053,7 +1054,7 @@ const _seededCampaigns = new Set<number>();
 // An AssetCard with a small delete (trash) control overlaid in the corner — used in the campaign folder.
 function DeletableAsset({ asset, onDelete }: { asset: Asset; onDelete: (a: Asset) => void }) {
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         onClick={() => onDelete(asset)}
         type="button"
@@ -1152,7 +1153,12 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const [editingBrief, setEditingBrief] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const genRef = useRef(0);
+
+  // "@" palette (people from Folders + quick actions) — same behavior as the Chat/Create boxes.
+  const { atMenu, showAtMenu, menuSel, setMenuSel, pickCommand, handleAtKey, onInputChange } =
+    useAtMentions(input, setInput, busy, taRef, CAMPAIGN_AT_COMMANDS);
 
   // Restore the saved thread (with its asset cards). On a brand-new campaign with a brief, AUTO-GENERATE
   // the starter pack from that brief (chat is then for edits); otherwise greet.
@@ -1310,6 +1316,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (handleAtKey(e)) return; // "@" menu handled navigation/selection
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send(input);
@@ -1368,8 +1375,8 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
         </div>
       ) : (
         <>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-            <div className="mx-auto w-full max-w-2xl space-y-5">
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto py-6">
+            <div className="mx-auto w-full min-w-0 max-w-3xl space-y-5 px-1">
               {messages.map((m, i) =>
                 m.role === "user" ? (
                   <div key={i} className="flex justify-end">
@@ -1378,7 +1385,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                     </div>
                   </div>
                 ) : (
-                  <div key={i} className="flex flex-col items-start gap-2">
+                  <div key={i} className="flex min-w-0 flex-col items-start gap-2">
                     {(m.content || m.pending) && (
                       <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
                         {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
@@ -1394,7 +1401,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                       </div>
                     )}
                     {m.assets && m.assets.length > 0 && (
-                      <div className="grid w-full gap-2">
+                      <div className="grid w-full max-w-2xl gap-2">
                         {m.assets.map((a, j) => (
                           <DeletableAsset key={`${a.type}-${a.id}-${j}`} asset={a} onDelete={handleDeleteAsset} />
                         ))}
@@ -1421,40 +1428,49 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
             </div>
           </div>
 
-          <div className="mt-3">
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
-              {(attachments.length > 0 || attaching > 0) && (
-                <div className="flex flex-wrap gap-1.5 px-1 pb-2">
-                  {attachments.map((a) => (
-                    <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-[11px]" title={a.name}>
-                      <span className="max-w-[160px] truncate">{a.name}</span>
-                      <button onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))} className="text-muted hover:text-[var(--brand-red)]" aria-label={`Remove ${a.name}`}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                      </button>
-                    </span>
-                  ))}
-                  {attaching > 0 && <span className="text-[11px] text-muted">Reading file…</span>}
+          <div className="border-t border-[var(--border)] px-1 pt-4">
+            <div className="mx-auto w-full max-w-3xl">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+                {(attachments.length > 0 || attaching > 0) && (
+                  <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+                    {attachments.map((a) => (
+                      <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-[11px]" title={a.name}>
+                        <span className="max-w-[160px] truncate">{a.name}</span>
+                        <button onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))} className="text-muted hover:text-[var(--brand-red)]" aria-label={`Remove ${a.name}`}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                        </button>
+                      </span>
+                    ))}
+                    {attaching > 0 && <span className="text-[11px] text-muted">Reading file…</span>}
+                  </div>
+                )}
+                <div className="relative flex items-end gap-2">
+                  {showAtMenu && (
+                    <AtMenu atMenu={atMenu} menuSel={menuSel} setMenuSel={setMenuSel} pickCommand={pickCommand} />
+                  )}
+                  <input ref={fileRef} type="file" multiple onChange={onPickFiles} className="hidden" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json" />
+                  <button onClick={() => fileRef.current?.click()} disabled={attaching > 0} className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground disabled:opacity-50" aria-label="Attach a photo" title="Attach a photo (to feature a real person)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" /></svg>
+                  </button>
+                  <textarea
+                    ref={taRef}
+                    value={input}
+                    onChange={(e) => { setInput(e.target.value); onInputChange(); }}
+                    onKeyDown={onKeyDown}
+                    rows={1}
+                    placeholder="Refine the content, or type @ for people & quick actions…"
+                    className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+                  />
+                  <button onClick={() => send(input)} disabled={busy || attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                    </svg>
+                  </button>
                 </div>
-              )}
-              <div className="flex items-end gap-2">
-                <input ref={fileRef} type="file" multiple onChange={onPickFiles} className="hidden" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json" />
-                <button onClick={() => fileRef.current?.click()} disabled={attaching > 0} className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground disabled:opacity-50" aria-label="Attach a photo" title="Attach a photo (to feature a real person)">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" /></svg>
-                </button>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  rows={1}
-                  placeholder="Refine the content, or ask for another post / image / deck…"
-                  className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
-                />
-                <button onClick={() => send(input)} disabled={busy || attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                  </svg>
-                </button>
               </div>
+              <p className="mt-2 text-center text-[11px] text-muted">
+                Enter to send · Shift+Enter for a new line · type @ for people &amp; quick actions
+              </p>
             </div>
           </div>
         </>

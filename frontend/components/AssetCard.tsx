@@ -125,7 +125,7 @@ function ImageCard({ asset }: { asset: Asset }) {
         <img src={url} alt={asset.title} className="w-full max-w-sm cursor-zoom-in" />
       </button>
       <div className="flex items-center justify-between gap-2 p-3">
-        <span className="truncate text-xs text-muted">{asset.title}</span>
+        <span className="min-w-0 truncate text-xs text-muted">{asset.title}</span>
         <div className="flex shrink-0 items-center gap-1">
           <button onClick={() => setPreview(true)} type="button" title="View" aria-label="View" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
             <EyeIcon />
@@ -149,7 +149,7 @@ function VideoCard({ asset }: { asset: Asset }) {
         <video src={url} className="w-full max-w-sm" autoPlay loop muted playsInline />
       </button>
       <div className="flex items-center justify-between gap-2 p-3">
-        <span className="truncate text-xs text-muted">{asset.title}</span>
+        <span className="min-w-0 truncate text-xs text-muted">{asset.title}</span>
         <div className="flex shrink-0 items-center gap-1">
           <button onClick={() => setPreview(true)} type="button" title="View" aria-label="View" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
             <EyeIcon />
