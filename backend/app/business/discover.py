@@ -363,6 +363,42 @@ def _filters_clause(f: dict | None) -> str:
     return ("ONLY include companies matching these filters — " + " ".join(parts) + "\n") if parts else ""
 
 
+async def vibe_to_icp(vibe: str) -> dict:
+    """VIBE PROSPECTING: parse a freeform 'ideal client' description into a structured search profile
+    that sharpens discovery. Returns any of: industry, company_size, location, signal, keywords,
+    refined_query, summary. Extracts ONLY what's stated or clearly implied — never invents specifics
+    (the no-fabrication rule). Best-effort: returns {} on error / no provider so discovery can still
+    run on the raw vibe text."""
+    v = (vibe or "").strip()
+    if not v or not llm.provider_available():
+        return {}
+    try:
+        out = await llm.chat_json([
+            {"role": "system", "content":
+             "You convert a freeform description of an IDEAL CLIENT for Talentrupt — an offshore RPO that "
+             "helps companies hire — into a structured company-search profile. Extract ONLY what the user "
+             "states or clearly implies; OMIT any field you're unsure about and NEVER invent specifics. "
+             "Reply as JSON with these optional keys: "
+             "industry (one short sector phrase, e.g. 'healthcare staffing'); "
+             "company_size (e.g. '50-500 employees', 'enterprise', 'startup'); "
+             "location (country / region / city); "
+             "signal (the buying signal implied, e.g. 'scaling hiring fast', 'recently funded', "
+             "'high open-role volume'); "
+             "keywords (comma-separated extra descriptors); "
+             "refined_query (a crisp one-line search query for companies matching the vibe); "
+             "summary (a short plain-English read-back of exactly who we'll target)."},
+            {"role": "user", "content": v},
+        ], temperature=0.3)
+        icp: dict = {}
+        for k in ("industry", "company_size", "location", "signal", "keywords", "refined_query", "summary"):
+            val = (out or {}).get(k)
+            if isinstance(val, str) and val.strip():
+                icp[k] = val.strip()[:200]
+        return icp
+    except Exception:
+        return {}
+
+
 async def discover(
     profile_key: str | None, query: str, count: int = 8,
     filters: dict | None = None, exclude: list[str] | None = None,

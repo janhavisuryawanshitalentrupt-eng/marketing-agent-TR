@@ -527,6 +527,21 @@ export async function discoverProspects(
   return res.json();
 }
 
+// VIBE PROSPECTING: describe the ideal client in natural language → the backend interprets it into a
+// sharp ICP, finds REAL matching companies (fit-scored), and returns the interpretation + the list.
+export async function vibeDiscover(
+  vibe: string,
+  count = 8,
+): Promise<{ icp: Record<string, string>; count: number; opportunities: Opportunity[] }> {
+  const res = await fetch(`${API_BASE}/api/business/vibe-discover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ vibe, count }),
+  });
+  if (!res.ok) throw new Error("Vibe discovery failed");
+  return res.json();
+}
+
 export async function intakeCompany(
   company: string,
   website = "",

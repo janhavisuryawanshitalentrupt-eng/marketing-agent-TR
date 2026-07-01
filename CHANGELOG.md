@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Vibe prospecting (2026-07-01)
+- **Describe your ideal client in plain English → a ranked list of real companies.** A "vibe" layer on
+  top of the existing discovery engine (reuses all the real web-research, fit-scoring, contacts + pipeline):
+  - `business/discover.py:vibe_to_icp()` — an LLM step that interprets a freeform "ideal client"
+    description into a sharp, structured profile (industry, size, location, buying **signal**, keywords)
+    + a plain-English read-back. Extracts only what's stated — never invents specifics (no-fabrication rule).
+  - **Chat / agent:** new `vibe_prospect` tool — e.g. *"vibe: US healthcare groups scaling clinical hiring
+    fast"* → interprets, finds REAL fit-scored companies, ranks by fit, saves to Business Dev, and offers
+    to refine ("smaller companies", "drop staffing agencies"). (Per "every feature is a Chat tool.")
+  - **Business Dev:** a **"✨ Vibe match"** button + a *"Read your vibe as: …"* read-back of the interpreted
+    profile. Plain **Find** and **Analyze** stay.
+  - **External Campaigns:** a campaign's **audience** is now run through the same interpreter to sharpen its
+    client discovery (adds inferred size/location/signal; the vetted sector stays authoritative).
+  - New endpoint `POST /api/business/vibe-discover` (returns the interpreted ICP + the scored list).
+    Real data only — deeper real-time "why now" signals still need a data provider (enrichment is off in prod).
+
 ## Image model → gpt-image-2 (2026-06-30)
 - **Default image model switched to `gpt-image-2`** (OpenAI's latest — now live; it didn't exist when we
   first tried). Verified end-to-end through the app's own pipeline: it returns b64 like gpt-image-1,

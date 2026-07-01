@@ -305,6 +305,46 @@ async def exec_discover_prospects(db, state, brand, args) -> dict:
     return {"summary": summary, "assets": []}
 
 
+async def exec_vibe_prospect(db, state, brand, args) -> dict:
+    """VIBE PROSPECTING: interpret a freeform 'ideal client' description into a sharp ICP, then discover
+    REAL matching companies (fit-scored, with signals + contacts), ranked by fit. Saves to Business Dev."""
+    vibe = (args.get("vibe") or args.get("query") or "").strip()
+    if not vibe:
+        return {"summary": "Describe your ideal client in a sentence — the 'vibe' (e.g. 'US healthcare "
+                "groups scaling clinical hiring fast') — and I'll find and rank real matches.", "assets": []}
+    icp = await bd_discover.vibe_to_icp(vibe)
+    filters = {k: icp[k] for k in ("industry", "company_size", "location", "signal", "keywords") if icp.get(k)}
+    for k in ("industry", "company_size", "location", "keywords"):  # explicit args override the parsed ICP
+        if args.get(k):
+            filters[k] = str(args[k])
+    query = icp.get("refined_query") or vibe
+    try:
+        count = max(1, min(int(args.get("count", 8) or 8), 12))
+    except (TypeError, ValueError):
+        count = 8
+    owner = state.get("owner", "admin")
+    known = [c for (c,) in db.query(Opportunity.company).filter(Opportunity.owner == owner).all() if c]
+    items = await bd_discover.discover(None, query, count=count, filters=filters or None, exclude=known)
+    if not items:
+        return {"summary": "No companies matched that vibe right now — try loosening it (broaden the "
+                "sector or drop a constraint).", "assets": []}
+    saved = [save_opportunity(db, it, owner=owner) for it in items]
+    saved.sort(key=lambda o: -(o.fit_score or 0))
+    lines = []
+    for o in saved:
+        w = o.why or {}
+        contacts = w.get("contacts") or []
+        who = _contact_label(contacts[0]) if contacts else "decision-maker TBD"
+        lines.append(f"- {o.company} — fit {int(o.fit_score)} ({o.segment}). Why now: "
+                     f"{(o.signal or '').strip()[:140]}. Contact: {who}.")
+    head = f"Read your vibe as: {icp['summary']}\n\n" if icp.get("summary") else ""
+    summary = (head + f"Found {len(saved)} matching client(s), ranked by fit — saved to Business Dev:\n"
+               + "\n".join(lines)
+               + "\n\nWant it tighter? Say e.g. 'smaller companies', 'drop staffing agencies', or "
+               "'more like the top one'.")
+    return {"summary": summary, "assets": []}
+
+
 async def exec_analyze_company(db, state, brand, args) -> dict:
     """Analyze one named company as a Talentrupt prospect; save it to Business Dev."""
     company = (args.get("company") or "").strip()
@@ -995,6 +1035,7 @@ EXECUTORS = {
     "build_pdf": exec_build_pdf,
     "search_brand_knowledge": exec_search_brand_knowledge,
     "discover_prospects": exec_discover_prospects,
+    "vibe_prospect": exec_vibe_prospect,
     "analyze_company": exec_analyze_company,
     "list_prospects": exec_list_prospects,
     "list_campaigns": exec_list_campaigns,
@@ -1015,6 +1056,7 @@ EXECUTORS = {
 CHAT_TOOL_NAMES = [
     "search_brand_knowledge",
     "discover_prospects",
+    "vibe_prospect",
     "analyze_company",
     "list_prospects",
     "list_campaigns",
@@ -1061,6 +1103,7 @@ STATUS_LABELS = {
     "build_pdf": "Preparing the document",
     "search_brand_knowledge": "Reviewing past Talentrupt work",
     "discover_prospects": "Searching for matching companies",
+    "vibe_prospect": "Finding clients that match your vibe",
     "analyze_company": "Analyzing the company",
     "list_prospects": "Looking up saved companies",
     "list_campaigns": "Reviewing your campaigns",
@@ -1250,6 +1293,23 @@ TOOL_SCHEMAS = [
             "count": {"type": "integer", "description": "How many companies (1-12, default 6)"},
         },
         []),
+    _fn("vibe_prospect",
+        "VIBE PROSPECTING — build a target client list from a natural-language description of the IDEAL "
+        "customer (the 'vibe'). Call this when the user describes WHO to target in their own words / "
+        "qualitatively — e.g. 'healthcare groups scaling clinical hiring fast', 'well-funded US SaaS "
+        "startups hiring engineers', 'agencies drowning in open roles' — or literally says 'vibe'. It "
+        "interprets the vibe into a sharp profile, finds REAL matching companies (fit-scored, with "
+        "signals + contacts), ranks them by fit, and saves them to Business Dev. Prefer this over "
+        "discover_prospects when the target is descriptive rather than explicit filters.",
+        {
+            "vibe": {"type": "string", "description": "The user's freeform description of their ideal client / who to target."},
+            "count": {"type": "integer", "description": "How many companies (1-12, default 8)."},
+            "industry": {"type": "string", "description": "Optional explicit sector override."},
+            "location": {"type": "string", "description": "Optional explicit location override (defaults to the US)."},
+            "company_size": {"type": "string", "description": "Optional explicit size override."},
+            "keywords": {"type": "string", "description": "Optional extra keywords."},
+        },
+        ["vibe"]),
     _fn("analyze_company",
         "Analyze ONE specific named company as a Talentrupt prospect — fit score, hiring signal, "
         "decision-makers, and whether NOW is a good time to reach out. Saved to Business Dev.",

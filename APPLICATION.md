@@ -40,7 +40,7 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 | **Chat** | All-access assistant with tools (generate content, prospect, read app data) — streams via SSE | all |
 | **Create** | Visual/document generation studio (image / deck / PDF) | all |
 | **Campaigns** | **Internal** (promote Talentrupt: chat-driven content folder grounded in a brief) + **External** (client-targeting: sector → prospects → dated content calendar) | all |
-| **Business Dev** | Find/analyze real hiring companies as prospects; outreach drafts; pipeline tracking | all |
+| **Business Dev** | Find/analyze real hiring companies as prospects (incl. **vibe prospecting** — describe the ideal client in plain English → ranked real list); outreach drafts; pipeline tracking | all |
 | **Folders** | **Reference photo library** of employees (photo + name + role). Feature them in **Create/Chat** by typing **`@`their name** → a post with their **real** photo (never an AI face) | all |
 | **Tasks** | Follow-up reminders | **admin only** |
 | **Analytics** | Pipeline/outreach/content rollup | **admin only** |
@@ -82,7 +82,8 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   loop and streams events (meta/status/token/asset/chips/done/error). `mode` ∈ chat | create | campaign.
 - `tools.py` — the tool registry + executors (`generate_posts`, `generate_image`, `generate_team_image`,
   `feature_uploaded_person`, `feature_employee` (feature a Folders employee by @name using their real
-  photo), `build_deck`, `build_pdf`, `discover_prospects`, `draft_outreach`, etc.). `tools_for(mode)` picks the
+  photo), `build_deck`, `build_pdf`, `discover_prospects`, `vibe_prospect` (**vibe prospecting** — NL
+  ideal-client → `discover.vibe_to_icp` → ranked real companies), `draft_outreach`, etc.). `tools_for(mode)` picks the
   set per section. Every created record is stamped with `state['owner']`, and **every READ tool must
   filter by `state['owner']`** too (e.g. `list_campaigns`/`list_assets`) — otherwise chat leaks another
   account's data and miscounts. `list_campaigns` also splits by `type` (internal vs external) so counts

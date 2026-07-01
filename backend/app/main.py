@@ -1081,6 +1081,16 @@ async def _ensure_campaign_prospects(
             log.info("campaign %s: no sector resolved — purity gate inactive", campaign.id)
         if audience:
             filters["keywords"] = audience
+            # VIBE the campaign's client search: interpret the audience into structured signals
+            # (company size / location / buying-signal) to sharpen discovery. The vetted sector stays
+            # authoritative — we only ADD fields the ICP infers, never override the sector or keywords.
+            try:
+                _icp = await bd_discover.vibe_to_icp(audience)
+                for _k in ("company_size", "location", "signal"):
+                    if _icp.get(_k) and not filters.get(_k):
+                        filters[_k] = _icp[_k]
+            except Exception:
+                pass
         # Discover in up to MAX_FILL_ROUNDS bounded rounds: the purity gate + name-dedupe shrink
         # each batch, and a single web search often names fewer than asked — so over-fetch AND
         # retry (growing `exclude`) until we hit `need` or run dry, rather than leave a thin folder.
@@ -1490,6 +1500,31 @@ async def business_discover(
     )
     saved = [serialize_opportunity(_save_opp(db, d, owner=role)) for d in items]
     return {"count": len(saved), "opportunities": saved}
+
+
+@app.post("/api/business/vibe-discover")
+async def business_vibe_discover(
+    payload: dict, db: Session = Depends(get_db), role: str = Depends(require_auth)
+):
+    """VIBE PROSPECTING: interpret a freeform 'ideal client' description (the vibe) into a sharp ICP,
+    then discover REAL matching companies (fit-scored), ranked by fit. Returns the interpreted ICP +
+    the saved prospects so the UI can show 'here's how I read your vibe' + the list."""
+    vibe = (payload.get("vibe") or "").strip()
+    if not vibe:
+        raise HTTPException(status_code=400, detail="Describe your ideal client (the vibe) first.")
+    icp = await bd_discover.vibe_to_icp(vibe)
+    filters = {k: icp[k] for k in ("industry", "company_size", "location", "signal", "keywords") if icp.get(k)}
+    query = icp.get("refined_query") or vibe
+    try:
+        n = max(1, min(int(payload.get("count", 8) or 8), 12))
+    except (TypeError, ValueError):
+        n = 8
+    # Exclude this account's existing pipeline so a repeat vibe surfaces DIFFERENT firms.
+    known = [c for (c,) in db.query(Opportunity.company).filter(Opportunity.owner == role).all() if c]
+    items = await bd_discover.discover(None, query, count=n, filters=filters or None, exclude=known)
+    saved = [_save_opp(db, d, owner=role) for d in items]
+    saved.sort(key=lambda o: -(o.fit_score or 0))
+    return {"icp": icp, "count": len(saved), "opportunities": [serialize_opportunity(o) for o in saved]}
 
 
 @app.post("/api/business/intake")
