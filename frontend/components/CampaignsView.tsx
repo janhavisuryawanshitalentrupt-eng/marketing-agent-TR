@@ -1062,6 +1062,21 @@ const CAMPAIGN_SEED =
 // Campaign ids already auto-seeded this session (module-level so a dev remount can't double-fire it).
 const _seededCampaigns = new Set<number>();
 
+// Campaigns with a generation running RIGHT NOW. Module-level so it SURVIVES this view unmounting when the
+// user switches campaigns/tabs: the backend keeps generating and saving the asset regardless (the SSE turn
+// runs detached), so instead of the work looking "stopped" we mark it here and, on return, poll the saved
+// thread until the result lands. Cleared when the turn's stream finishes (even if the view is gone).
+const _generatingCampaigns = new Set<number>();
+
+// Map the persisted-thread payload into chat messages (shared by the initial restore + the resume poll).
+function _threadToMessages(d: { messages?: { role: string; content: string; assets?: Asset[] }[] }): ChatMessage[] {
+  return (d.messages || []).map((m) => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.content,
+    assets: m.assets || [],
+  }));
+}
+
 // An AssetCard with a small delete (trash) control overlaid in the corner — used in the campaign folder.
 function DeletableAsset({ asset, onDelete }: { asset: Asset; onDelete: (a: Asset) => void }) {
   return (
@@ -1195,17 +1210,42 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   // the starter pack from that brief (chat is then for edits); otherwise greet.
   useEffect(() => {
     let live = true;
+    let poll: ReturnType<typeof setInterval> | null = null;
+
+    // A generation kicked off in this campaign is still running (the user left and came back). Keep the
+    // "working" state and POLL the saved thread until the turn's stream finishes and its assistant reply +
+    // asset cards are persisted — so switching tabs never loses the in-progress work.
+    const resumeIfGenerating = () => {
+      if (!live || !_generatingCampaigns.has(campaignId)) return;
+      setBusy(true);
+      setStatus("Still generating — this kept running while you were away…");
+      poll = setInterval(async () => {
+        if (!live) return;
+        const finished = !_generatingCampaigns.has(campaignId);
+        try {
+          const d = await getCampaignMessages(campaignId);
+          if (!live) return;
+          const msgs = _threadToMessages(d);
+          if (finished) {                 // the turn's stream closed -> its reply + assets are saved now
+            if (msgs.length) setMessages(msgs);
+            refreshGallery();
+            setBusy(false);
+            setStatus("");
+            if (poll) clearInterval(poll);
+            poll = null;
+          }
+        } catch { /* transient — keep polling */ }
+      }, 2500);
+    };
+
     getCampaignMessages(campaignId)
       .then((d) => {
         if (!live) return;
         if (d.conversation_id) setConversationId(d.conversation_id);
-        const msgs: ChatMessage[] = (d.messages || []).map((m) => ({
-          role: m.role === "user" ? "user" : "assistant",
-          content: m.content,
-          assets: m.assets || [],
-        }));
+        const msgs = _threadToMessages(d);
         if (msgs.length) {
           setMessages(msgs);
+          resumeIfGenerating(); // returning mid-generation -> show "working" + poll for the result
         } else if ((detail.goal || "").trim() && !_seededCampaigns.has(campaignId)) {
           _seededCampaigns.add(campaignId);
           setMessages([]);
@@ -1215,7 +1255,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
         }
       })
       .catch(() => setMessages([CAMPAIGN_GREETING]));
-    return () => { live = false; };
+    return () => { live = false; if (poll) clearInterval(poll); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
@@ -1279,6 +1319,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
     // the prompt — the composer's `attachments` state is cleared after the turn.
     const sentAttachments = attachments.length ? [...attachments] : undefined;
     let gotAsset = false;
+    _generatingCampaigns.add(campaignId); // survives an unmount so a tab switch doesn't look like it stopped
     setBusy(true);
     setStatus("");
     setInput("");
@@ -1347,6 +1388,9 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
         ac.signal,
       );
     } finally {
+      // Clear the module-level flag REGARDLESS of whether this view is still mounted — this runs in the
+      // detached turn too, so a resumed view knows the work is done and can stop polling.
+      _generatingCampaigns.delete(campaignId);
       if (live()) {
         setBusy(false);
         setStatus("");

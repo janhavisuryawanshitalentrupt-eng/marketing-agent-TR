@@ -44,7 +44,7 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 | Section | What it does | Who can see it |
 |---|---|---|
 | **Chat** | The single all-access section: chat + Q&A + prospecting AND image/deck/PDF **generation** (all via tools; streams via SSE). A top toggle **Chat / Your generations** opens the gallery of everything created (filters + regenerate/refine/delete). (Create was merged in; `/create` redirects here. Brand-kit UI removed — brand is backend-only.) | all |
-| **Campaigns** | **Internal** (promote Talentrupt: chat-driven content folder grounded in a brief) + **External** (client-targeting: sector → prospects → dated content calendar) | all |
+| **Campaigns** | **Internal** (promote Talentrupt: chat-driven content folder grounded in a brief) + **External** (client-targeting: sector → prospects → dated content calendar). A generation started in a campaign **keeps running if you switch away** — the SSE turn runs detached and the backend persists the asset; a module-level `_generatingCampaigns` flag + a resume-poll on return surface the result. | all |
 | **Business Dev** | Find/analyze real hiring companies as prospects (incl. **vibe prospecting** — describe the ideal client in plain English → ranked real list); outreach drafts; pipeline tracking | all |
 | **Folders** | **Reference photo library** of employees (photo + name + role). Feature them in **Chat** by typing **`@`their name** → a post with their **real** photo (never an AI face) | all |
 | **Tasks** | Follow-up reminders | **admin only** |
@@ -83,7 +83,9 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The default
   individual post is `build_ai_scene`, which runs in **STRICT FACIAL-CONSISTENCY mode**: it treats the
   reference photo as the single source of truth for the face and adapts **only** the pose, lighting and
-  surroundings. Priority order:
+  surroundings. The exact wording is the canonical `STRICT_FACE_DIRECTIVE` constant (in `teampost.py`, also in
+  `docs/IMAGE-GENERATION.md` + the assistant's memory) — every face-editing prompt reuses it; any new
+  face-editing path must too. Priority order:
   1. **FACESWAP key (strongest):** if a `FACESWAP_API_KEY` (Replicate) is set, it makes a full AI portrait
      (blazer + varied scene) and swaps the person's REAL face onto it via a hosted face-swap API
      (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face** (pixel-exact).

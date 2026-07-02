@@ -3,6 +3,28 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Campaign work continues when you switch tabs (2026-07-02)
+Starting a generation in a campaign and then switching to another campaign/section no longer *looks* like it
+stopped — and now reliably shows the result when you come back:
+- The backend already keeps generating and **saves the asset even if you navigate away** (the SSE turn runs
+  detached; assets are committed to the DB immediately and the assistant reply is persisted when the turn
+  ends). We now **don't tear that down** on view unmount.
+- A generation in progress is tracked in a **module-level registry** (`_generatingCampaigns`) that survives
+  the campaign view unmounting. When you **return to that campaign while it's still generating**, it shows a
+  "Still generating — this kept running while you were away…" status and **polls the saved thread** until the
+  reply + asset cards land, then renders them and refreshes the gallery. If it already finished while you were
+  away, the normal thread restore shows it immediately.
+
+## Strict facial consistency is now the app-wide standard for face images (2026-07-02)
+The user's directive — *"prioritize the facial feature from the provided reference image … maintain the
+subject's identity accurately while only adapting the pose, lighting, and surrounding. Do not alter their
+facial structure."* — is now the single canonical rule for every image path that edits a real face:
+- Centralized as **`STRICT_FACE_DIRECTIVE`** in `teampost.py` (one source of truth) and injected into every
+  person-editing prompt (`_portrait_prompt`, `_phone_portrait_prompt`) — which run through gpt-image-1's
+  `/images/edits` with `input_fidelity='high'`.
+- Documented verbatim in **`docs/IMAGE-GENERATION.md`** (with the rule that any new face-editing path must
+  reuse the constant), and saved to the assistant's memory.
+
 ## Fix: "View" tooltip no longer covers the image (2026-07-02)
 Hovering a generated image popped a native **"View" tooltip right over the picture** (the whole image is a
 click-to-open button that carried `title="View"`). Removed the `title` from the full-image and full-video

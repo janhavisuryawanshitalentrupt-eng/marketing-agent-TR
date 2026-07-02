@@ -1058,6 +1058,21 @@ def _ai_scrim(canvas: Image.Image) -> Image.Image:
     return Image.alpha_composite(canvas.convert("RGBA"), layer).convert("RGB")
 
 
+# CANONICAL identity directive — the user's standing rule for EVERY image path that edits/re-renders a real
+# person's face (saved verbatim in docs/IMAGE-GENERATION.md and the assistant's memory). Any new face-editing
+# prompt MUST prepend this so identity is never altered — only pose/lighting/surroundings change.
+STRICT_FACE_DIRECTIVE = (
+    "STRICT FACIAL CONSISTENCY MODE: treat the provided reference photo as the single source of truth for "
+    "the face and prioritise its facial features for this and all subsequent generation. Maintain the "
+    "subject's identity accurately — preserve their bone structure, face shape and proportions, jawline, "
+    "cheekbones, nose, lips, eyes and eye spacing, eyebrows, skin tone and complexion, hair and hairstyle, "
+    "facial hair, age and gender EXACTLY. Only adapt the POSE, LIGHTING and SURROUNDINGS. Do NOT alter their "
+    "facial structure in any way — do NOT slim, reshape, age, de-age, smooth or beautify the face, and do NOT "
+    "replace them with a different face. The result must be unmistakably the SAME individual, instantly "
+    "recognisable as the person in the reference photo. "
+)
+
+
 # --- AI PORTRAIT: feed the REAL photo into gpt-image-1's edit endpoint so the SAME person is re-posed /
 # re-lit / re-dressed into a VARIED premium scene (identity locked). This is the "best AI picture using the
 # employee's photo" path — every look is different, so posts stop looking identical. Rotating art-directions
@@ -1116,13 +1131,7 @@ def _portrait_prompt(headline: str, question: str, variant: int, theme: str = ""
     return (
         f"Restyle the SAME person from the provided photo into a premium, photorealistic {kind} "
         "social-media portrait. "
-        "STRICT FACIAL CONSISTENCY: treat the provided photo as the single source of truth for the face. "
-        "Prioritise and preserve every facial feature EXACTLY — bone structure, face shape and proportions, "
-        "jawline, cheekbones, nose, lips, eyes and eye spacing, eyebrows, skin tone and complexion, hair and "
-        "hairstyle, facial hair, age and gender. Only adapt the POSE, LIGHTING and SURROUNDINGS. Do NOT alter "
-        "their facial structure in any way, do NOT slim, reshape, age, de-age, smooth or beautify the face, "
-        "and do NOT replace them with a different face. The result must be unmistakably the SAME individual, "
-        "instantly recognisable as the person in the photo. "
+        + STRICT_FACE_DIRECTIVE +
         "EXACTLY ONE PERSON: render only this single individual — do NOT add, invent, duplicate or "
         "hallucinate any other people or extra faces. If the source shows more than one person or is a "
         "graphic/screenshot, focus on the SINGLE main subject only. "
@@ -1179,11 +1188,9 @@ def _phone_portrait_prompt(variant: int) -> str:
     wear = _PHONE_WEAR[variant % len(_PHONE_WEAR)]
     return (
         "Restyle the SAME person from the provided photo into a premium, photorealistic, VERTICAL PORTRAIT "
-        "for a phone screen. STRICT FACIAL CONSISTENCY: treat the provided photo as the source of truth for "
-        "the face — preserve every facial feature EXACTLY (bone structure, face shape, jaw, nose, lips, eyes, "
-        "eyebrows, skin tone, hair, hairstyle, facial hair, age and gender); only adapt pose, lighting and "
-        "surroundings; do NOT alter their facial structure, slim, reshape, smooth or beautify the face, and do "
-        "NOT swap into a different face — unmistakably the SAME individual. EXACTLY ONE PERSON — do NOT add, invent or duplicate any "
+        "for a phone screen. "
+        + STRICT_FACE_DIRECTIVE +
+        "EXACTLY ONE PERSON — do NOT add, invent or duplicate any "
         "other person or extra faces. Compose a CENTERED head-and-shoulders to upper-chest portrait, subject "
         "dead-centre horizontally, facing camera with a calm, confident, approachable expression, shoulders "
         "squared, head in the upper third with generous even headroom and clean side margins so a "
