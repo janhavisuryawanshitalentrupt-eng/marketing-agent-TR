@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Cleaner cut-outs — no more "white shadow" behind the person (2026-07-02)
+Fixed the leftover light-wall patch (the "white shadow" behind a shoulder) and rough edges in the free
+background keyer:
+- **Removes leftover light wall + cast shadow** by keying on low *saturation* (the wall and shadow are
+  neutral greys/whites; skin is warm and hair/dark clothes are dark), so it strips the wall without eating
+  the face — the earlier attempt keyed by colour-distance and punched holes in light skin.
+- **Fills interior holes** (eye-whites, printed shirt text) via a border flood-fill, so no stray background
+  colour shows through the person.
+- Verified on a navy-tee-on-light-wall studio headshot (the Talentrupt photo style): clean cut-out, no wall
+  remnant, face intact, and the composited banner looks professional.
+- *Note:* the free keyer handles the team's studio photos well but a busy/gradient or warm-tinted wall (or
+  light-coloured clothing) can still leave a small edge — the **remove.bg** key (already wired) guarantees a
+  clean cut-out on any photo.
+
 ## Employee posts now ask "what style?" first (2026-07-02)
 - **`@mention` a teammate → it asks the style before generating.** A bare mention (e.g. "create an image of
   @Vaishnav") now replies with a friendly question + tappable chips — **Bold & colourful / Clean & minimal /

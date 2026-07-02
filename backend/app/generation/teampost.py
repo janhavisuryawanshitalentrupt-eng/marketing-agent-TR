@@ -131,8 +131,13 @@ def _key_plain_bg(img: Image.Image):
         mx = arr.max(-1)
         mn = arr.min(-1)
         bright = arr.mean(-1)
-        shadow = (~is_bg) & ((mx - mn) < 24) & (bright > 78) & (bright < 150)
-        is_bg = is_bg | shadow
+        # Remove the person's cast SHADOW and any leftover LIGHT WALL the flood-fill couldn't reach (the exact
+        # "white shadow" patch behind a shoulder). Both are NEUTRAL (low-saturation) greys/whites; skin is WARM
+        # (bigger channel spread) and hair/dark clothes are dark, so gating on low saturation + not-too-dark
+        # strips the wall & shadow without eating the person. (A LIGHT-coloured shirt is the one exception —
+        # use the remove.bg key for those.)
+        neutral = (~is_bg) & ((mx - mn) < 22) & (bright > 74)
+        is_bg = is_bg | neutral
         frac = float(is_bg.mean())
         if frac < 0.10 or frac > 0.92:  # no real subject, or nearly everything keyed -> bail
             return None
@@ -151,6 +156,16 @@ def _key_plain_bg(img: Image.Image):
                 if float(comp.mean()) > 0.05:  # a real subject blob -> keep only it
                     alpha = np.where(comp, 255, 0).astype(np.uint8)
                 break
+        # Fill small ENCLOSED holes the neutral gate opened inside the person (eye-whites, printed shirt text):
+        # flood the true background from a top corner; anything NOT reached from it is the person -> opaque.
+        try:
+            inv = Image.fromarray(alpha, "L").convert("RGB")
+            ImageDraw.floodfill(inv, (0, 0), (7, 8, 9), thresh=40)
+            reached = np.all(np.asarray(inv) == np.array((7, 8, 9)), axis=-1)
+            if float(reached.mean()) > 0.03:  # the corner really was background
+                alpha = np.where(reached, 0, 255).astype(np.uint8)
+        except Exception:
+            pass
         # Despeckle, then ERODE 1px (MinFilter) to cut the light background fringe that causes a 'pasted'
         # halo on a real photo, then a tight feather.
         a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(5))
