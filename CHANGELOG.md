@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Default employee look = the polished AI blazer portrait (2026-07-02)
+Per the user's call, the default featured-employee post is now the **polished AI portrait** (blazer + a
+varied scene — office / studio / golden-hour / bold-brand / rooftop, 8 looks) that gpt-image produces
+(`_build_ai_portrait_banner` → `team_ai_portrait`). Trade-off (accepted): this is a full AI edit, so the
+**face is AI-generated** (a close likeness, not the exact real face). If a `FACESWAP_API_KEY` is set, the
+same look is produced but the person's **real face is swapped on** — so adding the key later restores the
+exact face with no other change. If the image provider is down, it falls back to the real-photo composite,
+then a deterministic template — a post never breaks.
+
 ## Face-swap: the AI-blazer look WITH the exact real face (opt-in) (2026-07-02)
 The best of both — the polished AI portrait (blazer, varied scene) **and** the person's exact real face —
 now possible via an opt-in hosted face-swap step. A single AI pass can't do both (editing the clothes
