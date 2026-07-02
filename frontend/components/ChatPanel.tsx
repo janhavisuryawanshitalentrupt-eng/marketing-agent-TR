@@ -254,6 +254,19 @@ export function ChatPanel() {
                         {m.content ? <Markdown content={m.content} /> : <Dots />}
                       </div>
                     )}
+                    {m.chips && m.chips.length > 0 && !busy && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {m.chips.map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => submit(c)}
+                            className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {m.assets && m.assets.length > 0 && (
                       <div className="grid w-full max-w-2xl gap-2">
                         {m.assets.map((a, j) => (

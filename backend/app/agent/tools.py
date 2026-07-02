@@ -759,15 +759,16 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
                       "In the Spotlight."]
 
 
-async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy"):
-    """Render one featured-person post. 'ai' style / 'photo' skin -> a VARIED gpt-image-2 scene + real
-    cut-out (async); otherwise a deterministic series/legacy template on the given SKIN (light/cream/navy/
-    red — so it isn't navy every time). Both keep the REAL face."""
+async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None):
+    """Render one featured-person post. 'ai' style / 'photo' skin -> a VARIED editorial design + real cut-out
+    (async); otherwise a deterministic series/legacy template on the given SKIN. Both keep the REAL face.
+    `variant` (from the style intake) selects the design; None -> random."""
+    v = variant if variant is not None else random.randint(0, 5)
     if style == "ai" or skin == "photo":
         return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
-                                             question=subline, variant=random.randint(0, 5))
+                                             question=subline, variant=v)
     return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
-                                     question=subline, variant=random.randint(0, 5), style=style, skin=skin)
+                                     question=subline, variant=v, style=style, skin=skin)
 
 
 # Conservative multi-word triggers so the user can request a look ("on white", "cream background",
@@ -1041,6 +1042,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     style_arg = (args.get("style") or "").strip().lower()
     skin_arg = (args.get("skin") or "").strip().lower()
+    try:
+        variant = int(args["variant"]) if args.get("variant") is not None else None  # design chosen in the style intake
+    except (TypeError, ValueError):
+        variant = None
     # SKIN: explicit -> requested-in-message -> rotate (so it's not navy every time; rotation includes an
     # occasional photographic gpt-image-2 scene). STYLE: explicit renderer wins; ai/scene/photo -> photo
     # scene; otherwise auto-detect the reference series from the message.
@@ -1073,9 +1078,11 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
             else:  # only one person available -> feature them individually
                 style = "spotlight_series"
                 path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style,
-                                                     skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False))
+                                                     skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False),
+                                                     variant=variant)
         else:
-            path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style, skin)
+            path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style, skin,
+                                                 variant=variant)
     except Exception:
         return {"summary": "Couldn't build the post — please try again.", "assets": []}
     used_skin = meta.get("skin", skin)

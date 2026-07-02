@@ -65,6 +65,55 @@ def _restrict_campaign_tools(text: str, executors: dict, schemas: list):
 # into the transcript or the next turn's replayed history (raw details are logged server-side).
 ERROR_REPLY = "The assistant hit an error and couldn't finish that — please try again."
 
+# --- Employee-post STYLE intake (ask 'what kind of image?' before featuring a teammate) ------------------
+_EMP_STYLE_CHIPS = ["Bold & colourful", "Clean & minimal", "Photographic scene", "Warm & editorial",
+                    "Surprise me — your call"]
+
+
+def _style_to_variant(text: str):
+    """Map a chosen style (from the chips or free text) to a `build_ai_scene` variant that picks the matching
+    design. Returns None for 'surprise me' / no style cue (then the design is random)."""
+    import random
+    t = (text or "").lower()
+    if any(k in t for k in ("photo", "photographic", "realistic", "real scene", "in a scene")):
+        return 5                                   # photographic gpt-image scene
+    if any(k in t for k in ("minimal", "clean", "simple", "understated", "navy")):
+        return 0                                   # clean deep-navy
+    if any(k in t for k in ("warm", "editorial", "cream", "gold", "soft", "elegant")):
+        return random.choice([2, 4])               # cream / gold / arc
+    if any(k in t for k in ("bold", "colour", "color", "vibrant", "graphic", "coral", "punchy")):
+        return random.choice([1, 3])               # bold coral graphics
+    return None                                    # 'surprise me' / unclear -> random design
+
+
+def _pending_feature_person(history) -> str:
+    """If the most recent assistant turn asked our employee-style question, return the pending person's name
+    (so THIS turn's reply is treated as the style answer and we generate for them). Else ''."""
+    import re
+    last = next((m for m in reversed(history) if m.role == "assistant"), None)
+    if not last:
+        return ""
+    mt = re.search(r"style would you like for (.+?)'s post", (last.content or ""), re.I)
+    return mt.group(1).strip() if mt else ""
+
+
+async def _feature_and_emit(db, state, brand, person, message, variant):
+    """Feature a Folders employee and stream the status/asset/done events. `variant` (or None -> random)
+    selects the design chosen in the style intake."""
+    from .tools import exec_feature_employee
+    yield {"event": "status", "data": STATUS_LABELS.get("feature_employee", "Featuring your team member")}
+    args = {"name": person, "message": message}
+    if variant is not None:
+        args["variant"] = variant
+    try:
+        result = await exec_feature_employee(db, state, brand, args)
+    except Exception as e:
+        log.warning("feature_employee failed: %s", e)
+        result = {"summary": f"Couldn't feature {person} — please try again.", "assets": []}
+    for asset in result.get("assets", []):
+        yield {"event": "asset", "data": asset}
+    yield {"event": "done", "data": result.get("summary") or "Done."}
+
 
 async def run(
     db: Session, conversation_id: int, user_text: str, mode: str = "chat",
@@ -201,8 +250,16 @@ async def run(
     use_attached = bool(attached_imgs) and bool(_re.search(
         r"\buse\s+(?:this|the\s+attached|the\s+uploaded)\b|\bthis\s+(?:photo|image|pic|picture)\b"
         r"|\battached\s+(?:photo|image|pic|picture)\b", user_text, _re.I))
+    # STYLE ANSWER: if the previous turn asked our employee-style question and THIS turn has no new @mention,
+    # treat it as the answer and generate for the pending person in the chosen style.
+    if not attached_imgs and not at:
+        pending = _pending_feature_person(history)
+        if pending:
+            async for ev in _feature_and_emit(db, state, brand, pending, "", _style_to_variant(user_text)):
+                yield ev
+            return
     if at and not use_attached:
-        from .tools import exec_feature_employee
+        from .tools import _clean_headline
         from ..models import Employee
         at_pos = user_text.index("@", at.start())
         after = user_text[at_pos + 1:]
@@ -215,15 +272,17 @@ async def run(
         if emp is not None or not attached_imgs:
             person = emp.name if emp else after.strip()[:60]
             message = ((user_text[:at_pos] + after[len(emp.name):]) if emp else user_text).strip()
-            yield {"event": "status", "data": STATUS_LABELS.get("feature_employee", "Featuring your team member")}
-            try:
-                result = await exec_feature_employee(db, state, brand, {"name": person, "message": message})
-            except Exception as e:
-                log.warning("feature_employee short-circuit failed: %s", e)
-                result = {"summary": f"Couldn't feature {person} — please try again.", "assets": []}
-            for asset in result.get("assets", []):
-                yield {"event": "asset", "data": asset}
-            yield {"event": "done", "data": result.get("summary") or "Done."}
+            # ASK 'what kind of image?' first for a BARE mention (just the name, no direction) in the
+            # interactive chat/create modes; a message with real direction or an explicit style skips ahead.
+            style_v = _style_to_variant(user_text)
+            bare = not _clean_headline(message, person).strip()
+            if bare and style_v is None and mode in ("chat", "create"):
+                yield {"event": "chips", "data": {"items": _EMP_STYLE_CHIPS}}
+                yield {"event": "done",
+                       "data": f"Sure! What style would you like for {person}'s post? Tap one below — or say 'your call'."}
+                return
+            async for ev in _feature_and_emit(db, state, brand, person, message, style_v):
+                yield ev
             return
 
     # BRIEF INTAKE: a vague NEW asset request gets a short conversational nudge + tappable quick-picks

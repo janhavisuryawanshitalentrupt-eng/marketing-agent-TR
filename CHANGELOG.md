@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Employee posts now ask "what style?" first (2026-07-02)
+- **`@mention` a teammate → it asks the style before generating.** A bare mention (e.g. "create an image of
+  @Vaishnav") now replies with a friendly question + tappable chips — **Bold & colourful / Clean & minimal /
+  Photographic scene / Warm & editorial / Surprise me** — and generates the matching design when you pick one
+  (the choice maps to the design variant). A mention that already gives a direction still generates straight
+  away, and the deterministic real-photo routing is unchanged. (Chat/Create only; campaigns keep auto-generating.)
+- **Fixed: the main Chat never rendered intake chips.** The "what kind of image?" quick-picks (this new one
+  AND the existing create-brief) only showed in the Campaign studio — the main Chat showed the question with
+  no tappable options. Chat now renders them.
+
 ## Employee banners: less "fake", genuinely different designs (2026-07-02)
 - **Killed the fake look.** Removed the bright "focal-pocket" glow (the white cloud behind the person),
   softened the rim light to a whisper, and tightened the cut-out edge (an extra 1px erode) so there's no
