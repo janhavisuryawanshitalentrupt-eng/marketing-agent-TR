@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Face-swap: the AI-blazer look WITH the exact real face (opt-in) (2026-07-02)
+The best of both — the polished AI portrait (blazer, varied scene) **and** the person's exact real face —
+now possible via an opt-in hosted face-swap step. A single AI pass can't do both (editing the clothes
+repaints the face), so: gpt-image makes the AI portrait, then a face-swap API pastes the person's REAL face
+onto it (body/clothes/background stay AI, the face is theirs).
+- **New `generation/faceswap.py`** (async, gated by `FACESWAP_API_KEY` — a Replicate token). New
+  `_build_faceswap_banner` in `teampost.py`; `build_ai_scene` uses it when a key is set.
+- **Safe fallback:** with no key (default), or if the swap fails, employee posts stay on the current
+  real-photo composite (exact face, real clothes) — nothing breaks. Heavy insightface/onnxruntime stays OFF
+  the droplet.
+- **To enable:** create a Replicate account, add `FACESWAP_API_KEY` (your Replicate token) as a GitHub
+  Actions secret, redeploy. The deploy injects it (+ `FACESWAP_PROVIDER=replicate`,
+  `FACESWAP_MODEL=cdingram/face-swap`) into the droplet `.env`. Small per-image cost (~a few cents).
+
 ## The employee's REAL face is never changed again — only the design varies (2026-07-02)
 The AI image-to-image path was **repainting the whole person, including the face** — so a featured
 employee came out looking like a *different person*. Reverted: we now keep the **real photo** (face and

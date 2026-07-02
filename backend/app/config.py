@@ -85,6 +85,23 @@ class Settings(BaseSettings):
     bg_removal_provider: str = "none"      # none | removebg | photoroom
     bg_removal_api_key: str = ""
 
+    # --- Employee AI-portrait FACE-SWAP (optional) ---------------------
+    # To make a fully AI portrait (blazer, polished scene) that keeps the person's EXACT real face, the app
+    # generates an AI portrait with gpt-image, then SWAPS the person's real face onto it via a hosted
+    # face-swap API (keeps heavy insightface/onnxruntime OFF the 2GB droplet). "none" -> no face-swap; the
+    # composer keeps the plain real photo (exact face, no AI clothes). "replicate" -> a Replicate face-swap
+    # model. Set the key to enable. The swap keeps the real FACE — only the body/clothes/background are AI.
+    faceswap_provider: str = "none"        # none | replicate
+    faceswap_api_key: str = ""
+    faceswap_model: str = "cdingram/face-swap"   # Replicate "owner/name" (its latest version is used)
+    faceswap_target_key: str = "input_image"     # model input for the AI portrait (WHERE the face goes)
+    faceswap_source_key: str = "swap_image"      # model input for the REAL photo (the face to apply)
+
+    def faceswap_available(self) -> bool:
+        return self.faceswap_provider.strip().lower() not in ("", "none") and bool(
+            self.faceswap_api_key.strip()
+        )
+
     # --- Auth (dev) -----------------------------------------------------
     admin_username: str = "Admin@talentrupt.com"
     admin_password: str = "Admin123"
@@ -135,6 +152,8 @@ class Settings(BaseSettings):
             self.image_provider = "none"
         if not self.enrichment_provider.strip():
             self.enrichment_provider = "none"
+        if not self.faceswap_provider.strip():
+            self.faceswap_provider = "none"
         return self
 
     @property

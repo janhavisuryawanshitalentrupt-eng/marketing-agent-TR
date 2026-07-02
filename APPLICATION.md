@@ -88,9 +88,13 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   AI-generated BACKGROUND (`_scene_prompt` → gpt-image makes the scene only, NO people; the real cut-out /
   framed photo goes on top via `_place_person`). The branded caption (wordmark, red-box keyword headline,
   subline, script "Featuring [Name]" + role badge) sits in a reserved column. **Nothing overrides:**
-  `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced** (`_enhance_photo`). We do
-  NOT use an image-to-image edit on the person (it would repaint — and change — the face). Any failure falls
-  back to a deterministic series template so a post is never broken.
+  `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced** (`_enhance_photo`). By
+  default we do NOT run an image-to-image edit on the person (it would repaint — and change — the face).
+  **OPT-IN face-swap:** if a `FACESWAP_API_KEY` (Replicate) is set, `build_ai_scene` instead makes a full AI
+  portrait (blazer + varied scene) and swaps the person's REAL face onto it via a hosted face-swap API
+  (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face**; on missing key
+  or swap failure it falls straight back to the real-photo composite. Any failure falls back to a
+  deterministic series template so a post is never broken.
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as

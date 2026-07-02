@@ -1217,15 +1217,66 @@ async def _build_scene_banner(brand, photo, name, role, headline, question, vari
     }
 
 
+async def _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword):
+    """FACE-SWAP design (only when a face-swap API key is set) — the AI look WITH the exact real face:
+    gpt-image makes a full AI portrait (blazer + varied environment, `_ai_portrait_canvas`), then a hosted
+    face-swap API pastes the person's REAL face onto it, so the body/clothes/background are AI but the FACE
+    is theirs. Caption on the LEFT over a scrim. Returns (path, fname, meta), or None if the AI portrait or
+    the swap is unavailable (caller falls back to the plain real-photo composite)."""
+    from ..providers import llm
+    from . import faceswap
+    if not (llm.image_provider_available() and faceswap.faceswap_available()):
+        return None
+    edited = await _ai_portrait_canvas(photo, headline, question, variant)   # AI portrait — AI face (fixed next)
+    if edited is None:
+        return None
+    swapped = await faceswap.swap_face(img_to_png_bytes(edited), img_to_png_bytes(photo))  # real face onto it
+    if swapped is None:
+        return None
+    try:
+        scene = _cover_fit(Image.open(io.BytesIO(swapped)).convert("RGB"), W, H)
+    except Exception:
+        return None
+    skin = SKINS["photo"]
+    canvas = _ai_scrim(scene)
+    d = ImageDraw.Draw(canvas)
+    person_left = int(W * 0.50)
+    person_box = (person_left, 0, W, H)
+    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
+    pad = 70
+    hl_w = max(340, person_left - pad - 30)
+    y, head_box = _draw_headline_highlight(d, pad, 92, headline or "On a Mission!", hl_w, skin, keyword=keyword)
+    sub_box = None
+    if question:
+        qf = body_font(34)
+        sy = y + 10
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 290) - (y + 10)) // 44)]:
+            d.text((pad, sy), ln, font=qf, fill=skin.sub)
+            sy += 44
+        sub_box = (pad, y + 10, pad + hl_w, sy)
+    feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin, max_w=hl_w)
+    try:
+        paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=True)
+    except Exception:
+        pass
+    _ensure_clear("ai_faceswap", person_box, head_box, sub_box, feat_box)
+    file_name = unique_name("tr-team", "png")
+    path = storage_subdir("images") / file_name
+    canvas.convert("RGB").save(str(path), "PNG")
+    return str(path), file_name, {
+        "url": public_url("images", file_name), "renderer": "team_ai_faceswap",
+        "style": "ai", "skin": "photo", "size": f"{W}x{H}", "kind": "team", "design": "faceswap",
+    }
+
+
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Featured-employee banner — the DESIGN changes but the FACE never does. The employee's REAL photo is
-    composited into a professional layout (the caption/wordmark kept clear of them, `_ensure_clear`), and
-    the design ROTATES so posts don't look identical:
-      • DESIGN A — a clean PORTRAIT iPhone frame holding the REAL photo (skin colours rotate).
-      • DESIGN B — the REAL person on a VARIED AI-generated BACKGROUND (gpt-image makes the scene, the real
-        cut-out/framed photo goes on top). This is the "change the background, keep the face" look.
-    We NEVER AI-regenerate the person's face (an image-to-image edit would subtly change who they are).
-    Any failure -> a deterministic series template, so a post is never broken."""
+    """Featured-employee banner. The FACE is ALWAYS the person's real face:
+      • If a FACE-SWAP API key is set -> the polished AI look (blazer + varied scene) with the real face
+        swapped on (`_build_faceswap_banner`). This is what "AI pictures without changing the face" needs.
+      • Otherwise -> the real photo composited into a rotating design (no AI clothes, exact face):
+        DESIGN B (real person on a VARIED AI background) ~2/3, DESIGN A (real photo in the iPhone frame) ~1/3.
+    We NEVER let a plain image-to-image edit ship as-is (it repaints — and changes — the face). Any failure
+    -> a deterministic series template, so a post is never broken."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1238,9 +1289,12 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
                                 style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
     try:
         result = None
-        # DESIGN B (real person on an AI background) ~2/3; DESIGN A (iPhone frame) ~1/3 for variety. B falls
-        # through to A if the AI background is unavailable.
-        if variant % 3 != 0:
+        # BEST: AI look (blazer/scene) + EXACT real face — only when a face-swap key is configured.
+        from . import faceswap
+        if faceswap.faceswap_available():
+            result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword)
+        # FALLBACK (no key, or the swap failed): the real photo composited into a rotating design.
+        if result is None and variant % 3 != 0:
             result = await _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword)
         if result is None:
             result = await _build_phone_banner(brand, photo, name, role, headline, question, variant, keyword)

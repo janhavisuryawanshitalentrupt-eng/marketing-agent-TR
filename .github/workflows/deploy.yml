@@ -78,11 +78,18 @@ jobs:
           # framed-card fallback. Keeps heavy rembg OFF the droplet; the API only strips the background.
           BG_REMOVAL_API_KEY: ${{ secrets.BG_REMOVAL_API_KEY }}
           BG_REMOVAL_PROVIDER: ${{ secrets.BG_REMOVAL_PROVIDER }}
+          # OPTIONAL: set FACESWAP_API_KEY (a Replicate token) to enable AI portraits (blazer + polished
+          # scene) that KEEP the employee's EXACT real face — gpt-image makes the AI portrait, then a hosted
+          # face-swap model pastes the real face on. Unset = the plain real-photo composite (exact face, no
+          # AI clothes). Keeps heavy insightface/onnxruntime OFF the droplet.
+          FACESWAP_API_KEY: ${{ secrets.FACESWAP_API_KEY }}
+          FACESWAP_PROVIDER: replicate
+          FACESWAP_MODEL: cdingram/face-swap
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          envs: OPENAI_API_KEY,OPENAI_IMAGE_MODEL,BG_REMOVAL_API_KEY,BG_REMOVAL_PROVIDER
+          envs: OPENAI_API_KEY,OPENAI_IMAGE_MODEL,BG_REMOVAL_API_KEY,BG_REMOVAL_PROVIDER,FACESWAP_API_KEY,FACESWAP_PROVIDER,FACESWAP_MODEL
           script: |
             set -e
             # Rebuild the static UI dir from scratch so DELETED assets don't linger — `tar -x` overlays
@@ -107,11 +114,21 @@ jobs:
               grep -v '^BG_REMOVAL_PROVIDER=' "$E" > "$E.t" 2>/dev/null || true; echo "BG_REMOVAL_PROVIDER=$PROV" >> "$E.t"; mv "$E.t" "$E"
               echo "backend/.env updated (BG_REMOVAL_API_KEY hidden, provider=$PROV)"
             fi
+            # Upsert the face-swap creds too (independent). Skipped if the FACESWAP_API_KEY secret is unset.
+            if [ -n "$FACESWAP_API_KEY" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^FACESWAP_API_KEY=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_API_KEY=$FACESWAP_API_KEY" >> "$E.t"; mv "$E.t" "$E"
+              FSP="${FACESWAP_PROVIDER:-replicate}"
+              grep -v '^FACESWAP_PROVIDER=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_PROVIDER=$FSP" >> "$E.t"; mv "$E.t" "$E"
+              FSM="${FACESWAP_MODEL:-cdingram/face-swap}"
+              grep -v '^FACESWAP_MODEL=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_MODEL=$FSM" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (FACESWAP_API_KEY hidden, provider=$FSP, model=$FSM)"
+            fi
             # CRITICAL: .env is the single source of truth. The CI vars above were only used to
             # (optionally) WRITE .env. Now RE-EXPORT the real OPENAI_* values straight FROM .env so that
             # `pm2 --update-env` OVERWRITES any stale/blank value already stuck on the running process
             # (pm2 --update-env merges, so it won't drop a var on its own). Only export keys that exist.
-            unset OPENAI_API_KEY OPENAI_IMAGE_MODEL BG_REMOVAL_API_KEY BG_REMOVAL_PROVIDER
+            unset OPENAI_API_KEY OPENAI_IMAGE_MODEL BG_REMOVAL_API_KEY BG_REMOVAL_PROVIDER FACESWAP_API_KEY FACESWAP_PROVIDER FACESWAP_MODEL
             ENVF=/root/talentrupt-agent/backend/.env
             # tr -d '\r' guards a CRLF .env: without it the value picks up a trailing \r (e.g.
             # "gpt-image-1\r"), which makes the model name invalid and forces a wasted fallback per image.
@@ -119,6 +136,9 @@ jobs:
             ML="$(grep -E '^OPENAI_IMAGE_MODEL=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$ML" ] && export OPENAI_IMAGE_MODEL="${ML#OPENAI_IMAGE_MODEL=}"
             KR="$(grep -E '^BG_REMOVAL_API_KEY=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$KR" ] && export BG_REMOVAL_API_KEY="${KR#BG_REMOVAL_API_KEY=}"
             PR="$(grep -E '^BG_REMOVAL_PROVIDER=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$PR" ] && export BG_REMOVAL_PROVIDER="${PR#BG_REMOVAL_PROVIDER=}"
+            FK="$(grep -E '^FACESWAP_API_KEY=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FK" ] && export FACESWAP_API_KEY="${FK#FACESWAP_API_KEY=}"
+            FP="$(grep -E '^FACESWAP_PROVIDER=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FP" ] && export FACESWAP_PROVIDER="${FP#FACESWAP_PROVIDER=}"
+            FM="$(grep -E '^FACESWAP_MODEL=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FM" ] && export FACESWAP_MODEL="${FM#FACESWAP_MODEL=}"
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
             pm2 restart myra --update-env
             echo "post-restart health: $(curl -fsS http://127.0.0.1:8100/api/health 2>/dev/null || echo unavailable)"
