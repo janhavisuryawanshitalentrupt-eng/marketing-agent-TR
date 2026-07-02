@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Employee banners: the photo now sits in a clean PORTRAIT iPhone frame (2026-07-02)
+The default employee/`@mention` post is now a premium **portrait phone-mockup** banner, designed by a
+multi-agent "senior graphics team" (4 designers → art-director synthesis).
+- **The portrait iPhone frame.** The employee's identity-locked professional portrait sits inside a clean
+  phone mockup on the right — titanium rail, charcoal bezel, a real dynamic-island notch, soft floating drop
+  shadow and a glass-edge highlight — with the branded caption (wordmark, red-box keyword headline, subline,
+  script "Featuring [Name]" + role badge) in a reserved LEFT column. It reads as a real iPhone on every skin.
+- **The photo inside is a clean, professional portrait.** The person's REAL photo is re-rendered (img2img,
+  `input_fidelity=high`, identity-locked) into a centered, well-lit studio portrait for the screen; if that's
+  unavailable it falls back to the enhanced real photo — either way the mockup carries the polish.
+- **Nothing overrides.** The device and the text column are separated by a provable 64px gutter and validated
+  by `_ensure_clear` (mutually-disjoint bounding boxes) — a hard "nothing overlaps" guarantee. Verified across
+  the light / cream / navy / red skins.
+- **Rotates skins** (not navy every time); the special occasion series (welcome / anniversary / team grid)
+  still fire on their own keywords.
+
 ## Campaign attachments show in chat + @mention wins over an attached reference (2026-07-02)
 - **Attachments now show in the CAMPAIGN studio chat too.** The earlier "attachment shows next to your
   message" fix only covered the main Chat; the campaign studio (`CampaignsView`) had its own chat that still

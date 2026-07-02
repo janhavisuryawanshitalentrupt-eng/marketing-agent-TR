@@ -1029,78 +1029,158 @@ async def _ai_portrait_canvas(photo: Image.Image, headline: str, question: str, 
         return None
 
 
+# --- PORTRAIT iPHONE-FRAME banner (designed by the senior graphics team) ---------------------------
+# The employee's identity-locked professional portrait sits inside a clean phone mockup on the RIGHT; the
+# branded caption lives in a reserved LEFT column with a 64px gutter — provably non-overlapping. The device
+# reads as a real phone on every skin (titanium rail + charcoal bezel), while the bg/text/accent rotate.
+_PHONE_WEAR = [
+    "smart business-casual — a crisp collared shirt",
+    "a sharp modern blazer over a clean top",
+    "polished smart-casual with a subtle fine knit",
+    "a clean tailored blazer, confident and professional",
+]
+
+
+def _phone_portrait_prompt(variant: int) -> str:
+    """Identity-locked CENTERED vertical portrait prompt for the phone screen — clean cream studio backdrop,
+    generous headroom so the rounded crop + dynamic island never clip the face. Slight wardrobe variety."""
+    wear = _PHONE_WEAR[variant % len(_PHONE_WEAR)]
+    return (
+        "Restyle the SAME person from the provided photo into a premium, photorealistic, VERTICAL PORTRAIT "
+        "for a phone screen. CRITICAL IDENTITY LOCK: keep their exact face, facial features, bone structure, "
+        "skin tone, hair, hairstyle, facial hair, age and gender — unmistakably the SAME individual; do NOT "
+        "swap or beautify into a different face. EXACTLY ONE PERSON — do NOT add, invent or duplicate any "
+        "other person or extra faces. Compose a CENTERED head-and-shoulders to upper-chest portrait, subject "
+        "dead-centre horizontally, facing camera with a calm, confident, approachable expression, shoulders "
+        "squared, head in the upper third with generous even headroom and clean side margins so a "
+        "rounded-corner crop will not clip the face or ears. Background: a smooth, uncluttered seamless studio "
+        "backdrop in soft warm off-white / light cream with a single gentle soft shadow and a faint coral-red "
+        "rim glow (Talentrupt palette: deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF) — NO props, "
+        "NO furniture, NO patterns, NO windows. Soft, even, flattering studio key light, gentle catchlights, "
+        f"crisp focus on the eyes, natural skin. {wear}. Tall vertical portrait composition. Absolutely NO "
+        "text, NO words, NO letters, NO logos, NO watermarks, NO borders, NO phone frame or UI — just the "
+        "person on the clean backdrop."
+    )
+
+
+async def _phone_portrait_img(photo: Image.Image, variant: int):
+    """Identity-locked portrait for the phone screen via the image-EDIT endpoint (tall 1024x1536, falling
+    back to 1024x1024). Returns a PIL RGB image or None (caller uses the enhanced real photo instead)."""
+    from ..providers import llm
+    src = photo.copy()
+    src.thumbnail((1024, 1024), Image.LANCZOS)
+    png = img_to_png_bytes(src)
+    for size in ("1024x1536", "1024x1024"):
+        try:
+            data = await llm.generate_image_edit(
+                _phone_portrait_prompt(variant), [png], size=size, input_fidelity="high", mime="image/png")
+            if data:
+                return Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception:
+            continue
+    return None
+
+
+# Device palette — a phone is a dark metallic object, so these stay CONSTANT on every skin (only the bg,
+# text, accent chip and keyword box recolor per skin) so it always reads as a real iPhone.
+_CHASSIS = (0xC9, 0xCE, 0xD6)   # titanium rail
+_BEZEL_DK = (0x0E, 0x14, 0x20)  # charcoal bezel
+
+
+def _place_person_phone(canvas, d, skin, portrait):
+    """Draw the premium PORTRAIT iPhone mockup (right, vertically ~centred) holding `portrait`, and return
+    (person_left, person_box) so all caption text clamps to the LEFT. Geometry per the senior-graphics-team
+    FINAL spec; alpha effects (shadow, glass rim) are composited on RGBA layers so their opacity is honoured."""
+    # soft drop shadow (down-right) BEFORE the device
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle([630, 160, 1058, 1050], radius=72, fill=(0, 0, 0, 150))
+    canvas.paste(sh.filter(ImageFilter.GaussianBlur(30)), (0, 0), sh.filter(ImageFilter.GaussianBlur(30)))
+    # titanium chassis + charcoal bezel
+    d.rounded_rectangle([612, 134, 1040, 1024], radius=72, fill=_CHASSIS)
+    d.rounded_rectangle([620, 142, 1032, 1016], radius=64, fill=_BEZEL_DK)
+    # the portrait fills the screen aperture (rounded so no square corners peek past the bezel)
+    card = _cover_fit(portrait, 396, 858)
+    try:
+        card = card.filter(ImageFilter.UnsharpMask(radius=1.4, percent=90, threshold=3))
+    except Exception:
+        pass
+    mask = Image.new("L", (396, 858), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, 396, 858], radius=56, fill=255)
+    canvas.paste(card, (628, 150), mask)
+    # polished glass + metal rim highlights (need alpha -> RGBA overlay)
+    ov = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    od.rounded_rectangle([630, 152, 1022, 1006], radius=54, outline=(255, 255, 255, 60), width=2)
+    od.rounded_rectangle([610, 132, 1042, 1026], radius=74, outline=(255, 255, 255, 70), width=2)
+    canvas.paste(ov, (0, 0), ov)
+    # dynamic island + camera speck (always dark, reads as a real cut-out)
+    d.rounded_rectangle([780, 178, 872, 200], radius=11, fill=INK)
+    d.ellipse([858, 186, 866, 194], fill=(0x24, 0x34, 0x4E))
+    # subtle side buttons (chassis darkened), hugging the device edges
+    btn = tuple(int(c * 0.7) for c in _CHASSIS)
+    d.rounded_rectangle([1040, 360, 1045, 456], radius=3, fill=btn)
+    d.rounded_rectangle([607, 300, 612, 364], radius=3, fill=btn)
+    d.rounded_rectangle([607, 380, 612, 444], radius=3, fill=btn)
+    # on-brand corner chip on the top bezel band (never over the screen or the text)
+    d.rounded_rectangle([962, 142, 1032, 162], radius=10, fill=skin.accent)
+    return 612, (605, 130, 1046, 1028)
+
+
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Premium AI portrait: the OpenAI key re-renders the SAME person (identity-locked, input_fidelity=high)
-    into a VARIED on-brand scene — new pose/lighting/background/wardrobe every time, so posts stop looking
-    identical. Falls back to the SAFE real cut-out composite (face = original pixels) if the edit refuses,
-    then to a deterministic series template if the provider is down entirely. Branded caption + logo are
-    deterministic overlays on the reserved LEFT, never over the person."""
+    """Premium PORTRAIT iPhone-frame employee banner (senior-graphics-team design): the employee's
+    identity-locked professional portrait — an img2img edit of their REAL photo (input_fidelity=high),
+    with the enhanced real photo as a clean fallback — sits inside a phone mockup on the RIGHT, and the
+    branded caption sits in a reserved LEFT column. NOTHING overlaps (verified by `_ensure_clear`). Rotates
+    across light/cream/navy/red skins so it's never navy every time. Falls back to a deterministic series
+    template on any error, so a post is never broken."""
     from ..providers import llm
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
     except Exception:
         pass
-    photo = _enhance_photo(ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB")))
-    skin = SKINS["photo"]
-
-    # PRIMARY: true image-to-image — the real photo becomes the model INPUT (person re-rendered on the right).
-    edited = await _ai_portrait_canvas(photo, headline, question, variant) if llm.image_provider_available() else None
-    if edited is not None:
-        canvas = _ai_scrim(edited)
-        d = ImageDraw.Draw(canvas)
-        person_left = int(W * 0.50)               # person is baked into the RIGHT half of the pixels
-        person_box = (person_left, 0, W, H)       # reserve it so the caption never geometrically overlaps
-        renderer = "team_ai_portrait"
-    else:
-        # FALLBACK: generate a background only, then composite the untouched REAL cut-out (face = originals).
-        hero = _cutout(photo)
-        bg = None
-        if llm.image_provider_available():
-            try:
-                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
-                if data:
-                    bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
-                    try:  # crisp up any soft/hazy background (matches the generate_image path)
-                        bg = bg.filter(ImageFilter.UnsharpMask(radius=2, percent=130, threshold=2))
-                    except Exception:
-                        pass
-            except Exception:
-                bg = None
-        if bg is None:  # provider down -> deterministic series template on a VARIED skin (still the real face)
-            return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
-                                    style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
-        canvas = _ai_scrim(bg)
-        d = ImageDraw.Draw(canvas)
-        person_left, person_box = _place_person(canvas, d, skin, photo, hero)
-        renderer = "team_ai_scene"
-
-    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
-    pad = 70
-    hl_w = max(340, person_left - pad - 30)  # never let the caption run under the person
-    y, head_box = _draw_headline_highlight(d, pad, 92, headline or "On a Mission!", hl_w, skin, keyword=keyword)
-    sub_box = None
-    if question:
-        qf = body_font(34)
-        sy = y + 10
-        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 290) - (y + 10)) // 44)]:
-            d.text((pad, sy), ln, font=qf, fill=skin.sub)
-            sy += 44
-        sub_box = (pad, y + 10, pad + hl_w, sy)
-    feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin)
     try:
-        paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=True)
-    except Exception:
-        pass
-    _ensure_clear("ai_scene", person_box, head_box, sub_box, feat_box)
+        photo = _enhance_photo(ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB")))
+        skin = resolve_skin(DETERMINISTIC_SKINS[variant % len(DETERMINISTIC_SKINS)])
+        # the clean, centred portrait that goes on the phone SCREEN (identity-locked); raw enhanced photo fallback
+        portrait = await _phone_portrait_img(photo, variant) if llm.image_provider_available() else None
+        if portrait is None:
+            portrait = photo
 
-    file_name = unique_name("tr-team", "png")
-    path = storage_subdir("images") / file_name
-    canvas.convert("RGB").save(str(path), "PNG")
-    return str(path), file_name, {
-        "url": public_url("images", file_name), "renderer": renderer,
-        "style": "ai", "skin": "photo", "size": f"{W}x{H}", "kind": "team",
-    }
+        canvas = Image.new("RGB", (W, H), skin.bg)
+        d = ImageDraw.Draw(canvas)
+        _paint_scene_bg(canvas, d, skin, variant)                 # rail + subtle accents (kept off the frame)
+        person_left, person_box = _place_person_phone(canvas, d, skin, portrait)
+
+        pad, hl_w = 70, 478                                        # 64px gutter to the device at x=612
+        wm_box = (pad, 132, pad + 230, 176)
+        try:
+            paste_wordmark(canvas, pad, 132, 230, 44, dark_bg=skin.wm_dark)
+        except Exception:
+            wm_box = None
+        y, head_box = _draw_headline_highlight(d, pad, 232, headline or "In the Spotlight.", hl_w, skin,
+                                               keyword=keyword, size=96, max_lines=3)
+        sub_box = None
+        if question:
+            qf = body_font(30)
+            sy = y + 16
+            for ln in _wrap(d, question, qf, hl_w)[: max(1, (724 - sy) // 40)]:
+                d.text((pad, sy), ln, font=qf, fill=skin.sub)
+                sy += 40
+            sub_box = (pad, y + 16, pad + hl_w, sy)
+        feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin, max_w=hl_w)
+        _ensure_clear("phone_" + skin.key, person_box, head_box, sub_box, feat_box, wm_box)
+
+        file_name = unique_name("tr-team", "png")
+        path = storage_subdir("images") / file_name
+        canvas.convert("RGB").save(str(path), "PNG")
+        return str(path), file_name, {
+            "url": public_url("images", file_name), "renderer": "team_phone_portrait",
+            "style": "ai", "skin": skin.key, "size": f"{W}x{H}", "kind": "team",
+        }
+    except Exception:  # never crash a post -> deterministic series template (still the real face)
+        return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
+                                style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
 
 
 def render_if_person(brand, concept: str, count: int = 1):

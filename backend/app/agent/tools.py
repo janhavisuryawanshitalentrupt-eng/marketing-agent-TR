@@ -1050,7 +1050,11 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     elif style_arg in ("ai", "scene", "photo"):
         style, skin = "ai", "photo"
     else:
-        style = teampost.detect_series(raw_msg)  # spotlight_series | welcome | anniversary | grid
+        # Default individual feature -> the premium PORTRAIT iPhone-frame banner (build_ai_scene: an
+        # identity-locked pro portrait inside a clean phone mockup, rotating skins). Keep the special
+        # OCCASION series (welcome / anniversary / grid) when the message clearly calls for one.
+        series = teampost.detect_series(raw_msg)  # spotlight_series | welcome | anniversary | grid
+        style = "ai" if series == "spotlight_series" else series
     try:
         if style == "grid":  # 'One Year Strong' grid — needs several employees for this account
             people = [e for e in db.query(Employee).filter(Employee.owner == owner).all() if e.photo_path]
