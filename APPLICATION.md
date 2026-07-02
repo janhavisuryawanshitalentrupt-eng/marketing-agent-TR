@@ -104,6 +104,14 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   4. **Deterministic series template (never-broken):** any failure falls back to a deterministic template.
   **Nothing overrides:** `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced**
   (`_enhance_photo`).
+  **CAMPAIGN mode** (an asset generated inside a campaign) changes two things: (a) the campaign brief is passed
+  as a `theme` down through `build_ai_scene` → `_portrait_prompt`/`_scene_prompt`, so the employee is staged in
+  the campaign's world (a Football brief → on a pitch in kit); and (b) the on-image name label is suppressed
+  (`name=""`), per the "no names on campaign images" rule. Generic campaign scenes (`images.build_images`, via
+  `exec_generate_image`) additionally get the account's real employee photos (`team_photos`): the planner flags
+  each variation `has_people`, and every people-variation is rendered as a REAL employee (rotating the roster)
+  in the themed scene — never a random AI face — while object/scenery/data variations stay AI-generated. In
+  plain Chat/Create there's no forced theme, names stay, and scenes stay generic.
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as

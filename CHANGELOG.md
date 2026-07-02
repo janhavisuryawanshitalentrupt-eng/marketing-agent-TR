@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Campaign images: on-theme, real employee faces, no name labels (2026-07-02)
+Two fixes for the **internal campaign** image flow, so generated images match the campaign and show YOUR team:
+- **Employee images now follow the campaign theme.** When you feature a teammate inside a campaign, the
+  campaign brief becomes the scene: the person is re-posed/re-lit into an environment that reflects the
+  theme (a Football campaign → on a pitch in sporty kit; a Diwali campaign → festive decor), with wardrobe to
+  match — instead of the old fixed office/studio "look". The face stays locked to their real photo (only
+  pose/lighting/surroundings change). Threaded via a new `theme` arg through `build_ai_scene` →
+  `_portrait_prompt` / `_scene_prompt` and `exec_feature_employee` (reads `state["campaign_brief"]`).
+- **No random AI faces in campaign scenes — real employees instead.** The generic campaign image planner now
+  flags which variations depict people (`has_people`), and for those the app swaps in a REAL employee
+  (rotating through your roster) placed in the campaign-themed scene — never an invented face. Object/scenery/
+  data images stay AI-generated. Wired through `images.build_images(team_photos=…, theme=…)` +
+  `exec_generate_image` (campaign mode only; Chat/Create keep generic scenes).
+- **No names on campaign images.** The on-image "Featuring [Name]" label and role badge are suppressed for
+  every campaign image (single feature, grid, and generic scenes) — the caption/headline and wordmark remain.
+  (Chat/Create posts still show the name.)
+
 ## Strict facial-consistency mode is now the default for employee AI images (2026-07-02)
 Employee-featured images now regenerate the **pose, lighting and surroundings** with AI while locking the
 **face to the reference photo** — the strongest identity preservation the image API offers:

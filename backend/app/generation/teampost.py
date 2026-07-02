@@ -1022,10 +1022,15 @@ _SCENE_TYPES = [
 ]
 
 
-def _scene_prompt(headline: str, question: str, variant: int) -> str:
-    scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
+def _scene_prompt(headline: str, question: str, variant: int, theme: str = "") -> str:
+    theme = (theme or "").strip()
+    # A campaign brief DRIVES the backdrop subject/setting (e.g. football -> a stadium/pitch); with no theme
+    # we rotate a generic on-brand mood. Either way it's a PEOPLE-FREE background (the person is composited on).
+    scene = (f'a setting that clearly reflects this campaign theme — "{theme[:160]}" — its real-world '
+             "location, objects and atmosphere (but with NO people in it)" if theme
+             else _SCENE_TYPES[variant % len(_SCENE_TYPES)])
     # NOTE: deliberately do NOT feed the literal headline/message into the prompt — gpt-image tends to
-    # RENDER it as ghost text in the background despite "NO text". We only steer a generic on-brand MOOD.
+    # RENDER it as ghost text in the background despite "NO text". We only steer the SETTING + on-brand MOOD.
     return (
         f"A richly designed, premium social-media BACKGROUND graphic for a corporate post: {scene}. "
         "Warm, professional, celebratory on-brand mood (welcome, teamwork, growth, a milestone), tasteful. "
@@ -1077,14 +1082,39 @@ _PORTRAIT_LOOKS = [
 ]
 
 
-def _portrait_prompt(headline: str, question: str, variant: int) -> str:
+def _portrait_prompt(headline: str, question: str, variant: int, theme: str = "") -> str:
     """Art-direct one identity-locked portrait edit. `variant` rotates the look so consecutive posts for the
-    same person differ. The person is composed RIGHT so the deterministic caption/wordmark sit clean LEFT."""
-    look = _PORTRAIT_LOOKS[variant % len(_PORTRAIT_LOOKS)]
+    same person differ. The person is composed RIGHT so the deterministic caption/wordmark sit clean LEFT.
+    `theme` (a campaign brief/topic) DRIVES the surroundings + wardrobe when set — so a Football campaign puts
+    them on a pitch in kit, a Diwali campaign in festive decor, etc. (only pose/lighting/surroundings change;
+    the face is still locked). When there's no theme it falls back to a rotating premium corporate look."""
     msg = " ".join(x for x in (headline, question) if x).strip()
-    theme = (f' The post celebrates: "{msg[:100]}" — let the mood echo it tastefully.' if msg else "")
+    celebrate = (f' The post celebrates: "{msg[:100]}" — let the mood echo it tastefully.' if msg else "")
+    theme = (theme or "").strip()
+    if theme:
+        setting = (
+            f'in an environment that clearly and literally reflects this CAMPAIGN THEME: "{theme[:200]}". '
+            "Build the backdrop, location, props and activity around THAT theme so the scene is unmistakably "
+            "on-topic (e.g. a football campaign -> on a real football pitch / stadium with a ball; a Diwali "
+            "campaign -> warm festive lights, diyas and decor; a wellness campaign -> a calm bright studio). "
+            "Give them a natural, confident pose that suits the theme"
+        )
+        wardrobe = (
+            "WARDROBE: dress them appropriately FOR THE CAMPAIGN THEME above — sporty kit, festive, smart-"
+            "casual or formal exactly as the theme demands — NOT a default business blazer unless the theme "
+            "itself is corporate. "
+        )
+        kind = "themed campaign"
+    else:
+        setting = _PORTRAIT_LOOKS[variant % len(_PORTRAIT_LOOKS)]
+        wardrobe = (
+            "WARDROBE: dress them in a sharp, well-fitted business BLAZER — a navy or charcoal suit jacket over "
+            "a crisp collared shirt (an optional tie), executive and polished, like a premium corporate headshot "
+            "(do NOT leave them in a plain t-shirt or casual wear). "
+        )
+        kind = "corporate"
     return (
-        "Restyle the SAME person from the provided photo into a premium, photorealistic corporate "
+        f"Restyle the SAME person from the provided photo into a premium, photorealistic {kind} "
         "social-media portrait. "
         "STRICT FACIAL CONSISTENCY: treat the provided photo as the single source of truth for the face. "
         "Prioritise and preserve every facial feature EXACTLY — bone structure, face shape and proportions, "
@@ -1096,10 +1126,8 @@ def _portrait_prompt(headline: str, question: str, variant: int) -> str:
         "EXACTLY ONE PERSON: render only this single individual — do NOT add, invent, duplicate or "
         "hallucinate any other people or extra faces. If the source shows more than one person or is a "
         "graphic/screenshot, focus on the SINGLE main subject only. "
-        f"Re-pose, re-light and re-stage them for the best professional look: place them {look}.{theme} "
-        "WARDROBE: dress them in a sharp, well-fitted business BLAZER — a navy or charcoal suit jacket over "
-        "a crisp collared shirt (an optional tie), executive and polished, like a premium corporate headshot "
-        "(do NOT leave them in a plain t-shirt or casual wear). "
+        f"Re-pose, re-light and re-stage them for the best look: place them {setting}.{celebrate} "
+        + wardrobe +
         "COMPOSITION: a clean 1:1 square; compose the person on the RIGHT with their head in the upper-right; "
         "keep the LEFT ~40% as calm, softly-lit, uncluttered negative space for a caption. Talentrupt brand "
         "palette — deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — used tastefully, and VARY the "
@@ -1108,16 +1136,17 @@ def _portrait_prompt(headline: str, question: str, variant: int) -> str:
     )
 
 
-async def _ai_portrait_canvas(photo: Image.Image, headline: str, question: str, variant: int):
+async def _ai_portrait_canvas(photo: Image.Image, headline: str, question: str, variant: int, theme: str = ""):
     """Re-render the SAME person (identity-locked) into a varied premium scene via the image-EDIT endpoint.
-    Returns a 1080 RGB canvas with the person baked in, or None on failure/moderation refusal so the caller
-    falls back to the safe real cut-out composite."""
+    `theme` (a campaign brief) steers the surroundings/wardrobe to match the campaign. Returns a 1080 RGB
+    canvas with the person baked in, or None on failure/moderation refusal so the caller falls back to the
+    safe real cut-out composite."""
     from ..providers import llm
     try:
         src = photo.copy()
         src.thumbnail((1024, 1024), Image.LANCZOS)  # ample detail for the face; keeps the upload snappy
         data = await llm.generate_image_edit(
-            _portrait_prompt(headline, question, variant), [img_to_png_bytes(src)],
+            _portrait_prompt(headline, question, variant, theme), [img_to_png_bytes(src)],
             size="1024x1024", input_fidelity="high", mime="image/png",
         )
         if not data:
@@ -1357,7 +1386,7 @@ def _overlay_ai_scene(scene, name, role, headline, question, keyword, renderer):
     }
 
 
-async def _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword):
+async def _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme=""):
     """DEFAULT AI look (STRICT FACIAL CONSISTENCY) — gpt-image-1's image-EDIT endpoint with
     input_fidelity='high' re-poses/re-lights/re-stages the SAME person into a polished portrait (blazer + a
     VARIED environment: office / studio / golden-hour / bold-brand / rooftop / …, 8 looks) while preserving
@@ -1367,13 +1396,13 @@ async def _build_ai_portrait_banner(brand, photo, name, role, headline, question
     from ..providers import llm
     if not llm.image_provider_available():
         return None
-    scene = await _ai_portrait_canvas(photo, headline, question, variant)
+    scene = await _ai_portrait_canvas(photo, headline, question, variant, theme)
     if scene is None:
         return None
     return _overlay_ai_scene(scene, name, role, headline, question, keyword, "team_ai_portrait")
 
 
-async def _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword):
+async def _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme=""):
     """FACE-SWAP upgrade (only when a FACESWAP key is set) — the SAME polished AI portrait, but with the
     person's EXACT real face swapped on (body/clothes/background AI, FACE real). Returns (path,fname,meta),
     or None if the provider/key/swap is unavailable (caller uses the plain AI portrait)."""
@@ -1381,7 +1410,7 @@ async def _build_faceswap_banner(brand, photo, name, role, headline, question, v
     from . import faceswap
     if not (llm.image_provider_available() and faceswap.faceswap_available()):
         return None
-    edited = await _ai_portrait_canvas(photo, headline, question, variant)
+    edited = await _ai_portrait_canvas(photo, headline, question, variant, theme)
     if edited is None:
         return None
     swapped = await faceswap.swap_face(img_to_png_bytes(edited), img_to_png_bytes(photo))  # real face onto it
@@ -1569,10 +1598,11 @@ def _finish_editorial(canvas, renderer):
     }
 
 
-async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword):
+async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme=""):
     """PREMIUM EDITORIAL composite — the REAL cut-out person integrated into a gpt-image editorial scene
-    (graded/grounded/rim-lit, NO frame), with a rotating dynamic layout. The FACE is never changed. Returns
-    (path, fname, meta), or None on failure."""
+    (graded/grounded/rim-lit, NO frame), with a rotating dynamic layout. The FACE is never changed. `theme`
+    (a campaign brief) steers the photographic backdrop to match the campaign. Returns (path, fname, meta),
+    or None on failure."""
     from ..providers import llm
     skin = SKINS["photo"]
     template = int(variant) % 6          # 6 distinct designs (0-4 = bold graphic, 5 = photographic scene)
@@ -1581,11 +1611,13 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
     kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
     # background: mostly a BOLD graphic poster (instant + looks designed, not a fake composite); occasionally
     # a gpt-image photographic scene for depth.
-    photo_bg = template == 5 and llm.image_provider_available()
+    # With a campaign THEME set, always use a photographic themed backdrop (so the scene matches the campaign)
+    # rather than a flat brand-graphic plate.
+    photo_bg = (template == 5 or bool((theme or "").strip())) and llm.image_provider_available()
     bg = None
     if photo_bg:
         try:
-            data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
+            data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme), size="1024x1024")
             if data:
                 bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
         except Exception:
@@ -1666,9 +1698,12 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
                       "OUR PEOPLE", ""]
 
 
-async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
+async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
+                         keyword="", theme=""):
     """Featured-employee banner in STRICT FACIAL-CONSISTENCY mode — the reference photo is the source of
-    truth for the face; only pose/lighting/surroundings are adapted:
+    truth for the face; only pose/lighting/surroundings are adapted. `theme` (a campaign brief) drives those
+    surroundings/wardrobe so the person is placed in the campaign's world; pass name="" to omit the on-image
+    name label (e.g. campaign images).
       • If a FACESWAP key is set -> the AI portrait (blazer/scene) with the person's EXACT real face swapped
         on (`_build_faceswap_banner`) — the strongest identity guarantee.
       • Otherwise (default) -> an identity-LOCKED AI portrait via the image-EDIT endpoint
@@ -1691,11 +1726,11 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         from . import faceswap
         result = None
         if faceswap.faceswap_available():   # AI scene + EXACT real face (opt-in, strongest lock)
-            result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword)
+            result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is None:                  # DEFAULT: identity-locked AI edit (strict facial consistency)
-            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword)
+            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is None:                  # SAFETY: real cut-out composite (face is exactly theirs)
-            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword)
+            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result
     except Exception:

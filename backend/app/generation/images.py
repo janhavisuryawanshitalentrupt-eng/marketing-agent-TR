@@ -104,6 +104,9 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             'topic -> a calm figure mid-pose at sunrise; a FOOTBALL topic -> players/ball/pitch). It MUST '
             'be on-topic and literal; NEVER generic office filler or an unrelated/off-theme scene.\n'
             '- "bg": "navy" or "cream"\n'
+            '- "has_people": true if the image would DEPICT one or more human figures/people (a portrait, a '
+            'team, players on a pitch, a person at a desk); false for pure object, scenery, data, UI or '
+            'illustration images with no human subject\n'
             '- "headline": <= 10 words, punchy, matches the topic\n'
             '- "subtext": one short supporting line (<= 14 words)\n'
             '- "metric": a number/percent string for layout "metric" ONLY, and ONLY if a real '
@@ -255,6 +258,9 @@ def _coerce(v: dict, concept: str, brand: Brand | None, force_style: str | None 
         "left": v.get("left") if layout == "comparison" else None,
         "right": v.get("right") if layout == "comparison" else None,
         "cta": (v.get("cta") or "See Talentrupt in action  →").strip(),
+        # True if the image depicts human figures — lets a campaign swap in a REAL employee (never a random
+        # AI face). editorial_collage always centres a person; otherwise trust the planner's flag.
+        "has_people": bool(v.get("has_people", style == "editorial_collage")),
     }
 
 
@@ -715,7 +721,7 @@ async def _openai_image(
 # --- Public API -----------------------------------------------------------
 async def build_images(
     brand: Brand | None, campaign: Campaign | None, concept: str, count: int = 1,
-    style: str | None = None, brief: str = "",
+    style: str | None = None, brief: str = "", team_photos: list[bytes] | None = None, theme: str = "",
 ) -> list[tuple[str, str, dict]]:
     # HARD FACE GUARD (single chokepoint for every image path — generate/refine/campaign): if the
     # concept names a real Talentrupt person, render their REAL photo and NEVER reach gpt-image-1.
@@ -725,6 +731,10 @@ async def build_images(
         return guarded
     count = max(1, min(count, 4))
     brief = (brief or "").strip()
+    # In a campaign, any variation that would show PEOPLE is rendered as a REAL employee (rotating through
+    # the roster) placed in the campaign-themed scene — never a random AI face, and with no name label.
+    team_photos = list(team_photos or [])
+    scene_theme = (theme or brief or concept or "").strip()
     # CAMPAIGN images must be grounded in the campaign BRIEF — NOT Talentrupt's generic RPO corpus.
     # retrieve.brand_context/image_references pull from one shared RPO/holiday past-post library, so
     # for a non-RPO campaign (cricket, football) they bleed "RPO Done Right" taglines and cross-topic
@@ -737,13 +747,34 @@ async def build_images(
     use_openai = llm.image_provider_available()
     results: list[tuple[str, str, dict]] = []
 
+    # Pre-assign a real employee photo to each people-variation (rotating), so the substitution is stable
+    # across the parallel gather below.
+    emp_for: dict[int, bytes] = {}
+    if team_photos:
+        pi = 0
+        for i, p in enumerate(plans):
+            if p.get("has_people"):
+                emp_for[i] = team_photos[pi % len(team_photos)]
+                pi += 1
+
+    async def _employee_scene(i: int, p: dict):
+        """Render a real employee into the campaign-themed scene (no name label)."""
+        return await teampost.build_ai_scene(
+            brand, emp_for[i], name="", role="", headline=p.get("headline", ""),
+            question=p.get("subtext", ""), variant=i, theme=scene_theme)
+
     if use_openai:
         # References only help the rich styles; they flatten clean infographic/typographic. NEVER attach
         # past-post images for a campaign image (they leak off-theme/RPO subjects).
         needs_refs = any(p.get("style") in RICH_STYLES for p in plans)
         refs = [] if brief else (_load_references(await retrieve.image_references(concept, n=3)) if needs_refs else [])
 
-        async def one(p: dict):
+        async def one(i: int, p: dict):
+            if i in emp_for:  # people-scene -> real employee, themed, no name
+                try:
+                    return await _employee_scene(i, p)
+                except Exception:
+                    pass  # fall through to the normal AI scene on any failure
             use_refs = refs if p.get("style") in RICH_STYLES else []
             res = await _openai_image(p, concept, context, use_refs, brief=brief)
             if res is None:  # API failed -> compositor fallback (never fake)
@@ -753,11 +784,14 @@ async def build_images(
                     return None
             return res
 
-        results = [r for r in await asyncio.gather(*[one(p) for p in plans]) if r]
+        results = [r for r in await asyncio.gather(*[one(i, p) for i, p in enumerate(plans)]) if r]
     else:
-        for p in plans:
+        for i, p in enumerate(plans):
             try:
-                results.append(_render(p))
+                if i in emp_for:  # real employee composite still works offline (graphic plate + real cut-out)
+                    results.append(await _employee_scene(i, p))
+                else:
+                    results.append(_render(p))
             except Exception:
                 continue
     return results

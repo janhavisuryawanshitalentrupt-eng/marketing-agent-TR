@@ -162,8 +162,22 @@ async def exec_generate_image(db, state, brand, args) -> dict:
         count = max(1, min(int(args.get("count", 1) or 1), 3))
     except (TypeError, ValueError):
         count = 1
+    brief = state.get("campaign_brief", "")
+    # CAMPAIGN mode: hand the builder this account's real employee photos so any people-scene shows a REAL
+    # teammate (rotating), never a random AI face. Only in a campaign (Chat/Create keep generic scenes).
+    team_photos: list[bytes] = []
+    if state.get("campaign_id") is not None:
+        owner = state.get("owner", "admin")
+        for e in db.query(Employee).filter(Employee.owner == owner).all():
+            if not e.photo_path:
+                continue
+            try:
+                with open(e.photo_path, "rb") as f:
+                    team_photos.append(f.read())
+            except Exception:
+                continue
     rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"),
-                                         brief=state.get("campaign_brief", ""))
+                                         brief=brief, team_photos=team_photos, theme=brief)
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
@@ -759,14 +773,15 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
                       "In the Spotlight."]
 
 
-async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None):
-    """Render one featured-person post. 'ai' style / 'photo' skin -> a VARIED editorial design + real cut-out
-    (async); otherwise a deterministic series/legacy template on the given SKIN. Both keep the REAL face.
-    `variant` (from the style intake) selects the design; None -> random."""
+async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None, theme=""):
+    """Render one featured-person post. 'ai' style / 'photo' skin (or a campaign `theme`) -> a VARIED editorial
+    design + real cut-out (async), with the theme steering the surroundings; otherwise a deterministic
+    series/legacy template on the given SKIN. Both keep the REAL face. `variant` (from the style intake)
+    selects the design; None -> random. Pass name="" to omit the on-image name label."""
     v = variant if variant is not None else random.randint(0, 5)
-    if style == "ai" or skin == "photo":
+    if style == "ai" or skin == "photo" or (theme or "").strip():
         return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
-                                             question=subline, variant=v)
+                                             question=subline, variant=v, theme=theme)
     return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
                                      question=subline, variant=v, style=style, skin=skin)
 
@@ -1040,6 +1055,13 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     raw_msg = (args.get("message") or "").strip()
     message = await _polish_headline(_clean_headline(raw_msg, match.name), match.name)
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
+    # CAMPAIGN mode: the campaign brief becomes the THEME that drives the employee's scene (football pitch,
+    # festive decor, …), and the on-image NAME label is suppressed (the user asked for no names on campaign
+    # images). In plain Chat/Create the name label stays and there's no forced theme.
+    in_campaign = state.get("campaign_id") is not None
+    theme = (state.get("campaign_brief", "") or "").strip() if in_campaign else ""
+    render_name = "" if in_campaign else match.name
+    render_role = "" if in_campaign else match.role
     style_arg = (args.get("style") or "").strip().lower()
     skin_arg = (args.get("skin") or "").strip().lower()
     try:
@@ -1053,6 +1075,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     if style_arg in teampost.STYLE_NAMES:
         style = style_arg
     elif style_arg in ("ai", "scene", "photo"):
+        style, skin = "ai", "photo"
+    elif theme:
+        # In a campaign, the brief becomes the scene -> force the identity-locked AI scene so the theme drives
+        # the surroundings (a deterministic template ignores the theme).
         style, skin = "ai", "photo"
     else:
         # Default individual feature -> the premium PORTRAIT iPhone-frame banner (build_ai_scene: an
@@ -1068,7 +1094,7 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
                 try:
                     with open(e.photo_path, "rb") as f:
                         photos.append(f.read())
-                    labels.append((e.name, e.role or ""))
+                    labels.append(("", "") if in_campaign else (e.name, e.role or ""))  # no names on campaign images
                 except Exception:
                     continue
             if len(photos) >= 2:
@@ -1077,12 +1103,12 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
                                                              skin=gs, variant=random.randint(0, 5))
             else:  # only one person available -> feature them individually
                 style = "spotlight_series"
-                path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style,
+                path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style,
                                                      skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False),
-                                                     variant=variant)
+                                                     variant=variant, theme=theme)
         else:
-            path, fname, meta = await _build_one(brand, raw, match.name, match.role, head, sub, style, skin,
-                                                 variant=variant)
+            path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style, skin,
+                                                 variant=variant, theme=theme)
     except Exception:
         return {"summary": "Couldn't build the post — please try again.", "assets": []}
     used_skin = meta.get("skin", skin)
@@ -1092,10 +1118,16 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
                           "kind": "team", "style": style, "skin": used_skin, "employee_id": match.id},
                     file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
                     owner=owner)
-    return {"summary": f"Created a post featuring {match.name}"
-            + (f" ({match.role})" if match.role else "")
-            + f" — {used_skin} theme, using their real photo from Folders (face unchanged).",
-            "assets": [serialize_asset(a)]}
+    if in_campaign:
+        summary = (f"Created a campaign post featuring {match.name}"
+                   + (f" ({match.role})" if match.role else "")
+                   + (f", set in the campaign theme ({theme[:60]}…)" if theme else "")
+                   + " — their real face, no name label on the image.")
+    else:
+        summary = (f"Created a post featuring {match.name}"
+                   + (f" ({match.role})" if match.role else "")
+                   + f" — {used_skin} theme, using their real photo from Folders (face unchanged).")
+    return {"summary": summary, "assets": [serialize_asset(a)]}
 
 
 EXECUTORS = {
