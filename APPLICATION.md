@@ -81,16 +81,16 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   (`spotlight_series` = Man-on-a-Mission with a red-box keyword + script "Featuring [Name]" + arrow;
   `welcome`; `anniversary` = "X Strong Years"; `grid` = multi-employee "One Year Strong"). The series is
   auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The default
-  individual post is the **PORTRAIT iPhone-FRAME banner** (`build_ai_scene` → `_place_person_phone`,
-  designed by a multi-agent senior-graphics-team workflow): the employee's identity-locked professional
-  portrait — an img2img edit of their REAL photo (`llm.generate_image_edit`, `input_fidelity=high`,
-  `_phone_portrait_prompt`; enhanced real photo as fallback) — sits inside a clean phone mockup on the RIGHT
-  (titanium rail, charcoal bezel, dynamic-island notch, soft drop shadow, glass-edge highlight), with the
-  branded caption (wordmark, red-box keyword headline, subline, script "Featuring [Name]" + role badge) in a
-  reserved LEFT column. An AI edit preserves LIKENESS, not pixel-identity. **Nothing overrides:** a provable
-  64px gutter separates the device from the text and `_ensure_clear` asserts mutually-disjoint boxes. Skins
-  rotate (light/cream/navy/red — not navy every time); every photo is first **auto-enhanced**
-  (`_enhance_photo`). Any failure falls back to a deterministic series template so a post is never broken.
+  individual post is `build_ai_scene`, which **NEVER changes the employee's face** — it composites their
+  REAL photo (face + clothes untouched) and only varies the DESIGN, rotating: **Design A** — the real photo
+  inside a clean PORTRAIT iPhone-frame mockup (`_place_person_phone`: titanium rail, charcoal bezel,
+  dynamic-island notch, drop shadow, glass rim; skins rotate); **Design B** — the real person on a VARIED
+  AI-generated BACKGROUND (`_scene_prompt` → gpt-image makes the scene only, NO people; the real cut-out /
+  framed photo goes on top via `_place_person`). The branded caption (wordmark, red-box keyword headline,
+  subline, script "Featuring [Name]" + role badge) sits in a reserved column. **Nothing overrides:**
+  `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced** (`_enhance_photo`). We do
+  NOT use an image-to-image edit on the person (it would repaint — and change — the face). Any failure falls
+  back to a deterministic series template so a post is never broken.
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as

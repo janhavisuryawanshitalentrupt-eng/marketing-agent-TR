@@ -3,6 +3,21 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## The employee's REAL face is never changed again — only the design varies (2026-07-02)
+The AI image-to-image path was **repainting the whole person, including the face** — so a featured
+employee came out looking like a *different person*. Reverted: we now keep the **real photo** (face and
+all) and only change the design around them.
+- **Face never AI-regenerated.** Both employee designs now composite the person's ACTUAL photo:
+  **Design A** — the real photo inside the portrait iPhone frame (skin colours rotate); **Design B** — the
+  real person on a **varied AI-generated background** (gpt-image makes the scene only — no people — and the
+  real cut-out / framed photo goes on top). This is "change the background, colours, theme, fonts — but
+  never the face."
+- **Cleaner AI backgrounds.** The background prompt no longer feeds the headline text into gpt-image (it was
+  causing faint ghost-text in the scene) and now bans text/numbers/signage outright.
+- *Trade-off:* keeping the exact real face means keeping the real photo's clothes too (no AI blazer) — an
+  AI blazer required repainting the person, which changed the face. For a clean cut-out of the person on the
+  AI background (vs. a framed card), enable the `BG_REMOVAL_API_KEY` (remove.bg) secret.
+
 ## Employee portraits now wear a sharp blazer + lean to the full-scene look (2026-07-02)
 - **Consistent professional blazer.** Featured-employee portraits now always dress the person in a sharp,
   well-fitted business blazer (navy/charcoal over a crisp shirt) — a premium corporate-headshot look — in

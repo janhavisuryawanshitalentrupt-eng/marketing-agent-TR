@@ -925,17 +925,17 @@ _SCENE_TYPES = [
 
 def _scene_prompt(headline: str, question: str, variant: int) -> str:
     scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
-    msg = " ".join(x for x in (headline, question) if x).strip()
-    theme = (f'The post message is: "{msg[:120]}" — let the mood/imagery SUBTLY evoke it (celebration, '
-             "welcome, teamwork, growth, milestone), tastefully and on-brand. " if msg else "")
+    # NOTE: deliberately do NOT feed the literal headline/message into the prompt — gpt-image tends to
+    # RENDER it as ghost text in the background despite "NO text". We only steer a generic on-brand MOOD.
     return (
         f"A richly designed, premium social-media BACKGROUND graphic for a corporate post: {scene}. "
-        f"{theme}Talentrupt brand palette: deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — use "
+        "Warm, professional, celebratory on-brand mood (welcome, teamwork, growth, a milestone), tasteful. "
+        "Talentrupt brand palette: deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — use "
         "them tastefully and VARY the dominant tone per the scene above (do NOT make it uniformly dark "
         "navy). High-end editorial and cinematic, polished — NOT a plain flat colour. ABSOLUTELY NO "
-        "people, NO person, NO faces, NO text, NO words, NO letters, NO logos. Keep the RIGHT side and "
-        "the BOTTOM-LEFT relatively clean so a person photo (right) and a caption (left) sit cleanly on "
-        "top. Square 1:1 composition."
+        "people, NO person, NO faces, NO text, NO words, NO letters, NO numbers, NO logos, NO signage. Keep "
+        "the RIGHT side and the BOTTOM-LEFT relatively clean so a person photo (right) and a caption (left) "
+        "sit cleanly on top. Square 1:1 composition."
     )
 
 
@@ -1128,13 +1128,11 @@ def _place_person_phone(canvas, d, skin, portrait):
 
 
 async def _build_phone_banner(brand, photo, name, role, headline, question, variant, keyword):
-    """DESIGN A — a clean PORTRAIT iPhone frame holding the employee's identity-locked AI portrait, caption
-    on the reserved LEFT (64px gutter, verified by `_ensure_clear`). Random skin so all four colours appear."""
-    from ..providers import llm
+    """DESIGN A — a clean PORTRAIT iPhone frame holding the employee's REAL photo (face NEVER changed),
+    caption on the reserved LEFT (64px gutter, verified by `_ensure_clear`). The DESIGN varies — a random
+    skin (bg / colours / accents) each time — but the person is the untouched real photo."""
     skin = resolve_skin(random.choice(DETERMINISTIC_SKINS))
-    portrait = await _phone_portrait_img(photo, variant) if llm.image_provider_available() else None
-    if portrait is None:
-        portrait = photo  # enhanced real photo fallback — the mockup still carries the polish
+    portrait = photo  # the REAL photo — face is never AI-regenerated
     canvas = Image.new("RGB", (W, H), skin.bg)
     d = ImageDraw.Draw(canvas)
     _paint_scene_bg(canvas, d, skin, variant)                     # rail + subtle accents (kept off the frame)
@@ -1167,20 +1165,31 @@ async def _build_phone_banner(brand, photo, name, role, headline, question, vari
 
 
 async def _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword):
-    """DESIGN B — the employee re-rendered (identity-locked) into a VARIED premium ENVIRONMENT (8 rotating
-    `_PORTRAIT_LOOKS`: office / studio / golden-hour / bold-brand / rooftop / …), caption on the LEFT over a
-    scrim. Returns (path, fname, meta), or None if the AI edit is unavailable (caller uses Design A)."""
+    """DESIGN B — the REAL person on a VARIED AI-generated BACKGROUND: gpt-image makes the SCENE only (no
+    people), then the person's REAL photo goes on top (a clean cut-out when background-removal is enabled,
+    else a premium framed card) — the FACE is NEVER changed. This is "change the background, keep the face".
+    Returns (path, fname, meta), or None if the AI background is unavailable (caller uses Design A)."""
     from ..providers import llm
     if not llm.image_provider_available():
         return None
-    edited = await _ai_portrait_canvas(photo, headline, question, variant)
-    if edited is None:
+    bg = None
+    try:
+        data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
+        if data:
+            bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+            try:  # crisp up any soft/hazy background
+                bg = bg.filter(ImageFilter.UnsharpMask(radius=2, percent=130, threshold=2))
+            except Exception:
+                pass
+    except Exception:
+        bg = None
+    if bg is None:
         return None
     skin = SKINS["photo"]
-    canvas = _ai_scrim(edited)
+    hero = _cutout(photo)                 # REAL person (bg-removed cut-out, or opaque -> framed card)
+    canvas = _ai_scrim(bg)
     d = ImageDraw.Draw(canvas)
-    person_left = int(W * 0.50)          # the person is baked into the RIGHT half of the AI scene
-    person_box = (person_left, 0, W, H)
+    person_left, person_box = _place_person(canvas, d, skin, photo, hero)  # composites the REAL photo
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
     pad = 70
     hl_w = max(340, person_left - pad - 30)
@@ -1209,13 +1218,14 @@ async def _build_scene_banner(brand, photo, name, role, headline, question, vari
 
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Featured-employee banner — ROTATES design families so employee posts aren't the SAME design every
-    time (the fix for "hardcoded" employee designs):
-      • DESIGN A — a clean PORTRAIT iPhone frame holding the employee's identity-locked AI portrait.
-      • DESIGN B — a full-scene AI portrait: the employee re-rendered into a VARIED premium environment.
-    Both AI-generate ONLY the employee's portrait (identity-locked) and drop it into a professional layout
-    with the caption kept clear of the person (`_ensure_clear`). Any failure -> a deterministic series
-    template, so a post is never broken."""
+    """Featured-employee banner — the DESIGN changes but the FACE never does. The employee's REAL photo is
+    composited into a professional layout (the caption/wordmark kept clear of them, `_ensure_clear`), and
+    the design ROTATES so posts don't look identical:
+      • DESIGN A — a clean PORTRAIT iPhone frame holding the REAL photo (skin colours rotate).
+      • DESIGN B — the REAL person on a VARIED AI-generated BACKGROUND (gpt-image makes the scene, the real
+        cut-out/framed photo goes on top). This is the "change the background, keep the face" look.
+    We NEVER AI-regenerate the person's face (an image-to-image edit would subtly change who they are).
+    Any failure -> a deterministic series template, so a post is never broken."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1228,8 +1238,8 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
                                 style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
     try:
         result = None
-        # Favour DESIGN B (the full-scene professional BLAZER portrait the user asked for) ~2/3 of the time;
-        # DESIGN A (iPhone frame) keeps ~1/3 for variety. B falls through to A if the edit is unavailable.
+        # DESIGN B (real person on an AI background) ~2/3; DESIGN A (iPhone frame) ~1/3 for variety. B falls
+        # through to A if the AI background is unavailable.
         if variant % 3 != 0:
             result = await _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword)
         if result is None:
