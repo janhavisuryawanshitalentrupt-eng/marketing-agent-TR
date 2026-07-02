@@ -3,7 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
-## Stop button — interrupt an in-flight generation (2026-07-02)
+## Employee banners: less "fake", genuinely different designs (2026-07-02)
+- **Killed the fake look.** Removed the bright "focal-pocket" glow (the white cloud behind the person),
+  softened the rim light to a whisper, and tightened the cut-out edge (an extra 1px erode) so there's no
+  pasted-on halo. Colour-grading now only tone-matches a *photographic* backdrop (never tints the person on
+  a flat colour block).
+- **Fixed the cut-out for tight portraits.** The free background keyer estimated the wall from all four
+  borders — which fails when the person fills the frame and touches the bottom/side edges (it was silently
+  falling back to a full-photo layout, making every post look the same). It now reads the wall from the TOP
+  strip (above the head) and only flood-fills from wall-coloured points — clean cut-outs on real headshots.
+- **Six distinct designs now rotate** (was effectively one): bold flat-graphic posters — deep navy, coral +
+  navy disc, warm cream/gold, coral disc, cream + navy arc, diagonal split — plus an occasional photographic
+  scene, across three layouts with rotating kicker labels. Each post looks different, and the flat-graphic
+  posters read as *designed* (not a fake composite) — and they're instant (no image-model call, so faster).
 - **Chat + Campaign studio** now show a **Stop** button (red square) in place of Send while the assistant is
   working. Clicking it **aborts the in-flight turn** (cancels the stream via `AbortController`), clears the
   busy/typing state, and keeps whatever was already produced (or drops the empty pending bubble). Added

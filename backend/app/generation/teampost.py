@@ -99,30 +99,30 @@ def _key_plain_bg(img: Image.Image):
             return None
         arr = np.asarray(rgb).astype(np.float32)
         s = max(16, min(w, h) // 18)
-        # Sample 8 border patches (4 corners + 4 edge mid-points). The background is the MEDIAN colour — so a
-        # subject occupying a corner/edge is an outlier, not the estimate. Require MOST of the border to be
-        # that one light, low-texture colour; else it isn't a plain studio wall and we bail.
-        coords = [(0, 0), (w - s, 0), (0, h - s), (w - s, h - s),
-                  ((w - s) // 2, 0), ((w - s) // 2, h - s), (0, (h - s) // 2), (w - s, (h - s) // 2)]
-        patches = [arr[y:y + s, x:x + s] for (x, y) in coords]
-        pmeans = np.array([p.reshape(-1, 3).mean(0) for p in patches])
-        med = np.median(pmeans, axis=0)
-        close = np.linalg.norm(pmeans - med, axis=1) < 30
-        if int(close.sum()) < max(4, int(len(patches) * 0.55)):  # border isn't mostly one colour
-            return None
-        bg = pmeans[close].mean(0)
-        within = float(np.mean([patches[i].reshape(-1, 3).std(0).mean() for i in range(len(patches)) if close[i]]))
-        if float(bg.mean()) < 118 or within > 18:  # not a light, low-texture plain -> bail
+        # Background reference = the TOP strip: for a head-and-shoulders portrait the area above the head is
+        # almost always the plain wall, even when the person fills the frame and touches the side/bottom
+        # borders. The strip must be LIGHT and fairly UNIFORM (a plain studio wall), else we bail.
+        top = arr[:s, :].reshape(-1, 3)
+        bg = np.median(top, axis=0)
+        if float(bg.mean()) < 118 or float(top.std(0).mean()) > 26:
             return None
         from PIL import ImageDraw
         work = rgb.copy()
         sentinel = (0, 254, 1)
-        seeds = [(1, 1), (w - 2, 1), (1, h - 2), (w - 2, h - 2), (w // 2, 1), (1, h // 2), (w - 2, h // 2)]
-        for sd in seeds:
-            try:
-                ImageDraw.floodfill(work, sd, sentinel, thresh=46)
-            except Exception:
-                pass
+        # Seed the flood-fill ONLY from border points that actually match the wall colour (never from a
+        # person-coloured border), so it fills the true background and never bleeds into the subject.
+        candidates = [(2, 2), (w - 3, 2), (w // 2, 2), (w // 4, 2), (3 * w // 4, 2),
+                      (2, h // 10), (w - 3, h // 10), (2, h // 3), (w - 3, h // 3), (2, h - 3), (w - 3, h - 3)]
+        seeded = 0
+        for (x, y) in candidates:
+            if float(np.linalg.norm(arr[y, x] - bg)) < 45:
+                try:
+                    ImageDraw.floodfill(work, (x, y), sentinel, thresh=46)
+                    seeded += 1
+                except Exception:
+                    pass
+        if seeded == 0:
+            return None
         warr = np.asarray(work)
         is_bg = np.all(warr == np.array(sentinel, dtype=warr.dtype), axis=-1)      # border-connected background
         # Also remove the person's soft CAST SHADOW on the wall: neutral (low-saturation), mid-light greys —
@@ -151,7 +151,10 @@ def _key_plain_bg(img: Image.Image):
                 if float(comp.mean()) > 0.05:  # a real subject blob -> keep only it
                     alpha = np.where(comp, 255, 0).astype(np.uint8)
                 break
-        a = Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(5)).filter(ImageFilter.GaussianBlur(1.4))
+        # Despeckle, then ERODE 1px (MinFilter) to cut the light background fringe that causes a 'pasted'
+        # halo on a real photo, then a tight feather.
+        a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(5))
+             .filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(1.0)))
         out = rgb.convert("RGBA")
         out.putalpha(a)
         bbox = out.getbbox()
@@ -1383,31 +1386,33 @@ def _apply_grain(canvas, variant, strength=4.2):
         return canvas.convert("RGB")
 
 
-def _editorial_scrim(bg, layout):
-    """Give the plate depth (gentle blur so the sharp subject pops) + a navy gradient scrim on the TEXT side
-    (+ bottom) for legibility. Layout 3 puts text on the RIGHT, so the scrim mirrors."""
+def _editorial_scrim(bg, layout, blur=2.4, strength=0.86, reach=0.55):
+    """A navy gradient scrim on the TEXT side (+ bottom) for legibility. A PHOTO plate is gently blurred for
+    depth; a flat GRAPHIC plate isn't (blur=0) so the design stays crisp — and a NARROW `reach` keeps the
+    scrim behind the text only, so the bold graphic still shows. Layout 3 mirrors to the RIGHT."""
     import numpy as np
     base = bg.convert("RGB")
-    try:
-        base = base.filter(ImageFilter.GaussianBlur(2.4))
-    except Exception:
-        pass
+    if blur:
+        try:
+            base = base.filter(ImageFilter.GaussianBlur(blur))
+        except Exception:
+            pass
     w, h = base.size
     xs = np.linspace(0, 1, w)[None, :]
     ys = np.linspace(0, 1, h)[:, None]
-    side = np.clip((xs - 0.45) / 0.55, 0, 1) if layout == 3 else np.clip(1.0 - xs / 0.55, 0, 1)
-    bottom = np.clip((ys - 0.55) / 0.45, 0, 1)
-    a = np.clip(side * 0.86 + bottom * 0.5, 0, 0.93)
+    side = np.clip((xs - (1 - reach)) / reach, 0, 1) if layout == 3 else np.clip(1.0 - xs / reach, 0, 1)
+    bottom = np.clip((ys - 0.62) / 0.38, 0, 1)
+    a = np.clip(side * strength + bottom * (strength * 0.5), 0, 0.93)
     layer = Image.new("RGBA", (w, h), (*NAVY, 255))
     layer.putalpha(Image.fromarray((a * 255).astype("uint8"), "L"))
     return Image.alpha_composite(base.convert("RGBA"), layer).convert("RGB")
 
 
-def _place_editorial_person(canvas, skin, hero, layout):
-    """Composite the REAL cut-out so it BELONGS in the scene: focal-pocket bloom, colour-grade/tone-match to
-    the plate, feather+despill, contact + cast shadow, directional rim light. `layout` 1=hero-right,
-    2=hero-right big-crop (head bleeds off top), 3=hero-left. Returns the TIGHT person bbox (shadows/glow
-    excluded so text clamping stays honest)."""
+def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
+    """Composite the REAL cut-out cleanly (NO fake white glow): a tight feathered edge, a colour-grade that
+    only tone-matches a PHOTO plate (never a flat colour block), a grounded contact shadow + a soft cast
+    shadow, and a WHISPER of rim so it reads as designed, not pasted. `layout` 1=hero-right, 2=big-crop
+    (bleeds off top), 3=hero-left. Returns the TIGHT person bbox (shadows excluded so text clamping is honest)."""
     import numpy as np
     from PIL import ImageChops, ImageEnhance
     warm = skin.key in ("light", "cream", "photo")
@@ -1425,63 +1430,51 @@ def _place_editorial_person(canvas, skin, hero, layout):
     a = hero.split()[-1]
     hx = 24 if layout == 3 else (W - hero.width - right_pad)
     hy = -int(hero.height * 0.04) if layout == 2 else (H - hero.height)
-    cx, cy = hx + hero.width // 2, hy + int(hero.height * 0.30)
-    # STAGE 1 — focal pocket (soft radial bloom behind the subject, NOT a flat ring)
-    pocket = Image.new("L", canvas.size, 0)
-    ImageDraw.Draw(pocket).ellipse(
-        [cx - int(hero.width * 0.85), cy - int(hero.height * 0.60),
-         cx + int(hero.width * 0.85), cy + int(hero.height * 0.60)], fill=230)
-    pocket = pocket.filter(ImageFilter.GaussianBlur(90))
-    tone = (255, 250, 242) if warm else (28, 72, 116)
-    tint = Image.new("RGBA", canvas.size, (*tone, 0))
-    tint.putalpha(pocket.point(lambda v: int(v * 0.30)))
-    canvas.paste(tint, (0, 0), tint)
-    # STAGE 2 — colour-grade / tone-match the cut-out to the plate's light
+    # STAGE 1 — colour-grade. Only tone-MATCH toward a real PHOTO plate (on a flat colour block that would
+    # tint the person the block's colour). Always a gentle polish.
     try:
-        box = (max(0, hx), max(0, hy), min(W, hx + hero.width), min(H, hy + int(hero.height * 0.55)))
-        tgt = np.asarray(canvas.convert("RGB").crop(box)).reshape(-1, 3).mean(0)
         hrgb = np.asarray(hero.convert("RGB")).astype(np.float32)
-        af = np.asarray(a).reshape(-1) > 10
-        mean = hrgb.reshape(-1, 3)[af].mean(0)
-        shift = np.clip((tgt - mean) * 0.20, -16, 16)
-        hrgb = np.clip(hrgb + shift, 0, 255)
-        hrgb[..., 0] *= 1.03 if warm else 0.98
-        hrgb[..., 2] *= 0.97 if warm else 1.03
+        if photo_bg:
+            box = (max(0, hx), max(0, hy), min(W, hx + hero.width), min(H, hy + int(hero.height * 0.55)))
+            tgt = np.asarray(canvas.convert("RGB").crop(box)).reshape(-1, 3).mean(0)
+            af = np.asarray(a).reshape(-1) > 10
+            mean = hrgb.reshape(-1, 3)[af].mean(0)
+            hrgb = np.clip(hrgb + np.clip((tgt - mean) * 0.15, -12, 12), 0, 255)
         graded = Image.fromarray(np.clip(hrgb, 0, 255).astype("uint8"), "RGB")
-        graded = ImageEnhance.Color(graded).enhance(1.05)
+        graded = ImageEnhance.Color(graded).enhance(1.04)
         graded = ImageEnhance.Contrast(graded).enhance(1.05)
-        graded = ImageEnhance.Brightness(graded).enhance(1.02)
         hero = graded.convert("RGBA")
         hero.putalpha(a)
     except Exception:
         pass
-    # STAGE 3 — feather + a 1px despill erode (kills the pasted 'sticker' edge)
+    # STAGE 2 — feather + a 1px erode (kills the 'sticker' edge)
     a = a.filter(ImageFilter.GaussianBlur(0.6)).filter(ImageFilter.MinFilter(3))
     hero.putalpha(a)
-    # STAGE 4 — contact shadow pooling at the feet (skip for the top-bleed crop)
+    # STAGE 3 — contact shadow pooling at the feet (skip for the top-bleed crop)
     if layout != 2:
         sil = Image.new("RGBA", hero.size, (0, 0, 0, 0))
-        sil.paste((0, 0, 0, 175), (0, 0), a)
+        sil.paste((0, 0, 0, 165), (0, 0), a)
         ground = sil.resize((hero.width, max(1, int(hero.height * 0.10))), Image.LANCZOS)
         gl = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         gl.paste(ground, (hx + 18, H - int(hero.height * 0.06)))
-        canvas.paste(gl.filter(ImageFilter.GaussianBlur(24)), (0, 0), gl.filter(ImageFilter.GaussianBlur(24)))
-    # STAGE 5 — soft cast shadow (navy-tinted, offset to the light side) BEFORE the person
+        blurred = gl.filter(ImageFilter.GaussianBlur(26))
+        canvas.paste(blurred, (0, 0), blurred)
+    # STAGE 4 — soft cast shadow (navy-tinted, offset to the light side) BEFORE the person
     sh = Image.new("RGBA", hero.size, (0, 0, 0, 0))
-    sh.paste((6, 12, 26, 120), (0, 0), a)
-    sh = sh.filter(ImageFilter.GaussianBlur(22))
-    off = (max(RAIL_W, hx - 22), hy + 16) if layout == 3 else (hx + 22, hy + 16)
+    sh.paste((6, 12, 26, 105), (0, 0), a)
+    sh = sh.filter(ImageFilter.GaussianBlur(24))
+    off = (max(RAIL_W, hx - 20), hy + 16) if layout == 3 else (hx + 20, hy + 16)
     canvas.paste(sh, off, sh)
-    # STAGE 6 — the person
+    # STAGE 5 — the person
     canvas.paste(hero, (hx, hy), hero)
-    # STAGE 7 — directional rim / edge light so they separate from the plate
+    # STAGE 6 — a WHISPER of directional rim (subtle; never a glowing sticker outline)
     try:
-        rim_mask = ImageChops.subtract(a, a.filter(ImageFilter.MinFilter(9)))
-        rm = ImageChops.multiply(a, rim_mask).point(lambda v: min(v, 90)).filter(ImageFilter.GaussianBlur(1.5))
+        rim_mask = ImageChops.subtract(a, a.filter(ImageFilter.MinFilter(7)))
+        rm = ImageChops.multiply(a, rim_mask).point(lambda v: min(v, 42)).filter(ImageFilter.GaussianBlur(1.4))
         gy = np.linspace(1, 0, hero.height)[:, None]
         gx = (np.linspace(0, 1, hero.width) if layout == 3 else np.linspace(1, 0, hero.width))[None, :]
         rm = Image.fromarray((np.asarray(rm).astype(np.float32) * np.clip(gy * gx, 0, 1)).astype("uint8"), "L")
-        rim = Image.new("RGBA", hero.size, (*((255, 246, 230) if warm else (246, 64, 76)), 0))
+        rim = Image.new("RGBA", hero.size, (255, 250, 244, 0))
         rim.putalpha(rm)
         canvas.paste(rim, (hx, hy), rim)
     except Exception:
@@ -1489,9 +1482,10 @@ def _place_editorial_person(canvas, skin, hero, layout):
     return (hx, max(0, hy), hx + hero.width, H)
 
 
-def _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box):
+def _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box,
+                         kicker="TEAM // SPOTLIGHT"):
     """Draw the editorial caption for a layout and return the text bounding boxes (for `_ensure_clear`).
-    Text lives entirely in the reserved column opposite the subject."""
+    Text lives entirely in the reserved column opposite the subject. `kicker` (may be empty) rotates."""
     pad = 70
     boxes = []
     if layout == 3:                                   # subject LEFT -> text RIGHT
@@ -1500,7 +1494,8 @@ def _draw_editorial_text(canvas, d, skin, name, role, headline, question, keywor
             paste_wordmark(canvas, tx, 46, 300, 42, dark_bg=skin.wm_dark); boxes.append((tx, 46, tx + 300, 90))
         except Exception:
             pass
-        d.text((tx, 120), "TEAM // SPOTLIGHT", font=heading_font(24), fill=skin.accent); boxes.append((tx, 120, tx + 300, 150))
+        if kicker:
+            d.text((tx, 120), kicker, font=heading_font(24), fill=skin.accent); boxes.append((tx, 120, tx + 300, 150))
         y, hb = _draw_headline_highlight(d, tx, 168, headline or "On a Mission!", tw, skin, keyword=keyword, size=96, max_lines=4)
         boxes.append(hb)
         if question:
@@ -1529,7 +1524,8 @@ def _draw_editorial_text(canvas, d, skin, name, role, headline, question, keywor
             paste_wordmark(canvas, pad, 46, 250, 42, dark_bg=skin.wm_dark); boxes.append((pad, 46, pad + 250, 88))
         except Exception:
             pass
-        d.text((pad, 120), "TEAM // SPOTLIGHT", font=heading_font(24), fill=skin.accent); boxes.append((pad, 120, pad + 300, 150))
+        if kicker:
+            d.text((pad, 120), kicker, font=heading_font(24), fill=skin.accent); boxes.append((pad, 120, pad + 300, 150))
         y, hb = _draw_headline_highlight(d, pad, 168, headline or "On a Mission!", hl_w, skin, keyword=keyword, size=112, max_lines=3)
         boxes.append(hb)
         if question:
@@ -1557,53 +1553,95 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
     (path, fname, meta), or None on failure."""
     from ..providers import llm
     skin = SKINS["photo"]
-    layout = (int(variant) % 3) + 1
-    # background plate: gpt-image editorial scene (no people/text), or a designed PIL gradient offline
+    template = int(variant) % 6          # 6 distinct designs (0-4 = bold graphic, 5 = photographic scene)
+    layout = (template % 3) + 1          # person position rotates too
+    text_left = layout != 3
+    kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
+    # background: mostly a BOLD graphic poster (instant + looks designed, not a fake composite); occasionally
+    # a gpt-image photographic scene for depth.
+    photo_bg = template == 5 and llm.image_provider_available()
     bg = None
-    if llm.image_provider_available():
+    if photo_bg:
         try:
             data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
             if data:
                 bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
         except Exception:
             bg = None
-    if bg is None:
-        bg = _paint_editorial_bg(skin, variant)
-    canvas = _editorial_scrim(bg, layout)
+    if bg is None:                       # graphic poster (also the offline / provider-down path)
+        photo_bg = False
+        bg = _graphic_editorial_bg(template, text_left)
+    canvas = _editorial_scrim(bg, layout, blur=2.4 if photo_bg else 0,
+                              strength=0.86 if photo_bg else 0.82, reach=0.55 if photo_bg else 0.40)
     hero = _cutout(photo)
     cut_ok = (hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
               and hero.width >= photo.width * 0.42 and hero.height >= photo.height * 0.45)
     if cut_ok:
-        person_box = _place_editorial_person(canvas, skin, hero, layout)
+        person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=photo_bg)
     else:  # FRAMELESS fallback (no clean cut-out): full-bleed photo, heavy scrim, NO card
         full = _cover_fit(photo, W, H)
-        canvas = _editorial_scrim(full, 1)
+        canvas = _editorial_scrim(full, 1, blur=2.4, strength=0.9)
         person_box = (int(W * 0.5), 0, W, H)
-        layout = 1
-    canvas = _apply_grain(canvas, variant)
+        layout, kicker = 1, "TEAM // SPOTLIGHT"
+    canvas = _apply_grain(canvas, variant, 3.0 if not photo_bg else 4.0)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
-    boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box)
+    boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box, kicker)
     _ensure_clear("editorial_L%d" % layout, person_box, *boxes)
     return _finish_editorial(canvas, "team_editorial")
 
 
-def _paint_editorial_bg(skin, variant):
-    """Offline plate (no gpt-image): a soft brand diagonal gradient + a large blurred accent bloom — enough
-    depth for the graded cut-out to sit in without a frame."""
+def _lin_grad(c1, c2, vertical=True):
     import numpy as np
-    a = np.array((0x0B, 0x35, 0x59), float)                      # navy
-    b = np.array([(0xEB, 0xE9, 0xDF), (0x12, 0x44, 0x6E), (0xF6, 0x40, 0x4C)][int(variant) % 3], float)
-    ys = np.linspace(0, 1, H)[:, None, None]
-    xs = np.linspace(0, 1, W)[None, :, None]
-    t = np.clip(0.5 * ys + 0.5 * xs, 0, 1)
-    grad = (a[None, None, :] * (1 - t) + b[None, None, :] * t).astype("uint8")
-    canvas = Image.fromarray(np.broadcast_to(grad, (H, W, 3)).copy(), "RGB")
-    bloom = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(bloom).ellipse([W - 620, 120, W + 120, 820], fill=90)
-    bloom = bloom.filter(ImageFilter.GaussianBlur(120))
-    tint = Image.new("RGBA", (W, H), (*RED, 0)); tint.putalpha(bloom)
-    return Image.alpha_composite(canvas.convert("RGBA"), tint).convert("RGB")
+    a = np.array(c1, float)
+    b = np.array(c2, float)
+    t = (np.linspace(0, 1, H)[:, None, None] if vertical else np.linspace(0, 1, W)[None, :, None])
+    arr = np.broadcast_to((a * (1 - t) + b * t).astype("uint8"), (H, W, 3)).copy()
+    return Image.fromarray(arr, "RGB")
+
+
+# Distinct BOLD flat-graphic plates — a cut-out person on one of these reads as an INTENTIONAL editorial
+# poster (designed, not a fake photo composite), and they're instant (no gpt-image call). The bold shapes
+# sit on the PERSON side (which the cut-out covers); the caption side is darkened by the scrim. Rotating
+# these + the layout + the kicker makes every post look different.
+def _graphic_editorial_bg(template, text_left):
+    t = int(template) % 6
+    pcx = int(W * 0.72) if text_left else int(W * 0.28)     # centre of the person side
+    if t == 0:                                              # deep navy gradient (clean, classic)
+        return _lin_grad((0x0B, 0x35, 0x59), (0x15, 0x4A, 0x77))
+    if t == 1:                                              # BOLD coral base + navy disc behind the person
+        c = Image.new("RGB", (W, H), (0xF6, 0x40, 0x4C))
+        ImageDraw.Draw(c, "RGBA").ellipse([pcx - 430, -150, pcx + 430, 910], fill=(0x0B, 0x35, 0x59, 255))
+        return c
+    if t == 2:                                              # warm cream -> gold, coral ring behind the person
+        c = _lin_grad((0xEF, 0xEC, 0xE1), (0xF3, 0xD9, 0xAA))
+        ImageDraw.Draw(c, "RGBA").ellipse([pcx - 350, 70, pcx + 350, 790], outline=(0xF6, 0x40, 0x4C, 170), width=12)
+        return c
+    if t == 3:                                              # navy + big coral disc behind the person
+        c = _lin_grad((0x0A, 0x2C, 0x4A), (0x0B, 0x35, 0x59))
+        ImageDraw.Draw(c, "RGBA").ellipse([pcx - 410, -110, pcx + 410, 870], fill=(0xF6, 0x40, 0x4C, 235))
+        return c
+    if t == 4:                                              # cream base + a big navy ARC sweeping in
+        c = Image.new("RGB", (W, H), (0xEB, 0xE9, 0xDF))
+        d = ImageDraw.Draw(c, "RGBA")
+        if text_left:
+            d.pieslice([pcx - 560, -340, pcx + 560, 800], 90, 270, fill=(0x0B, 0x35, 0x59, 255))
+        else:
+            d.pieslice([pcx - 560, -340, pcx + 560, 800], 270, 450, fill=(0x0B, 0x35, 0x59, 255))
+        return c
+    # t == 5: bold DIAGONAL split — coral field, navy wedge on the caption side
+    c = Image.new("RGB", (W, H), (0xF6, 0x40, 0x4C))
+    d = ImageDraw.Draw(c, "RGBA")
+    if text_left:
+        d.polygon([(0, 0), (int(W * 0.66), 0), (int(W * 0.40), H), (0, H)], fill=(0x0B, 0x35, 0x59, 255))
+    else:
+        d.polygon([(W, 0), (int(W * 0.34), 0), (int(W * 0.60), H), (W, H)], fill=(0x0B, 0x35, 0x59, 255))
+    return c
+
+
+# Rotating kicker labels (some templates drop it) so the eyebrow line isn't always identical.
+_EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE", "IN THE SPOTLIGHT",
+                      "OUR PEOPLE", ""]
 
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
