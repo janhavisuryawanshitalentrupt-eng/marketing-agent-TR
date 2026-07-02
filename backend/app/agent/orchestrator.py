@@ -188,19 +188,31 @@ async def run(
     # DETERMINISTIC @MENTION: if the user @mentioned a Folders employee, feature their REAL photo NOW —
     # bypassing the create brief-intake AND the LLM tool choice (which otherwise asked clarifying
     # questions or wrongly tried generate_team_image / the brand-library "Team/" folder, where folder
-    # employees don't live). Skipped when a photo is attached this turn (that features the attachment).
-    if not attached_imgs:
-        import re as _re
-        at = _re.search(r"(?:^|\s)@\w", user_text)
-        if at:
-            from .tools import exec_feature_employee
-            from ..models import Employee
-            at_pos = user_text.index("@", at.start())
-            after = user_text[at_pos + 1:]
-            low = after.lower()
-            emps = db.query(Employee).filter(Employee.owner == owner).all()
-            emp = next((e for e in sorted(emps, key=lambda x: -len(x.name or ""))
-                        if e.name and (low.startswith(e.name.lower()) or e.name.lower() in low)), None)
+    # employees don't live).
+    #
+    # A NAMED, KNOWN employee is the SUBJECT even when an image is attached — the attachment is then a
+    # DESIGN/REFERENCE, NOT the person (e.g. "make it in the same design as this, but with @Pooja" must
+    # feature Pooja's REAL stored photo, never re-render the attached screenshot into invented people).
+    # Two escape hatches keep the upload-a-photo flow working: (1) if the user explicitly says to use the
+    # attached photo, and (2) if the @name is UNKNOWN while a photo is attached (the @word is then a NAME
+    # for the upload) — both fall through to the LLM, which features the uploaded photo.
+    import re as _re
+    at = _re.search(r"(?:^|\s)@\w", user_text)
+    use_attached = bool(attached_imgs) and bool(_re.search(
+        r"\buse\s+(?:this|the\s+attached|the\s+uploaded)\b|\bthis\s+(?:photo|image|pic|picture)\b"
+        r"|\battached\s+(?:photo|image|pic|picture)\b", user_text, _re.I))
+    if at and not use_attached:
+        from .tools import exec_feature_employee
+        from ..models import Employee
+        at_pos = user_text.index("@", at.start())
+        after = user_text[at_pos + 1:]
+        low = after.lower()
+        emps = db.query(Employee).filter(Employee.owner == owner).all()
+        emp = next((e for e in sorted(emps, key=lambda x: -len(x.name or ""))
+                    if e.name and (low.startswith(e.name.lower()) or e.name.lower() in low)), None)
+        # Known employee -> feature their real photo (even alongside an attachment). Unknown name + an
+        # attached photo -> DON'T short-circuit; let the LLM feature the uploaded photo instead.
+        if emp is not None or not attached_imgs:
             person = emp.name if emp else after.strip()[:60]
             message = ((user_text[:at_pos] + after[len(emp.name):]) if emp else user_text).strip()
             yield {"event": "status", "data": STATUS_LABELS.get("feature_employee", "Featuring your team member")}

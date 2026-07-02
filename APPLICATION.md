@@ -105,7 +105,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   A **brief-intake** (`create_intake`) asks a short chip-driven brief before generating a vague asset —
   in Create/Campaign always, and in **Chat** for creation requests (`is_visual_create_request`); an
   `@mention` short-circuits straight to the person post before the intake. So every chat box that can make
-  an image asks "what kind?" first.
+  an image asks "what kind?" first. A `@mention` of a **known Folders employee is the SUBJECT even when an
+  image is attached** (the attachment is a design/reference, not the person) — so "same design as this, but
+  with @Pooja" features Pooja's REAL photo, never re-renders the attached screenshot into invented people;
+  escape hatches: "use this photo", or an @-name NOT in Folders, feature the uploaded photo instead.
 - **`/` + `@` palette (frontend).** The chat boxes (Chat, internal-campaign studio) share one
   implementation — `frontend/lib/atMentions.tsx` (`useAtMentions` hook + `<AtMenu>`). **Two separate
   triggers:** typing **`@`** lists only **People** (Folders employees → feature their real photo); typing

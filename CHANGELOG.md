@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Campaign attachments show in chat + @mention wins over an attached reference (2026-07-02)
+- **Attachments now show in the CAMPAIGN studio chat too.** The earlier "attachment shows next to your
+  message" fix only covered the main Chat; the campaign studio (`CampaignsView`) had its own chat that still
+  dropped the attachment. Same fix applied there — an attached image shows a thumbnail (a file shows a chip)
+  right next to your message.
+- **`@mention` of a known teammate now wins over an attached image (fixes the "it did something totally
+  different" hallucination).** Before: if you attached a *design screenshot* and wrote "make it in the same
+  design, but with @Pooja", the app fed the SCREENSHOT (a multi-person graphic) into the identity-locked
+  AI-portrait edit, which then **invented random people**. Now a named, known Folders employee is always the
+  SUBJECT — their REAL stored photo is used, and any attached image is treated as a reference, not the
+  person. Escape hatches preserved: saying "use this photo" or @-naming someone NOT in Folders still
+  features the uploaded photo. *(Note: this features the real teammate in a fresh professional design — it
+  does not yet pixel-replicate the attached design; ask if you want reference-design matching.)*
+- **AI portrait can't invent extra faces.** The portrait prompt now hard-requires EXACTLY ONE person (no
+  added/duplicated/hallucinated people) and, if the source is a graphic or has multiple people, to focus on
+  the single main subject — a second guard against the multi-person hallucination.
+
 ## AI portraits from a real photo + attachment display + Folders photo preview (2026-07-01)
 Four things: employee posts now vary for real, attachments show in chat, and Folders photos open.
 - **True image-to-image "AI portraits" (biggest change).** Employee/`@mention` posts no longer paste the
