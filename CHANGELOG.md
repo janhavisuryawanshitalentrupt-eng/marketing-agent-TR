@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: "View" tooltip no longer covers the image (2026-07-02)
+Hovering a generated image popped a native **"View" tooltip right over the picture** (the whole image is a
+click-to-open button that carried `title="View"`). Removed the `title` from the full-image and full-video
+wrapper buttons in `AssetCard` — the `aria-label` stays for screen readers, and the image is still
+click-to-zoom. Nothing overlays the artwork now. (The small eye-icon button in the card footer keeps its
+tooltip — it sits below the image, not over it.)
+
 ## Campaign images: on-theme, real employee faces, no name labels (2026-07-02)
 Two fixes for the **internal campaign** image flow, so generated images match the campaign and show YOUR team:
 - **Employee images now follow the campaign theme.** When you feature a teammate inside a campaign, the

@@ -120,7 +120,8 @@ function ImageCard({ asset }: { asset: Asset }) {
   const [preview, setPreview] = useState(false);
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
-      <button type="button" onClick={() => setPreview(true)} title="View" aria-label="View image" className="block w-full">
+      {/* No `title` here: a native tooltip on the full-image button pops "View" OVER the picture. aria-label keeps a11y. */}
+      <button type="button" onClick={() => setPreview(true)} aria-label="View image" className="block w-full">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={url} alt={asset.title} className="w-full max-w-sm cursor-zoom-in" />
       </button>
@@ -145,7 +146,8 @@ function VideoCard({ asset }: { asset: Asset }) {
   const [preview, setPreview] = useState(false);
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
-      <button type="button" onClick={() => setPreview(true)} title="View" aria-label="View video" className="block w-full">
+      {/* No `title` here: a native tooltip on the full-video button pops "View" OVER the video. aria-label keeps a11y. */}
+      <button type="button" onClick={() => setPreview(true)} aria-label="View video" className="block w-full">
         <video src={url} className="w-full max-w-sm" autoPlay loop muted playsInline />
       </button>
       <div className="flex items-center justify-between gap-2 p-3">
