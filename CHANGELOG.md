@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Premium editorial employee banners — the real person, integrated (not framed) (2026-07-02)
+Reworked the default featured-employee banner (real face preserved) so the person **blends into the
+artwork** instead of sitting in a photo frame. Designed by a multi-agent senior graphics/compositing team.
+- **No more framed card.** The real cut-out is composited INTO a gpt-image editorial scene and made to look
+  photographed there, via an 8-stage integration pipeline (`_place_editorial_person`): a soft focal-pocket
+  bloom behind the subject, a colour-grade/tone-match that pulls the cut-out's white balance to the plate,
+  edge feather + despill, a grounded contact shadow + a soft navy cast shadow, a directional rim/edge light,
+  and shared film grain over the whole frame. The person is graded, grounded and lit into the scene.
+- **Free clean cut-outs on the droplet.** Added a numpy + flood-fill **plain-studio-background keyer**
+  (`_key_plain_bg`) — the team's photos are studio shots on a plain wall, so it removes the background
+  (incl. the cast wall-shadow) with NO paid service; it also handles remove.bg / rembg when available.
+- **Modern editorial layouts, rotating.** Three dynamic compositions rotate: masthead hero-right, off-centre
+  big-crop (head bleeds off the top), and hero-left mirror — oversized editorial type, kicker, script
+  "Featuring [Name]". All text stays provably clear of the subject (`_ensure_clear`).
+- **Face + architecture preserved.** The employee's real face is never AI-changed; the same
+  `build_ai_scene` entry/workflow is used. The face-swap upgrade path is unchanged.
+
 ## Default employee look = the polished AI blazer portrait (2026-07-02)
 Per the user's call, the default featured-employee post is now the **polished AI portrait** (blazer + a
 varied scene — office / studio / golden-hour / bold-brand / rooftop, 8 looks) that gpt-image produces

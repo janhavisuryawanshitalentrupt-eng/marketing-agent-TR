@@ -84,10 +84,87 @@ SERIES_STYLES = ["spotlight_series", "welcome", "anniversary"]  # skin-aware ren
 
 
 # --- shared helpers --------------------------------------------------------
+def _key_plain_bg(img: Image.Image):
+    """Remove a PLAIN, uniform, light studio background using numpy + PIL flood-fill (NO external deps, so it
+    works on the droplet without rembg or a bg-removal key) — the Talentrupt team photos are studio shots on
+    a plain wall, so this yields a clean cut-out for free. Flood-filling the background from the BORDER keeps
+    any light clothing that's enclosed by the person (no holes). Returns a trimmed RGBA subject, or None when
+    the background isn't a uniform light plain (caller falls back). Only the background is removed — the
+    face/subject pixels are untouched."""
+    import numpy as np
+    try:
+        rgb = img.convert("RGB")
+        w, h = rgb.size
+        if w < 64 or h < 64:
+            return None
+        arr = np.asarray(rgb).astype(np.float32)
+        s = max(16, min(w, h) // 18)
+        # Sample 8 border patches (4 corners + 4 edge mid-points). The background is the MEDIAN colour — so a
+        # subject occupying a corner/edge is an outlier, not the estimate. Require MOST of the border to be
+        # that one light, low-texture colour; else it isn't a plain studio wall and we bail.
+        coords = [(0, 0), (w - s, 0), (0, h - s), (w - s, h - s),
+                  ((w - s) // 2, 0), ((w - s) // 2, h - s), (0, (h - s) // 2), (w - s, (h - s) // 2)]
+        patches = [arr[y:y + s, x:x + s] for (x, y) in coords]
+        pmeans = np.array([p.reshape(-1, 3).mean(0) for p in patches])
+        med = np.median(pmeans, axis=0)
+        close = np.linalg.norm(pmeans - med, axis=1) < 30
+        if int(close.sum()) < max(4, int(len(patches) * 0.55)):  # border isn't mostly one colour
+            return None
+        bg = pmeans[close].mean(0)
+        within = float(np.mean([patches[i].reshape(-1, 3).std(0).mean() for i in range(len(patches)) if close[i]]))
+        if float(bg.mean()) < 118 or within > 18:  # not a light, low-texture plain -> bail
+            return None
+        from PIL import ImageDraw
+        work = rgb.copy()
+        sentinel = (0, 254, 1)
+        seeds = [(1, 1), (w - 2, 1), (1, h - 2), (w - 2, h - 2), (w // 2, 1), (1, h // 2), (w - 2, h // 2)]
+        for sd in seeds:
+            try:
+                ImageDraw.floodfill(work, sd, sentinel, thresh=46)
+            except Exception:
+                pass
+        warr = np.asarray(work)
+        is_bg = np.all(warr == np.array(sentinel, dtype=warr.dtype), axis=-1)      # border-connected background
+        # Also remove the person's soft CAST SHADOW on the wall: neutral (low-saturation), mid-light greys —
+        # which the flood-fill can't reach. These are NOT the (warm) skin, the (saturated navy) clothes or the
+        # (dark) hair, so gating on low saturation + mid brightness targets the shadow without eating the person.
+        mx = arr.max(-1)
+        mn = arr.min(-1)
+        bright = arr.mean(-1)
+        shadow = (~is_bg) & ((mx - mn) < 24) & (bright > 78) & (bright < 150)
+        is_bg = is_bg | shadow
+        frac = float(is_bg.mean())
+        if frac < 0.10 or frac > 0.92:  # no real subject, or nearly everything keyed -> bail
+            return None
+        alpha = np.where(is_bg, 0, 255).astype(np.uint8)
+        # Keep ONLY the person's connected blob (drop a disconnected wall-shadow blob the flood-fill missed):
+        # flood-fill the foreground from the centre line; anything not connected to the subject is discarded.
+        fgimg = Image.fromarray(alpha, "L").convert("RGB")
+        for cy in (0.45, 0.35, 0.55, 0.28):
+            sx, sy = w // 2, int(h * cy)
+            if 0 <= sy < alpha.shape[0] and alpha[sy, sx] > 127:
+                try:
+                    ImageDraw.floodfill(fgimg, (sx, sy), (0, 254, 1), thresh=12)
+                except Exception:
+                    pass
+                comp = np.all(np.asarray(fgimg) == np.array((0, 254, 1)), axis=-1)
+                if float(comp.mean()) > 0.05:  # a real subject blob -> keep only it
+                    alpha = np.where(comp, 255, 0).astype(np.uint8)
+                break
+        a = Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(5)).filter(ImageFilter.GaussianBlur(1.4))
+        out = rgb.convert("RGBA")
+        out.putalpha(a)
+        bbox = out.getbbox()
+        return out.crop(bbox) if bbox else out
+    except Exception:
+        return None
+
+
 def _cutout(img: Image.Image) -> Image.Image:
-    """Background-removed RGBA of the subject. Tries the hosted background-removal API first (when a key
-    is configured — keeps rembg off the small droplet), then offline rembg, else returns the original as
-    opaque RGBA (the composer then uses the designed framed card). The face is never altered."""
+    """Background-removed RGBA of the subject. Order: hosted API (when a key is set — keeps rembg off the
+    droplet) → offline rembg (dev) → plain-studio-background keying (numpy, no deps → works on the droplet
+    for the team's studio headshots) → opaque RGBA (caller uses a non-framed full-photo fallback). The face
+    is never altered."""
     try:  # hosted API (remove.bg / Photoroom) — no-op unless bg_removal_api_key is set
         import io as _io
         api = cutout.remove_bg_api(img_to_png_bytes(img)) if cutout.cutout_available() else None
@@ -103,7 +180,11 @@ def _cutout(img: Image.Image) -> Image.Image:
         bbox = out.getbbox()
         return out.crop(bbox) if bbox else out
     except Exception:
-        return img.convert("RGBA")
+        pass
+    keyed = _key_plain_bg(img)  # free studio-background removal on the droplet (numpy + flood-fill)
+    if keyed is not None:
+        return keyed
+    return img.convert("RGBA")
 
 
 def img_to_png_bytes(img: Image.Image) -> bytes:
@@ -1288,15 +1369,251 @@ async def _build_faceswap_banner(brand, photo, name, role, headline, question, v
     return _overlay_ai_scene(scene, name, role, headline, question, keyword, "team_ai_faceswap")
 
 
+# --- EDITORIAL composite (senior-graphics-team design): the REAL cut-out is GRADED, GROUNDED and RIM-LIT so
+# it reads as PHOTOGRAPHED INTO the scene, not pasted on a card. No frame, no border, no tab. 3 dynamic
+# layouts rotate. The FACE is never AI-changed — only the design around the person. ------------------------
+def _apply_grain(canvas, variant, strength=4.2):
+    """A whisper of shared film grain over subject + plate — the single biggest 'one image, not a paste' cue."""
+    import numpy as np
+    try:
+        g = np.random.default_rng(int(variant) + 7).normal(0, strength, (H, W, 1))
+        out = np.clip(np.asarray(canvas.convert("RGB")).astype(np.float32) + g, 0, 255).astype("uint8")
+        return Image.fromarray(out, "RGB")
+    except Exception:
+        return canvas.convert("RGB")
+
+
+def _editorial_scrim(bg, layout):
+    """Give the plate depth (gentle blur so the sharp subject pops) + a navy gradient scrim on the TEXT side
+    (+ bottom) for legibility. Layout 3 puts text on the RIGHT, so the scrim mirrors."""
+    import numpy as np
+    base = bg.convert("RGB")
+    try:
+        base = base.filter(ImageFilter.GaussianBlur(2.4))
+    except Exception:
+        pass
+    w, h = base.size
+    xs = np.linspace(0, 1, w)[None, :]
+    ys = np.linspace(0, 1, h)[:, None]
+    side = np.clip((xs - 0.45) / 0.55, 0, 1) if layout == 3 else np.clip(1.0 - xs / 0.55, 0, 1)
+    bottom = np.clip((ys - 0.55) / 0.45, 0, 1)
+    a = np.clip(side * 0.86 + bottom * 0.5, 0, 0.93)
+    layer = Image.new("RGBA", (w, h), (*NAVY, 255))
+    layer.putalpha(Image.fromarray((a * 255).astype("uint8"), "L"))
+    return Image.alpha_composite(base.convert("RGBA"), layer).convert("RGB")
+
+
+def _place_editorial_person(canvas, skin, hero, layout):
+    """Composite the REAL cut-out so it BELONGS in the scene: focal-pocket bloom, colour-grade/tone-match to
+    the plate, feather+despill, contact + cast shadow, directional rim light. `layout` 1=hero-right,
+    2=hero-right big-crop (head bleeds off top), 3=hero-left. Returns the TIGHT person bbox (shadows/glow
+    excluded so text clamping stays honest)."""
+    import numpy as np
+    from PIL import ImageChops, ImageEnhance
+    warm = skin.key in ("light", "cream", "photo")
+    # STAGE 0 — prominent size + floor-anchored position
+    if layout == 2:
+        target_h, cap, right_pad = int(H * 0.98), W * 0.60, 16
+    elif layout == 3:
+        target_h, cap, right_pad = int(H * 0.90), W * 0.56, 24
+    else:
+        target_h, cap, right_pad = int(H * 0.90), W * 0.58, 24
+    scale = target_h / hero.height
+    if hero.width * scale > cap:
+        scale = cap / hero.width
+    hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
+    a = hero.split()[-1]
+    hx = 24 if layout == 3 else (W - hero.width - right_pad)
+    hy = -int(hero.height * 0.04) if layout == 2 else (H - hero.height)
+    cx, cy = hx + hero.width // 2, hy + int(hero.height * 0.30)
+    # STAGE 1 — focal pocket (soft radial bloom behind the subject, NOT a flat ring)
+    pocket = Image.new("L", canvas.size, 0)
+    ImageDraw.Draw(pocket).ellipse(
+        [cx - int(hero.width * 0.85), cy - int(hero.height * 0.60),
+         cx + int(hero.width * 0.85), cy + int(hero.height * 0.60)], fill=230)
+    pocket = pocket.filter(ImageFilter.GaussianBlur(90))
+    tone = (255, 250, 242) if warm else (28, 72, 116)
+    tint = Image.new("RGBA", canvas.size, (*tone, 0))
+    tint.putalpha(pocket.point(lambda v: int(v * 0.30)))
+    canvas.paste(tint, (0, 0), tint)
+    # STAGE 2 — colour-grade / tone-match the cut-out to the plate's light
+    try:
+        box = (max(0, hx), max(0, hy), min(W, hx + hero.width), min(H, hy + int(hero.height * 0.55)))
+        tgt = np.asarray(canvas.convert("RGB").crop(box)).reshape(-1, 3).mean(0)
+        hrgb = np.asarray(hero.convert("RGB")).astype(np.float32)
+        af = np.asarray(a).reshape(-1) > 10
+        mean = hrgb.reshape(-1, 3)[af].mean(0)
+        shift = np.clip((tgt - mean) * 0.20, -16, 16)
+        hrgb = np.clip(hrgb + shift, 0, 255)
+        hrgb[..., 0] *= 1.03 if warm else 0.98
+        hrgb[..., 2] *= 0.97 if warm else 1.03
+        graded = Image.fromarray(np.clip(hrgb, 0, 255).astype("uint8"), "RGB")
+        graded = ImageEnhance.Color(graded).enhance(1.05)
+        graded = ImageEnhance.Contrast(graded).enhance(1.05)
+        graded = ImageEnhance.Brightness(graded).enhance(1.02)
+        hero = graded.convert("RGBA")
+        hero.putalpha(a)
+    except Exception:
+        pass
+    # STAGE 3 — feather + a 1px despill erode (kills the pasted 'sticker' edge)
+    a = a.filter(ImageFilter.GaussianBlur(0.6)).filter(ImageFilter.MinFilter(3))
+    hero.putalpha(a)
+    # STAGE 4 — contact shadow pooling at the feet (skip for the top-bleed crop)
+    if layout != 2:
+        sil = Image.new("RGBA", hero.size, (0, 0, 0, 0))
+        sil.paste((0, 0, 0, 175), (0, 0), a)
+        ground = sil.resize((hero.width, max(1, int(hero.height * 0.10))), Image.LANCZOS)
+        gl = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        gl.paste(ground, (hx + 18, H - int(hero.height * 0.06)))
+        canvas.paste(gl.filter(ImageFilter.GaussianBlur(24)), (0, 0), gl.filter(ImageFilter.GaussianBlur(24)))
+    # STAGE 5 — soft cast shadow (navy-tinted, offset to the light side) BEFORE the person
+    sh = Image.new("RGBA", hero.size, (0, 0, 0, 0))
+    sh.paste((6, 12, 26, 120), (0, 0), a)
+    sh = sh.filter(ImageFilter.GaussianBlur(22))
+    off = (max(RAIL_W, hx - 22), hy + 16) if layout == 3 else (hx + 22, hy + 16)
+    canvas.paste(sh, off, sh)
+    # STAGE 6 — the person
+    canvas.paste(hero, (hx, hy), hero)
+    # STAGE 7 — directional rim / edge light so they separate from the plate
+    try:
+        rim_mask = ImageChops.subtract(a, a.filter(ImageFilter.MinFilter(9)))
+        rm = ImageChops.multiply(a, rim_mask).point(lambda v: min(v, 90)).filter(ImageFilter.GaussianBlur(1.5))
+        gy = np.linspace(1, 0, hero.height)[:, None]
+        gx = (np.linspace(0, 1, hero.width) if layout == 3 else np.linspace(1, 0, hero.width))[None, :]
+        rm = Image.fromarray((np.asarray(rm).astype(np.float32) * np.clip(gy * gx, 0, 1)).astype("uint8"), "L")
+        rim = Image.new("RGBA", hero.size, (*((255, 246, 230) if warm else (246, 64, 76)), 0))
+        rim.putalpha(rm)
+        canvas.paste(rim, (hx, hy), rim)
+    except Exception:
+        pass
+    return (hx, max(0, hy), hx + hero.width, H)
+
+
+def _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box):
+    """Draw the editorial caption for a layout and return the text bounding boxes (for `_ensure_clear`).
+    Text lives entirely in the reserved column opposite the subject."""
+    pad = 70
+    boxes = []
+    if layout == 3:                                   # subject LEFT -> text RIGHT
+        tx, tw = 664, 376
+        try:
+            paste_wordmark(canvas, tx, 46, 300, 42, dark_bg=skin.wm_dark); boxes.append((tx, 46, tx + 300, 90))
+        except Exception:
+            pass
+        d.text((tx, 120), "TEAM // SPOTLIGHT", font=heading_font(24), fill=skin.accent); boxes.append((tx, 120, tx + 300, 150))
+        y, hb = _draw_headline_highlight(d, tx, 168, headline or "On a Mission!", tw, skin, keyword=keyword, size=96, max_lines=4)
+        boxes.append(hb)
+        if question:
+            qf = body_font(30); sy = y + 14
+            for ln in _wrap(d, question, qf, tw)[: max(1, (700 - (y + 14)) // 42)]:
+                d.text((tx, sy), ln, font=qf, fill=skin.sub); sy += 42
+            boxes.append((tx, y + 14, tx + tw, sy))
+        boxes.append(_draw_featuring_script(d, tx, H - 250, name, role, skin, max_w=tw))
+    elif layout == 2:                                 # subject RIGHT (top-bleed) -> text LEFT, featuring high
+        hl_w = max(320, person_box[0] - pad - 50)
+        boxes.append(_draw_featuring_script(d, pad, 322, name, role, skin, max_w=hl_w))
+        y, hb = _draw_headline_highlight(d, pad, 492, headline or "On a Mission!", hl_w, skin, keyword=keyword, size=104, max_lines=3)
+        boxes.append(hb)
+        if question:
+            qf = body_font(30); sy = y + 12
+            for ln in _wrap(d, question, qf, hl_w)[: max(1, (760 - (y + 12)) // 42)]:
+                d.text((pad, sy), ln, font=qf, fill=skin.sub); sy += 42
+            boxes.append((pad, y + 12, pad + hl_w, sy))
+        try:
+            paste_wordmark(canvas, pad, H - 70, 230, 42, dark_bg=skin.wm_dark); boxes.append((pad, H - 72, pad + 230, H - 24))
+        except Exception:
+            pass
+    else:                                             # LAYOUT 1 masthead hero-right (default)
+        hl_w = max(320, person_box[0] - pad - 50)
+        try:
+            paste_wordmark(canvas, pad, 46, 250, 42, dark_bg=skin.wm_dark); boxes.append((pad, 46, pad + 250, 88))
+        except Exception:
+            pass
+        d.text((pad, 120), "TEAM // SPOTLIGHT", font=heading_font(24), fill=skin.accent); boxes.append((pad, 120, pad + 300, 150))
+        y, hb = _draw_headline_highlight(d, pad, 168, headline or "On a Mission!", hl_w, skin, keyword=keyword, size=112, max_lines=3)
+        boxes.append(hb)
+        if question:
+            qf = body_font(32); sy = y + 14
+            for ln in _wrap(d, question, qf, hl_w)[: max(1, (700 - (y + 14)) // 42)]:
+                d.text((pad, sy), ln, font=qf, fill=skin.sub); sy += 42
+            boxes.append((pad, y + 14, pad + hl_w, sy))
+        boxes.append(_draw_featuring_script(d, pad, 830, name, role, skin, max_w=hl_w))
+    return boxes
+
+
+def _finish_editorial(canvas, renderer):
+    file_name = unique_name("tr-team", "png")
+    path = storage_subdir("images") / file_name
+    canvas.convert("RGB").save(str(path), "PNG")
+    return str(path), file_name, {
+        "url": public_url("images", file_name), "renderer": renderer,
+        "style": "ai", "skin": "photo", "size": f"{W}x{H}", "kind": "team", "design": "editorial",
+    }
+
+
+async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword):
+    """PREMIUM EDITORIAL composite — the REAL cut-out person integrated into a gpt-image editorial scene
+    (graded/grounded/rim-lit, NO frame), with a rotating dynamic layout. The FACE is never changed. Returns
+    (path, fname, meta), or None on failure."""
+    from ..providers import llm
+    skin = SKINS["photo"]
+    layout = (int(variant) % 3) + 1
+    # background plate: gpt-image editorial scene (no people/text), or a designed PIL gradient offline
+    bg = None
+    if llm.image_provider_available():
+        try:
+            data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant), size="1024x1024")
+            if data:
+                bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+        except Exception:
+            bg = None
+    if bg is None:
+        bg = _paint_editorial_bg(skin, variant)
+    canvas = _editorial_scrim(bg, layout)
+    hero = _cutout(photo)
+    cut_ok = (hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
+              and hero.width >= photo.width * 0.42 and hero.height >= photo.height * 0.45)
+    if cut_ok:
+        person_box = _place_editorial_person(canvas, skin, hero, layout)
+    else:  # FRAMELESS fallback (no clean cut-out): full-bleed photo, heavy scrim, NO card
+        full = _cover_fit(photo, W, H)
+        canvas = _editorial_scrim(full, 1)
+        person_box = (int(W * 0.5), 0, W, H)
+        layout = 1
+    canvas = _apply_grain(canvas, variant)
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
+    boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box)
+    _ensure_clear("editorial_L%d" % layout, person_box, *boxes)
+    return _finish_editorial(canvas, "team_editorial")
+
+
+def _paint_editorial_bg(skin, variant):
+    """Offline plate (no gpt-image): a soft brand diagonal gradient + a large blurred accent bloom — enough
+    depth for the graded cut-out to sit in without a frame."""
+    import numpy as np
+    a = np.array((0x0B, 0x35, 0x59), float)                      # navy
+    b = np.array([(0xEB, 0xE9, 0xDF), (0x12, 0x44, 0x6E), (0xF6, 0x40, 0x4C)][int(variant) % 3], float)
+    ys = np.linspace(0, 1, H)[:, None, None]
+    xs = np.linspace(0, 1, W)[None, :, None]
+    t = np.clip(0.5 * ys + 0.5 * xs, 0, 1)
+    grad = (a[None, None, :] * (1 - t) + b[None, None, :] * t).astype("uint8")
+    canvas = Image.fromarray(np.broadcast_to(grad, (H, W, 3)).copy(), "RGB")
+    bloom = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(bloom).ellipse([W - 620, 120, W + 120, 820], fill=90)
+    bloom = bloom.filter(ImageFilter.GaussianBlur(120))
+    tint = Image.new("RGBA", (W, H), (*RED, 0)); tint.putalpha(bloom)
+    return Image.alpha_composite(canvas.convert("RGBA"), tint).convert("RGB")
+
+
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Featured-employee banner — the polished AI portrait look (blazer + a VARIED scene):
-      • If a FACESWAP key is set -> the AI portrait with the person's EXACT real face swapped on
-        (`_build_faceswap_banner`).
-      • Otherwise -> the AI portrait as gpt-image makes it (`_build_ai_portrait_banner`) — great-looking and
-        varied, but the FACE is AI-generated (a close likeness, not exact). Adding a FACESWAP key restores
-        the real face with NO other change.
-    If the image provider is down, falls back to the REAL-photo composite (AI-bg cut-out / iPhone frame),
-    then a deterministic series template — so a post is never broken."""
+    """Featured-employee banner. The employee's REAL FACE is never changed:
+      • If a FACESWAP key is set -> the AI portrait (blazer/scene) with the person's EXACT real face swapped
+        on (`_build_faceswap_banner`).
+      • Otherwise (default) -> a PREMIUM EDITORIAL composite: the REAL cut-out person graded/grounded/rim-lit
+        INTO a gpt-image editorial scene, in a rotating dynamic layout (`_build_editorial_banner`). No frame,
+        no card — the person blends into the artwork; only the design/background changes, never the face.
+    Any failure -> a deterministic series template, so a post is never broken."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1310,19 +1627,16 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        if faceswap.faceswap_available():   # BEST: AI look + EXACT real face
+        if faceswap.faceswap_available():   # AI look + EXACT real face (opt-in)
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword)
-        if result is None:                  # DEFAULT: the polished AI portrait (AI face)
-            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword)
-        if result is None:                  # provider down -> real-photo composite (exact face, never breaks)
-            if variant % 3 != 0:
-                result = await _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword)
-            if result is None:
-                result = await _build_phone_banner(brand, photo, name, role, headline, question, variant, keyword)
-        return result
-    except Exception:  # never crash a post -> deterministic series template (still the real face)
-        return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
-                                style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
+        if result is None:                  # DEFAULT: premium editorial composite, REAL face
+            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword)
+        if result is not None:
+            return result
+    except Exception:
+        pass
+    return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
+                            style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
 
 
 def render_if_person(brand, concept: str, count: int = 1):

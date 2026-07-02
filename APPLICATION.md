@@ -81,15 +81,16 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   (`spotlight_series` = Man-on-a-Mission with a red-box keyword + script "Featuring [Name]" + arrow;
   `welcome`; `anniversary` = "X Strong Years"; `grid` = multi-employee "One Year Strong"). The series is
   auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The default
-  individual post is `build_ai_scene`, which **NEVER changes the employee's face** — it composites their
-  REAL photo (face + clothes untouched) and only varies the DESIGN, rotating: **Design A** — the real photo
-  inside a clean PORTRAIT iPhone-frame mockup (`_place_person_phone`: titanium rail, charcoal bezel,
-  dynamic-island notch, drop shadow, glass rim; skins rotate); **Design B** — the real person on a VARIED
-  AI-generated BACKGROUND (`_scene_prompt` → gpt-image makes the scene only, NO people; the real cut-out /
-  framed photo goes on top via `_place_person`). The branded caption (wordmark, red-box keyword headline,
-  subline, script "Featuring [Name]" + role badge) sits in a reserved column. **Nothing overrides:**
-  `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced** (`_enhance_photo`). By
-  default we do NOT run an image-to-image edit on the person (it would repaint — and change — the face).
+  individual post is `build_ai_scene` → **`_build_editorial_banner`**, which **NEVER changes the employee's
+  face** — it composites their REAL cut-out into a gpt-image editorial scene and INTEGRATES it (not a framed
+  card) via an 8-stage pipeline (`_place_editorial_person`): focal-pocket bloom, colour-grade/tone-match to
+  the plate, feather+despill, contact + navy cast shadow, directional rim light, and shared film grain, so
+  the person reads as photographed INTO the scene. Clean cut-outs come from remove.bg / rembg when available,
+  else a free numpy + flood-fill **plain-studio-background keyer** (`_key_plain_bg`, removes the wall + cast
+  shadow — the team's photos are studio shots). Three modern EDITORIAL layouts rotate (masthead hero-right /
+  off-centre big-crop / hero-left mirror) with oversized type, a kicker and a script "Featuring [Name]".
+  **Nothing overrides:** `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced**
+  (`_enhance_photo`). We do NOT run an image-to-image edit on the person by default (it would change the face).
   **OPT-IN face-swap:** if a `FACESWAP_API_KEY` (Replicate) is set, `build_ai_scene` instead makes a full AI
   portrait (blazer + varied scene) and swaps the person's REAL face onto it via a hosted face-swap API
   (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face**; on missing key
