@@ -81,15 +81,16 @@ export function makeChatStore(endpoint: string, kind: string) {
         setBusy(true);
         setStatus("");
         // Snapshot the attachments (by value) onto the user message so the transcript shows the file(s)
-        // next to the prompt. The composer's `attachments` state is cleared after the turn, so this copy
-        // is what the past bubble keeps.
+        // next to the prompt, then CLEAR the composer immediately — the moment you hit send the file
+        // belongs to the message, not the input box. `atts` (captured below) still carries them to the
+        // backend, so clearing the state here doesn't drop them from this turn.
         const sentAttachments = attachments.length ? [...attachments] : undefined;
         setMessages((m) => [
           ...m,
           { role: "user", content: trimmed, attachments: sentAttachments },
           { role: "assistant", content: "", pending: true },
         ]);
-        let gotAsset = false; // keep a staged photo until it's actually used in a generated asset
+        setAttachments([]);
 
         try {
         await streamChat(
@@ -108,7 +109,6 @@ export function makeChatStore(endpoint: string, kind: string) {
             },
             onAsset: (asset: Asset) => {
               if (!live()) return;
-              gotAsset = true;
               setMessages((m) => {
                 const last = m[m.length - 1];
                 if (last?.role !== "assistant") return m;
@@ -180,9 +180,6 @@ export function makeChatStore(endpoint: string, kind: string) {
           if (live()) {
             setStatus("");
             setBusy(false);
-            // Keep a staged photo until it's actually used in a post — so an intake question or a
-            // chat reply in between doesn't lose it. Other files clear after their one turn.
-            if (gotAsset || !attachments.some((a) => a.kind === "image")) setAttachments([]);
             refresh();
           }
         }

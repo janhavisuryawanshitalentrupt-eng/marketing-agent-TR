@@ -1126,14 +1126,95 @@ def _place_person_phone(canvas, d, skin, portrait):
     return 612, (605, 130, 1046, 1028)
 
 
-async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Premium PORTRAIT iPhone-frame employee banner (senior-graphics-team design): the employee's
-    identity-locked professional portrait — an img2img edit of their REAL photo (input_fidelity=high),
-    with the enhanced real photo as a clean fallback — sits inside a phone mockup on the RIGHT, and the
-    branded caption sits in a reserved LEFT column. NOTHING overlaps (verified by `_ensure_clear`). Rotates
-    across light/cream/navy/red skins so it's never navy every time. Falls back to a deterministic series
-    template on any error, so a post is never broken."""
+async def _build_phone_banner(brand, photo, name, role, headline, question, variant, keyword):
+    """DESIGN A — a clean PORTRAIT iPhone frame holding the employee's identity-locked AI portrait, caption
+    on the reserved LEFT (64px gutter, verified by `_ensure_clear`). Random skin so all four colours appear."""
     from ..providers import llm
+    skin = resolve_skin(random.choice(DETERMINISTIC_SKINS))
+    portrait = await _phone_portrait_img(photo, variant) if llm.image_provider_available() else None
+    if portrait is None:
+        portrait = photo  # enhanced real photo fallback — the mockup still carries the polish
+    canvas = Image.new("RGB", (W, H), skin.bg)
+    d = ImageDraw.Draw(canvas)
+    _paint_scene_bg(canvas, d, skin, variant)                     # rail + subtle accents (kept off the frame)
+    person_left, person_box = _place_person_phone(canvas, d, skin, portrait)
+    pad, hl_w = 70, 478                                            # 64px gutter to the device at x=612
+    wm_box = (pad, 132, pad + 230, 176)
+    try:
+        paste_wordmark(canvas, pad, 132, 230, 44, dark_bg=skin.wm_dark)
+    except Exception:
+        wm_box = None
+    y, head_box = _draw_headline_highlight(d, pad, 232, headline or "In the Spotlight.", hl_w, skin,
+                                           keyword=keyword, size=96, max_lines=3)
+    sub_box = None
+    if question:
+        qf = body_font(30)
+        sy = y + 16
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, (724 - sy) // 40)]:
+            d.text((pad, sy), ln, font=qf, fill=skin.sub)
+            sy += 40
+        sub_box = (pad, y + 16, pad + hl_w, sy)
+    feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin, max_w=hl_w)
+    _ensure_clear("phone_" + skin.key, person_box, head_box, sub_box, feat_box, wm_box)
+    file_name = unique_name("tr-team", "png")
+    path = storage_subdir("images") / file_name
+    canvas.convert("RGB").save(str(path), "PNG")
+    return str(path), file_name, {
+        "url": public_url("images", file_name), "renderer": "team_phone_portrait",
+        "style": "ai", "skin": skin.key, "size": f"{W}x{H}", "kind": "team", "design": "phone",
+    }
+
+
+async def _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword):
+    """DESIGN B — the employee re-rendered (identity-locked) into a VARIED premium ENVIRONMENT (8 rotating
+    `_PORTRAIT_LOOKS`: office / studio / golden-hour / bold-brand / rooftop / …), caption on the LEFT over a
+    scrim. Returns (path, fname, meta), or None if the AI edit is unavailable (caller uses Design A)."""
+    from ..providers import llm
+    if not llm.image_provider_available():
+        return None
+    edited = await _ai_portrait_canvas(photo, headline, question, variant)
+    if edited is None:
+        return None
+    skin = SKINS["photo"]
+    canvas = _ai_scrim(edited)
+    d = ImageDraw.Draw(canvas)
+    person_left = int(W * 0.50)          # the person is baked into the RIGHT half of the AI scene
+    person_box = (person_left, 0, W, H)
+    d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
+    pad = 70
+    hl_w = max(340, person_left - pad - 30)
+    y, head_box = _draw_headline_highlight(d, pad, 92, headline or "On a Mission!", hl_w, skin, keyword=keyword)
+    sub_box = None
+    if question:
+        qf = body_font(34)
+        sy = y + 10
+        for ln in _wrap(d, question, qf, hl_w)[: max(1, ((H - 290) - (y + 10)) // 44)]:
+            d.text((pad, sy), ln, font=qf, fill=skin.sub)
+            sy += 44
+        sub_box = (pad, y + 10, pad + hl_w, sy)
+    feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin, max_w=hl_w)
+    try:
+        paste_wordmark(canvas, pad, H - 60, 240, 44, dark_bg=True)
+    except Exception:
+        pass
+    _ensure_clear("ai_scene", person_box, head_box, sub_box, feat_box)
+    file_name = unique_name("tr-team", "png")
+    path = storage_subdir("images") / file_name
+    canvas.convert("RGB").save(str(path), "PNG")
+    return str(path), file_name, {
+        "url": public_url("images", file_name), "renderer": "team_ai_scene",
+        "style": "ai", "skin": "photo", "size": f"{W}x{H}", "kind": "team", "design": "scene",
+    }
+
+
+async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
+    """Featured-employee banner — ROTATES design families so employee posts aren't the SAME design every
+    time (the fix for "hardcoded" employee designs):
+      • DESIGN A — a clean PORTRAIT iPhone frame holding the employee's identity-locked AI portrait.
+      • DESIGN B — a full-scene AI portrait: the employee re-rendered into a VARIED premium environment.
+    Both AI-generate ONLY the employee's portrait (identity-locked) and drop it into a professional layout
+    with the caption kept clear of the person (`_ensure_clear`). Any failure -> a deterministic series
+    template, so a post is never broken."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1141,43 +1222,16 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         pass
     try:
         photo = _enhance_photo(ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB")))
-        skin = resolve_skin(DETERMINISTIC_SKINS[variant % len(DETERMINISTIC_SKINS)])
-        # the clean, centred portrait that goes on the phone SCREEN (identity-locked); raw enhanced photo fallback
-        portrait = await _phone_portrait_img(photo, variant) if llm.image_provider_available() else None
-        if portrait is None:
-            portrait = photo
-
-        canvas = Image.new("RGB", (W, H), skin.bg)
-        d = ImageDraw.Draw(canvas)
-        _paint_scene_bg(canvas, d, skin, variant)                 # rail + subtle accents (kept off the frame)
-        person_left, person_box = _place_person_phone(canvas, d, skin, portrait)
-
-        pad, hl_w = 70, 478                                        # 64px gutter to the device at x=612
-        wm_box = (pad, 132, pad + 230, 176)
-        try:
-            paste_wordmark(canvas, pad, 132, 230, 44, dark_bg=skin.wm_dark)
-        except Exception:
-            wm_box = None
-        y, head_box = _draw_headline_highlight(d, pad, 232, headline or "In the Spotlight.", hl_w, skin,
-                                               keyword=keyword, size=96, max_lines=3)
-        sub_box = None
-        if question:
-            qf = body_font(30)
-            sy = y + 16
-            for ln in _wrap(d, question, qf, hl_w)[: max(1, (724 - sy) // 40)]:
-                d.text((pad, sy), ln, font=qf, fill=skin.sub)
-                sy += 40
-            sub_box = (pad, y + 16, pad + hl_w, sy)
-        feat_box = _draw_featuring_script(d, pad, H - 250, name, role, skin, max_w=hl_w)
-        _ensure_clear("phone_" + skin.key, person_box, head_box, sub_box, feat_box, wm_box)
-
-        file_name = unique_name("tr-team", "png")
-        path = storage_subdir("images") / file_name
-        canvas.convert("RGB").save(str(path), "PNG")
-        return str(path), file_name, {
-            "url": public_url("images", file_name), "renderer": "team_phone_portrait",
-            "style": "ai", "skin": skin.key, "size": f"{W}x{H}", "kind": "team",
-        }
+    except Exception:
+        return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
+                                style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
+    try:
+        result = None
+        if variant % 2 == 1:  # DESIGN B (varied environment); falls through to A if the edit is unavailable
+            result = await _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword)
+        if result is None:    # DESIGN A (iPhone frame) — the even rotation, and the safe fallback
+            result = await _build_phone_banner(brand, photo, name, role, headline, question, variant, keyword)
+        return result
     except Exception:  # never crash a post -> deterministic series template (still the real face)
         return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
                                 style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))

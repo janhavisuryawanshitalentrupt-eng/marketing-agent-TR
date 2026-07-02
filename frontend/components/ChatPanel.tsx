@@ -9,6 +9,7 @@ import { MyraAvatar } from "./MyraLogo";
 import { ReplyActions } from "./ReplyActions";
 import { RefineChips } from "./RefineChips";
 import { GenerationsGallery } from "./GenerationsGallery";
+import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { useAtMentions, AtMenu, type AtCommand } from "@/lib/atMentions";
 
@@ -48,6 +49,7 @@ export function ChatPanel() {
   } = useChat();
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<"chat" | "generations">("chat");
+  const [attPreview, setAttPreview] = useState<{ url: string; name: string } | null>(null); // attachment lightbox
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -197,13 +199,13 @@ export function ChatPanel() {
                         <div className="flex flex-wrap justify-end gap-1.5">
                           {m.attachments.map((a) =>
                             a.previewUrl && a.kind === "image" ? (
-                              <a
+                              <button
                                 key={a.id}
-                                href={a.previewUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                                type="button"
+                                onClick={() => setAttPreview({ url: a.previewUrl!, name: a.name })}
                                 title={`Open ${a.name}`}
-                                className="block"
+                                aria-label={`Open ${a.name}`}
+                                className="block rounded-xl"
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
@@ -211,7 +213,7 @@ export function ChatPanel() {
                                   alt={a.name}
                                   className="h-24 w-24 cursor-zoom-in rounded-xl border border-[var(--border)] object-cover shadow-sm transition hover:opacity-90"
                                 />
-                              </a>
+                              </button>
                             ) : (
                               <span
                                 key={a.id}
@@ -369,6 +371,10 @@ export function ChatPanel() {
         </>
         )}
       </div>
+
+      {attPreview && (
+        <ImageLightbox url={attPreview.url} title={attPreview.name} onClose={() => setAttPreview(null)} />
+      )}
     </div>
   );
 }

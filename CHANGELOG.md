@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Attachment clears on send · in-app image preview · varied employee designs (2026-07-02)
+- **The attached file leaves the composer the moment you hit send.** It used to linger in the input box
+  during generation (an image was kept "staged"); now it's snapshotted onto your message and the composer
+  clears immediately — in both the main Chat and the Campaign studio.
+- **Tapping an image in a message opens it in-app, not a new browser tab.** Attachment thumbnails now open
+  a same-tab lightbox (click-outside / Esc to close), matching every other image preview in the app
+  (new shared `ImageLightbox`).
+- **Employee posts stop looking identical.** Featuring a teammate no longer always produces the same
+  iPhone-frame design. It now **rotates two distinct design families**, both AI-generating only the
+  employee's identity-locked portrait: **(A)** the clean portrait iPhone frame, and **(B)** a full-scene
+  portrait where the person is re-rendered into a varied premium environment (office / studio / golden-hour
+  / bold-brand / rooftop / …, 8 looks). With skins and environments rotating inside each, consecutive posts
+  look different — like the variety the non-employee image generator already produces.
+
 ## Employee banners: the photo now sits in a clean PORTRAIT iPhone frame (2026-07-02)
 The default employee/`@mention` post is now a premium **portrait phone-mockup** banner, designed by a
 multi-agent "senior graphics team" (4 designers → art-director synthesis).

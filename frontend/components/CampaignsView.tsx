@@ -40,6 +40,7 @@ import { Avatar } from "./Avatar";
 import { MyraAvatar } from "./MyraLogo";
 import { ReplyActions } from "./ReplyActions";
 import { EmptyState } from "./EmptyState";
+import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { useAtMentions, AtMenu, CAMPAIGN_AT_COMMANDS } from "@/lib/atMentions";
 
@@ -1159,6 +1160,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const [assets, setAssets] = useState<Asset[]>(detail.assets ?? []);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attaching, setAttaching] = useState(0);
+  const [attPreview, setAttPreview] = useState<{ url: string; name: string } | null>(null); // attachment lightbox
   const [brief, setBrief] = useState(detail.goal ?? "");
   const [editingBrief, setEditingBrief] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1266,6 +1268,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
       { role: "user", content: trimmed, attachments: sentAttachments },
       { role: "assistant", content: "", pending: true },
     ]);
+    setAttachments([]); // the file now belongs to the message — clear the composer right away
     try {
       await streamChat(
         trimmed,
@@ -1403,10 +1406,10 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                         <div className="flex flex-wrap justify-end gap-1.5">
                           {m.attachments.map((a) =>
                             a.previewUrl && a.kind === "image" ? (
-                              <a key={a.id} href={a.previewUrl} target="_blank" rel="noreferrer" title={`Open ${a.name}`} className="block">
+                              <button key={a.id} type="button" onClick={() => setAttPreview({ url: a.previewUrl!, name: a.name })} title={`Open ${a.name}`} aria-label={`Open ${a.name}`} className="block rounded-xl">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={a.previewUrl} alt={a.name} className="h-24 w-24 cursor-zoom-in rounded-xl border border-[var(--border)] object-cover shadow-sm transition hover:opacity-90" />
-                              </a>
+                              </button>
                             ) : (
                               <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-[11px]" title={a.name}>
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -1530,6 +1533,9 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
             setBrief(text);
           }}
         />
+      )}
+      {attPreview && (
+        <ImageLightbox url={attPreview.url} title={attPreview.name} onClose={() => setAttPreview(null)} />
       )}
     </div>
   );
