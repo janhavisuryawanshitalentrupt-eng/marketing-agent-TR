@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Strict facial-consistency mode is now the default for employee AI images (2026-07-02)
+Employee-featured images now regenerate the **pose, lighting and surroundings** with AI while locking the
+**face to the reference photo** — the strongest identity preservation the image API offers:
+- **New default = identity-locked AI edit.** `build_ai_scene` now routes to the gpt-image-1 image-EDIT
+  endpoint with `input_fidelity='high'`, which re-poses/re-lights/re-stages the *same* person (blazer + a
+  rotating premium environment: office / studio / golden-hour / bold-brand / rooftop, 8 looks) instead of
+  pasting the flat cut-out onto a designed background. The real cut-out composite is now the *fallback* if the
+  edit fails or is refused, so the face is always still theirs.
+- **Stronger prompt lock.** The portrait prompts now instruct the model to treat the reference photo as the
+  single source of truth for the face and preserve **every** facial feature exactly (bone structure, face
+  shape, jaw, nose, lips, eyes, eyebrows, skin tone, hair, facial hair, age, gender) — adapting **only** pose,
+  lighting and surroundings, and never slimming, reshaping, smoothing or beautifying the face.
+- **Priority order:** FACESWAP key (pixel-exact real face) → identity-locked AI edit (new default) → real
+  cut-out composite → deterministic template. Adding a `FACESWAP_API_KEY` still gives the strongest guarantee.
+- *Note:* `input_fidelity='high'` is a very strong lock but is still an AI regeneration, so the face can drift
+  slightly on some photos. For a pixel-exact face on the AI scene, add a Replicate `FACESWAP_API_KEY`.
+
 ## Cleaner cut-outs — no more "white shadow" behind the person (2026-07-02)
 Fixed the leftover light-wall patch (the "white shadow" behind a shoulder) and rough edges in the free
 background keyer:

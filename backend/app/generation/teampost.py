@@ -1086,10 +1086,13 @@ def _portrait_prompt(headline: str, question: str, variant: int) -> str:
     return (
         "Restyle the SAME person from the provided photo into a premium, photorealistic corporate "
         "social-media portrait. "
-        "CRITICAL IDENTITY LOCK: it must remain unmistakably the SAME individual — keep their exact face, "
-        "facial features, bone structure, skin tone, hair and hairstyle, facial hair, age and gender, "
-        "clearly recognisable as the person in the photo. Do NOT replace them with a different face and do "
-        "NOT beautify them into someone else. "
+        "STRICT FACIAL CONSISTENCY: treat the provided photo as the single source of truth for the face. "
+        "Prioritise and preserve every facial feature EXACTLY — bone structure, face shape and proportions, "
+        "jawline, cheekbones, nose, lips, eyes and eye spacing, eyebrows, skin tone and complexion, hair and "
+        "hairstyle, facial hair, age and gender. Only adapt the POSE, LIGHTING and SURROUNDINGS. Do NOT alter "
+        "their facial structure in any way, do NOT slim, reshape, age, de-age, smooth or beautify the face, "
+        "and do NOT replace them with a different face. The result must be unmistakably the SAME individual, "
+        "instantly recognisable as the person in the photo. "
         "EXACTLY ONE PERSON: render only this single individual — do NOT add, invent, duplicate or "
         "hallucinate any other people or extra faces. If the source shows more than one person or is a "
         "graphic/screenshot, focus on the SINGLE main subject only. "
@@ -1147,9 +1150,11 @@ def _phone_portrait_prompt(variant: int) -> str:
     wear = _PHONE_WEAR[variant % len(_PHONE_WEAR)]
     return (
         "Restyle the SAME person from the provided photo into a premium, photorealistic, VERTICAL PORTRAIT "
-        "for a phone screen. CRITICAL IDENTITY LOCK: keep their exact face, facial features, bone structure, "
-        "skin tone, hair, hairstyle, facial hair, age and gender — unmistakably the SAME individual; do NOT "
-        "swap or beautify into a different face. EXACTLY ONE PERSON — do NOT add, invent or duplicate any "
+        "for a phone screen. STRICT FACIAL CONSISTENCY: treat the provided photo as the source of truth for "
+        "the face — preserve every facial feature EXACTLY (bone structure, face shape, jaw, nose, lips, eyes, "
+        "eyebrows, skin tone, hair, hairstyle, facial hair, age and gender); only adapt pose, lighting and "
+        "surroundings; do NOT alter their facial structure, slim, reshape, smooth or beautify the face, and do "
+        "NOT swap into a different face — unmistakably the SAME individual. EXACTLY ONE PERSON — do NOT add, invent or duplicate any "
         "other person or extra faces. Compose a CENTERED head-and-shoulders to upper-chest portrait, subject "
         "dead-centre horizontally, facing camera with a calm, confident, approachable expression, shoulders "
         "squared, head in the upper third with generous even headroom and clean side margins so a "
@@ -1353,10 +1358,12 @@ def _overlay_ai_scene(scene, name, role, headline, question, keyword, renderer):
 
 
 async def _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword):
-    """DEFAULT AI look — gpt-image re-renders the person into a polished AI portrait (blazer + a VARIED
-    environment: office / studio / golden-hour / bold-brand / rooftop / …, 8 looks). NOTE: this is a full AI
-    edit, so the FACE is AI-generated (a close likeness, not the exact real face — add a FACESWAP key to keep
-    the real face). Returns (path, fname, meta), or None if the image provider is unavailable."""
+    """DEFAULT AI look (STRICT FACIAL CONSISTENCY) — gpt-image-1's image-EDIT endpoint with
+    input_fidelity='high' re-poses/re-lights/re-stages the SAME person into a polished portrait (blazer + a
+    VARIED environment: office / studio / golden-hour / bold-brand / rooftop / …, 8 looks) while preserving
+    their facial features from the reference photo. This is the strongest identity lock the image API offers,
+    but it is still an AI regeneration — for a pixel-exact real face, add a FACESWAP key (used first when set).
+    Returns (path, fname, meta), or None if the provider is unavailable / the edit is refused."""
     from ..providers import llm
     if not llm.image_provider_available():
         return None
@@ -1660,12 +1667,15 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0, keyword=""):
-    """Featured-employee banner. The employee's REAL FACE is never changed:
+    """Featured-employee banner in STRICT FACIAL-CONSISTENCY mode — the reference photo is the source of
+    truth for the face; only pose/lighting/surroundings are adapted:
       • If a FACESWAP key is set -> the AI portrait (blazer/scene) with the person's EXACT real face swapped
-        on (`_build_faceswap_banner`).
-      • Otherwise (default) -> a PREMIUM EDITORIAL composite: the REAL cut-out person graded/grounded/rim-lit
-        INTO a gpt-image editorial scene, in a rotating dynamic layout (`_build_editorial_banner`). No frame,
-        no card — the person blends into the artwork; only the design/background changes, never the face.
+        on (`_build_faceswap_banner`) — the strongest identity guarantee.
+      • Otherwise (default) -> an identity-LOCKED AI portrait via the image-EDIT endpoint
+        (`input_fidelity='high'`), which re-poses/re-lights/re-stages the SAME person while preserving their
+        facial features (`_build_ai_portrait_banner`).
+      • If the edit fails or is refused -> a PREMIUM EDITORIAL composite of the REAL cut-out person
+        (`_build_editorial_banner`), so the face is still exactly theirs.
     Any failure -> a deterministic series template, so a post is never broken."""
     try:
         import pillow_heif
@@ -1680,9 +1690,11 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        if faceswap.faceswap_available():   # AI look + EXACT real face (opt-in)
+        if faceswap.faceswap_available():   # AI scene + EXACT real face (opt-in, strongest lock)
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword)
-        if result is None:                  # DEFAULT: premium editorial composite, REAL face
+        if result is None:                  # DEFAULT: identity-locked AI edit (strict facial consistency)
+            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword)
+        if result is None:                  # SAFETY: real cut-out composite (face is exactly theirs)
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword)
         if result is not None:
             return result

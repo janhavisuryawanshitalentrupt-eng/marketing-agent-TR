@@ -81,21 +81,29 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   (`spotlight_series` = Man-on-a-Mission with a red-box keyword + script "Featuring [Name]" + arrow;
   `welcome`; `anniversary` = "X Strong Years"; `grid` = multi-employee "One Year Strong"). The series is
   auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The default
-  individual post is `build_ai_scene` → **`_build_editorial_banner`**, which **NEVER changes the employee's
-  face** — it composites their REAL cut-out into a gpt-image editorial scene and INTEGRATES it (not a framed
-  card) via an 8-stage pipeline (`_place_editorial_person`): focal-pocket bloom, colour-grade/tone-match to
-  the plate, feather+despill, contact + navy cast shadow, directional rim light, and shared film grain, so
-  the person reads as photographed INTO the scene. Clean cut-outs come from remove.bg / rembg when available,
-  else a free numpy + flood-fill **plain-studio-background keyer** (`_key_plain_bg`, removes the wall + cast
-  shadow — the team's photos are studio shots). Three modern EDITORIAL layouts rotate (masthead hero-right /
-  off-centre big-crop / hero-left mirror) with oversized type, a kicker and a script "Featuring [Name]".
+  individual post is `build_ai_scene`, which runs in **STRICT FACIAL-CONSISTENCY mode**: it treats the
+  reference photo as the single source of truth for the face and adapts **only** the pose, lighting and
+  surroundings. Priority order:
+  1. **FACESWAP key (strongest):** if a `FACESWAP_API_KEY` (Replicate) is set, it makes a full AI portrait
+     (blazer + varied scene) and swaps the person's REAL face onto it via a hosted face-swap API
+     (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face** (pixel-exact).
+  2. **Identity-locked AI edit (new default):** `_build_ai_portrait_banner` → `_ai_portrait_canvas` calls the
+     gpt-image-1 **image-EDIT** endpoint with `input_fidelity='high'` and a strict-consistency prompt
+     (`_portrait_prompt`, 8 rotating looks: office / studio / golden-hour / bold-brand / rooftop …). It
+     re-poses/re-lights/re-stages the *same* person while preserving every facial feature. This is the
+     strongest identity lock the image API offers but is still an AI regeneration, so the face can drift
+     slightly on some photos (add a FACESWAP key for a pixel-exact face).
+  3. **Real cut-out composite (fallback):** if the edit fails or is refused, `_build_editorial_banner`
+     composites the person's REAL cut-out into a gpt-image editorial scene and INTEGRATES it (not a framed
+     card) via an 8-stage pipeline (`_place_editorial_person`): focal-pocket bloom, colour-grade/tone-match to
+     the plate, feather+despill, contact + navy cast shadow, directional rim light, and shared film grain, so
+     the person reads as photographed INTO the scene. Clean cut-outs come from remove.bg / rembg when
+     available, else a free numpy + flood-fill **plain-studio-background keyer** (`_key_plain_bg`, removes the
+     wall + cast shadow). Three modern EDITORIAL layouts rotate (masthead hero-right / off-centre big-crop /
+     hero-left mirror) with oversized type, a kicker and a script "Featuring [Name]".
+  4. **Deterministic series template (never-broken):** any failure falls back to a deterministic template.
   **Nothing overrides:** `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced**
-  (`_enhance_photo`). We do NOT run an image-to-image edit on the person by default (it would change the face).
-  **OPT-IN face-swap:** if a `FACESWAP_API_KEY` (Replicate) is set, `build_ai_scene` instead makes a full AI
-  portrait (blazer + varied scene) and swaps the person's REAL face onto it via a hosted face-swap API
-  (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face**; on missing key
-  or swap failure it falls straight back to the real-photo composite. Any failure falls back to a
-  deterministic series template so a post is never broken.
+  (`_enhance_photo`).
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as
