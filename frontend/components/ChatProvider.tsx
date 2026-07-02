@@ -26,6 +26,7 @@ export interface ChatState {
   attachments: Attachment[];
   attaching: boolean;
   send: (text: string) => void;
+  stop: () => void;
   attach: (file: File) => Promise<void>;
   removeAttachment: (id: number) => void;
   newChat: () => void;
@@ -60,6 +61,20 @@ export function makeChatStore(endpoint: string, kind: string) {
       streamRef.current = null;
       genRef.current += 1;
     }, []);
+
+    // User-facing Stop: abort the in-flight turn, drop the busy/typing state, and finalize the pending
+    // assistant bubble — keep whatever it had already produced (text/assets), or drop it if still empty.
+    const stop = useCallback(() => {
+      cancelStream();
+      setBusy(false);
+      setStatus("");
+      setMessages((m) => {
+        const last = m[m.length - 1];
+        if (last?.role !== "assistant" || !last.pending) return m;
+        if (!last.content && !(last.assets && last.assets.length)) return m.slice(0, -1);
+        return [...m.slice(0, -1), { ...last, pending: false }];
+      });
+    }, [cancelStream]);
 
     const refresh = useCallback(() => {
       getConversations(kind).then(setConversations).catch(() => {});
@@ -265,7 +280,7 @@ export function makeChatStore(endpoint: string, kind: string) {
       <Ctx.Provider
         value={{
           messages, status, busy, conversationId, conversations,
-          attachments, attaching, send, attach, removeAttachment, newChat, openConversation,
+          attachments, attaching, send, stop, attach, removeAttachment, newChat, openConversation,
           deleteConversation,
         }}
       >

@@ -1167,6 +1167,23 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const genRef = useRef(0);
+  const streamRef = useRef<AbortController | null>(null); // in-flight turn, so Stop can abort it
+
+  // User-facing Stop: abort the in-flight turn, clear busy/typing, and finalize the pending reply (keep
+  // whatever it already produced, or drop it if still empty).
+  function stop() {
+    streamRef.current?.abort();
+    streamRef.current = null;
+    genRef.current += 1;
+    setBusy(false);
+    setStatus("");
+    setMessages((m) => {
+      const last = m[m.length - 1];
+      if (last?.role !== "assistant" || !last.pending) return m;
+      if (!last.content && !(last.assets && last.assets.length)) return m.slice(0, -1);
+      return [...m.slice(0, -1), { ...last, pending: false }];
+    });
+  }
 
   // "@" palette (people from Folders + quick actions) — same behavior as the Chat/Create boxes.
   const { atMenu, showAtMenu, menuSel, setMenuSel, pickCommand, handleAtKey, onInputChange } =
@@ -1255,6 +1272,8 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
     if (!trimmed || busy || attaching > 0) return;
     const myGen = (genRef.current += 1);
     const live = () => genRef.current === myGen;
+    const ac = new AbortController();
+    streamRef.current = ac;
     const atts = attachments.map((a) => ({ name: a.name, text: a.text, id: a.id, kind: a.kind }));
     // Snapshot the attachments (by value) onto the user message so the transcript shows the file next to
     // the prompt — the composer's `attachments` state is cleared after the turn.
@@ -1325,6 +1344,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
         },
         `/api/campaigns/${campaignId}/stream`,
         atts,
+        ac.signal,
       );
     } finally {
       if (live()) {
@@ -1510,11 +1530,17 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                     placeholder="Refine the content — type / to create, @ for teammates…"
                     className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                   />
-                  <button onClick={() => send(input)} disabled={busy || attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                    </svg>
-                  </button>
+                  {busy ? (
+                    <button onClick={stop} className="btn-primary !bg-[var(--brand-red)] !px-3 !py-2" aria-label="Stop generating" title="Stop">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5" /></svg>
+                    </button>
+                  ) : (
+                    <button onClick={() => send(input)} disabled={attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
               <p className="mt-2 text-center text-[11px] text-muted">

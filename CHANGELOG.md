@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Stop button — interrupt an in-flight generation (2026-07-02)
+- **Chat + Campaign studio** now show a **Stop** button (red square) in place of Send while the assistant is
+  working. Clicking it **aborts the in-flight turn** (cancels the stream via `AbortController`), clears the
+  busy/typing state, and keeps whatever was already produced (or drops the empty pending bubble). Added
+  `stop()` to the chat store (`ChatProvider`) and an equivalent in the Campaign studio chat (its own store),
+  which now also passes an abort signal into `streamChat`.
+
 ## Premium editorial employee banners — the real person, integrated (not framed) (2026-07-02)
 Reworked the default featured-employee banner (real face preserved) so the person **blends into the
 artwork** instead of sitting in a photo frame. Designed by a multi-agent senior graphics/compositing team.
