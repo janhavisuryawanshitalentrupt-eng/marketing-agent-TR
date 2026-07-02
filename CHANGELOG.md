@@ -3,6 +3,14 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Employee portraits now wear a sharp blazer + lean to the full-scene look (2026-07-02)
+- **Consistent professional blazer.** Featured-employee portraits now always dress the person in a sharp,
+  well-fitted business blazer (navy/charcoal over a crisp shirt) — a premium corporate-headshot look — in
+  BOTH design families, instead of a mix of t-shirts / smart-casual. (Identity still locked; the setting,
+  background and pose keep varying.)
+- **More of the full-scene portrait.** The rotation now favours the full-scene professional portrait
+  (the reference the user liked) ~2/3 of the time, with the iPhone-frame design ~1/3 for variety.
+
 ## Attachment clears on send · in-app image preview · varied employee designs (2026-07-02)
 - **The attached file leaves the composer the moment you hit send.** It used to linger in the input box
   during generation (an image was kept "staged"); now it's snapshotted onto your message and the composer

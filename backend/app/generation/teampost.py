@@ -960,22 +960,21 @@ def _ai_scrim(canvas: Image.Image) -> Image.Image:
 # span DIFFERENT settings, poses, wardrobe and dominant tones (never navy-every-time).
 _PORTRAIT_LOOKS = [
     "in a bright, modern open-plan office with soft daylight from floor-to-ceiling windows and gentle city "
-    "bokeh behind them; a relaxed, confident three-quarter stance; smart business-casual (a crisp shirt or "
-    "a light blazer)",
+    "bokeh behind them; a relaxed, confident three-quarter stance",
     "against a clean off-white studio seamless backdrop with soft, even, flattering studio light; a warm, "
-    "professional head-and-shoulders pose looking to camera; sharp smart-formal attire",
+    "professional head-and-shoulders pose looking to camera",
     "in a warm, editorial golden-hour setting with soft bokeh and gentle light rays; an easy, self-assured "
-    "pose with arms lightly crossed; polished smart-casual with magazine-cover warmth",
+    "pose with arms lightly crossed",
     "against a bold on-brand abstract backdrop of deep navy with flowing coral-red geometric shapes and a "
-    "soft rim light; a strong, direct, empowered pose; a sharp dark blazer",
+    "soft rim light; a strong, direct, empowered pose",
     "on a contemporary rooftop with a softly blurred city skyline and bright aspirational daylight; standing "
-    "tall and forward-looking; refined modern business attire",
+    "tall and forward-looking",
     "in a minimal cream-and-coral geometric set with a single soft shadow; a calm, approachable, slightly "
-    "leaning pose; a clean contemporary smart-casual outfit",
+    "leaning pose",
     "in a sleek, tech-forward space with a cool gradient and subtle glowing connected-dot network lines and "
-    "coral accents; a dynamic, modern pose; crisp professional attire",
+    "coral accents; a dynamic, modern pose",
     "in a collaborative co-working space with warm natural light and soft depth behind; an approachable, "
-    "genuine expression; smart-casual professional wear",
+    "genuine expression",
 ]
 
 
@@ -995,8 +994,10 @@ def _portrait_prompt(headline: str, question: str, variant: int) -> str:
         "EXACTLY ONE PERSON: render only this single individual — do NOT add, invent, duplicate or "
         "hallucinate any other people or extra faces. If the source shows more than one person or is a "
         "graphic/screenshot, focus on the SINGLE main subject only. "
-        f"You MAY change their pose, framing, lighting, background and outfit for the best professional "
-        f"look: place them {look}.{theme} "
+        f"Re-pose, re-light and re-stage them for the best professional look: place them {look}.{theme} "
+        "WARDROBE: dress them in a sharp, well-fitted business BLAZER — a navy or charcoal suit jacket over "
+        "a crisp collared shirt (an optional tie), executive and polished, like a premium corporate headshot "
+        "(do NOT leave them in a plain t-shirt or casual wear). "
         "COMPOSITION: a clean 1:1 square; compose the person on the RIGHT with their head in the upper-right; "
         "keep the LEFT ~40% as calm, softly-lit, uncluttered negative space for a caption. Talentrupt brand "
         "palette — deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — used tastefully, and VARY the "
@@ -1034,16 +1035,16 @@ async def _ai_portrait_canvas(photo: Image.Image, headline: str, question: str, 
 # branded caption lives in a reserved LEFT column with a 64px gutter — provably non-overlapping. The device
 # reads as a real phone on every skin (titanium rail + charcoal bezel), while the bg/text/accent rotate.
 _PHONE_WEAR = [
-    "smart business-casual — a crisp collared shirt",
-    "a sharp modern blazer over a clean top",
-    "polished smart-casual with a subtle fine knit",
-    "a clean tailored blazer, confident and professional",
+    "dressed in a sharp, well-fitted navy business blazer over a crisp white shirt (executive, polished)",
+    "dressed in a tailored charcoal blazer over a clean shirt with a subtle tie (sharp and professional)",
+    "dressed in a sharp navy blazer over a crisp shirt, confident corporate-headshot styling",
+    "dressed in a well-fitted dark blazer over a clean collared shirt, premium executive look",
 ]
 
 
 def _phone_portrait_prompt(variant: int) -> str:
     """Identity-locked CENTERED vertical portrait prompt for the phone screen — clean cream studio backdrop,
-    generous headroom so the rounded crop + dynamic island never clip the face. Slight wardrobe variety."""
+    generous headroom so the rounded crop + dynamic island never clip the face. Always a sharp blazer."""
     wear = _PHONE_WEAR[variant % len(_PHONE_WEAR)]
     return (
         "Restyle the SAME person from the provided photo into a premium, photorealistic, VERTICAL PORTRAIT "
@@ -1227,9 +1228,11 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
                                 style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
     try:
         result = None
-        if variant % 2 == 1:  # DESIGN B (varied environment); falls through to A if the edit is unavailable
+        # Favour DESIGN B (the full-scene professional BLAZER portrait the user asked for) ~2/3 of the time;
+        # DESIGN A (iPhone frame) keeps ~1/3 for variety. B falls through to A if the edit is unavailable.
+        if variant % 3 != 0:
             result = await _build_scene_banner(brand, photo, name, role, headline, question, variant, keyword)
-        if result is None:    # DESIGN A (iPhone frame) — the even rotation, and the safe fallback
+        if result is None:
             result = await _build_phone_banner(brand, photo, name, role, headline, question, variant, keyword)
         return result
     except Exception:  # never crash a post -> deterministic series template (still the real face)
