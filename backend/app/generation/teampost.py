@@ -1537,7 +1537,9 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=""):
     # template) so the shirt — and its printed text — clears the frame edge and the dark bottom scrim; a full
     # body stays prominent + floor-anchored (layout 2 = a deliberate dramatic top-bleed crop).
     if half_body:
-        target_h, cap, right_pad = int(H * 0.82 * fit_mul), (W * 0.56 if layout == 3 else W * 0.58), 24
+        # a torso crop: contained (narrower cap) + inset from the edge (bigger pad) so it never jams into /
+        # bleeds off the SIDE, and GROUNDED at the bottom (below) — not floating.
+        target_h, cap, right_pad = int(H * 0.80 * fit_mul), (W * 0.50 if layout == 3 else W * 0.52), 60
     elif layout == 2:
         target_h, cap, right_pad = int(H * 0.98 * fit_mul), W * 0.60, 16
     elif layout == 3:
@@ -1549,9 +1551,11 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=""):
         scale = cap / hero.width
     hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
     a = hero.split()[-1]
-    hx = 24 if layout == 3 else (W - hero.width - right_pad)
+    hx = (46 if half_body else 24) if layout == 3 else (W - hero.width - right_pad)
     if half_body:
-        hy = H - hero.height - int(H * 0.05)     # lift the torso crop so the shirt text stays fully in-frame
+        # grounded: let the torso bottom bleed a touch OFF the frame — no floating gap, and no hard cut line.
+        # The subject is sized so the chest (and its printed text) still sits comfortably mid-frame.
+        hy = H - hero.height + int(H * 0.03)
     elif layout == 2:
         hy = -int(hero.height * 0.04)
     else:

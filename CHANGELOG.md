@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: half-body person placement (no more corner-jam / floating / edge-cut) (2026-07-06)
+The composited subject was being shoved into the bottom corner, cut off on the outer edge, and left floating
+above a gap of background — which repeatedly read as "the placement is not proper." `_place_editorial_person`
+now composes a half-body cut-out properly: a narrower width cap (≤0.50–0.52·W) + a bigger side inset
+(right_pad 24→60, layout-3 left inset 24→46) so it never jams into or bleeds off the SIDE, and it's GROUNDED
+— the torso bottom bleeds a touch OFF the frame (`hy = H - h + 0.03·H`) instead of the old 5% lift, so there's
+no floating gap and no hard cut line, while the chest (and its printed shirt text) still sits mid-frame.
+Verified on a realistic half-body render across layouts 1 and 3.
+
 ## Fix: refine never dead-ends asking for an asset title (2026-07-06)
 A follow-up like "the person's placement is not proper" could get stuck in a loop where the assistant kept
 asking for "the exact title or ID of the asset" — an internal detail the user doesn't know. Root causes fixed:
