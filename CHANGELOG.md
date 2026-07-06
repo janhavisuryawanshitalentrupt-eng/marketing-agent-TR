@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Image model routing: gpt-image-2 for the main image, gpt-image-1 for small tasks (2026-07-06)
+The featured/user-facing image now always uses the best model; small auxiliary graphics use the lighter,
+cheaper one. `generate_image_bytes` gained a `model` override: the MAIN images — the featured campaign/employee
+scene backgrounds (`_scene_prompt`) and any user-requested "create an image" (`images.build_images`) — keep the
+configured **gpt-image-2** (with gpt-image-1 only as an emergency fallback if gpt-image-2 is ever rejected),
+while the small/auxiliary jobs are pinned to **gpt-image-1**: the split-poster PANEL graphic (`_panel_theme_
+prompt`) and the deck COVER image (`decks.py`). Image EDITS already run on gpt-image-1 (the edit endpoint is a
+gpt-image-1 capability). Net: the deliverable the user sees is gpt-image-2; the behind-the-scenes bits are
+gpt-image-1.
+
 ## Fix: half-body person placement (no more corner-jam / floating / edge-cut) (2026-07-06)
 The composited subject was being shoved into the bottom corner, cut off on the outer edge, and left floating
 above a gap of background — which repeatedly read as "the placement is not proper." `_place_editorial_person`

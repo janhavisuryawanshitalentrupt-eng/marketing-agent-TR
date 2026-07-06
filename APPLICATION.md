@@ -34,7 +34,7 @@ only: the **content** the app produces is still Talentrupt's (brand grounding, "
   (`editMessage` → `POST /api/conversations/{id}/truncate {drop}`, counted from the back) before re-sending, so
   the corrected prompt re-runs ChatGPT-style with no duplicate.
 - **Backend:** FastAPI + SQLAlchemy 2 + SQLite (WAL). Pydantic-settings reads `backend/.env`.
-- **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-2` (images; auto-falls back to `gpt-image-1` if the key lacks access), `text-embedding-3-small` (RAG).
+- **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-2` (the MAIN featured/user-facing image; auto-falls back to `gpt-image-1` if the key lacks access), `gpt-image-1` (small/auxiliary images — the split-poster panel graphic, deck cover art, and all identity/style EDITS, since the edit endpoint is a gpt-image-1 capability), `text-embedding-3-small` (RAG). `llm.generate_image_bytes(..., model=…)` routes per call.
   Providers are gated: `LLM_PROVIDER`/`IMAGE_PROVIDER` must be `openai` or you get a deterministic fallback.
 - **Single process:** in production the FastAPI/uvicorn process serves BOTH the static UI and the API —
   no separate Node server. (Dev runs them apart: `next dev` :3000 + uvicorn :8000.)

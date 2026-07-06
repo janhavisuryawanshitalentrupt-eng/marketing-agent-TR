@@ -1753,7 +1753,10 @@ async def _bold_split_poster(photo, variant, theme=""):
     themed, panel = False, None
     if (theme or "").strip() and llm.image_provider_available():
         try:
-            data = await llm.generate_image_bytes(_panel_theme_prompt(theme), size="1024x1024", quality="medium")
+            # the split-poster PANEL is a small auxiliary graphic (behind the caption) -> lighter gpt-image-1;
+            # the MAIN featured scene stays on gpt-image-2.
+            data = await llm.generate_image_bytes(_panel_theme_prompt(theme), size="1024x1024",
+                                                  quality="medium", model="gpt-image-1")
             if data:
                 panel = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), panel_w, H)
                 pa = np.asarray(panel.convert("RGB")).astype(np.float32)

@@ -70,20 +70,24 @@ LAST_IMAGE_MODEL: str = settings.openai_image_model
 _EDITS_DISABLED: bool = False
 
 
-def _image_models() -> list[str]:
-    """The configured image model, with gpt-image-1 appended as a SAFE fallback when it differs — so
-    switching to an experimental/unavailable model name can never break generation (it falls back)."""
-    models = [settings.openai_image_model]
-    if settings.openai_image_model != "gpt-image-1":
+def _image_models(primary: str | None = None) -> list[str]:
+    """The image model to use, with gpt-image-1 appended as a SAFE fallback when it differs — so an
+    unavailable/experimental model name can never break generation (it falls back). `primary` overrides the
+    configured model for a single call — e.g. routing a SMALL / auxiliary image (a poster panel, a deck
+    cover) to the lighter gpt-image-1, while the MAIN featured image keeps the configured gpt-image-2."""
+    first = (primary or settings.openai_image_model).strip() or settings.openai_image_model
+    models = [first]
+    if first != "gpt-image-1":
         models.append("gpt-image-1")
     return models
 
 
 async def generate_image_bytes(
-    prompt: str, size: str | None = None, quality: str | None = None
+    prompt: str, size: str | None = None, quality: str | None = None, model: str | None = None
 ) -> bytes:
-    """Generate an image and return raw PNG bytes. Tries the configured model, falling back to
-    gpt-image-1 if that model is rejected (e.g. an unknown model name)."""
+    """Generate an image and return raw PNG bytes. The MAIN image uses the configured model (gpt-image-2),
+    falling back to gpt-image-1 only if that model is rejected. Pass model='gpt-image-1' for a SMALL /
+    auxiliary image (a panel graphic, a deck cover) to use the lighter model deliberately."""
     global LAST_IMAGE_MODEL
     url = f"{settings.openai_base_url.rstrip('/')}/images/generations"
     headers = {
@@ -91,9 +95,9 @@ async def generate_image_bytes(
         "Content-Type": "application/json",
     }
     last_err: Exception | None = None
-    for model in _image_models():
+    for m in _image_models(model):
         payload = {
-            "model": model,
+            "model": m,
             "prompt": prompt,
             "n": 1,
             "size": size or settings.openai_image_size,
@@ -104,11 +108,11 @@ async def generate_image_bytes(
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 b64 = resp.json()["data"][0]["b64_json"]
-            LAST_IMAGE_MODEL = model
+            LAST_IMAGE_MODEL = m
             return base64.b64decode(b64)
         except Exception as e:  # invalid/unavailable model, rate limit, etc. -> try the fallback
             last_err = e
-            logging.getLogger(__name__).warning("image model %s failed: %s", model, e)
+            logging.getLogger(__name__).warning("image model %s failed: %s", m, e)
     raise last_err  # type: ignore[misc]
 
 

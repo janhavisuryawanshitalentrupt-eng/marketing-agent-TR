@@ -311,7 +311,9 @@ async def _ai_cover(brand: Brand | None, topic: str, brief: str = "") -> str | N
         if refs:
             data = await llm.generate_image_edit(prompt, refs, size="1536x1024")
         else:
-            data = await llm.generate_image_bytes(prompt, size="1536x1024")
+            # a deck cover is a secondary/decorative graphic -> lighter gpt-image-1 (the featured social
+            # image is what uses gpt-image-2).
+            data = await llm.generate_image_bytes(prompt, size="1536x1024", model="gpt-image-1")
         fname = unique_name("tr-cover", "png")
         path = storage_subdir("images") / fname
         with open(path, "wb") as f:
