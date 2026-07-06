@@ -3,6 +3,24 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Immersive AI scene is the default again — person INSIDE the theme (ChatGPT-style) (2026-07-03)
+The user shared a ChatGPT image (the person standing in a floodlit stadium, in a jersey, on the pitch — real
+face) vs our split poster (person on their white studio wall beside a themed panel) and asked why it always
+uses the white background. So the **gpt-image-1 image-EDIT path is the default again** — it places the SAME
+person INSIDE the themed scene (`input_fidelity='high'`, quality medium), giving a full immersive result with
+no white background. Priority: FACESWAP key → **immersive AI edit (default)** → real cut-out / split poster
+(fallback if the edit is unavailable) → template.
+- **Immersive themed prompt.** `_portrait_prompt` now places them ON LOCATION (football → on the green pitch
+  in a floodlit stadium, in a clean navy football jersey), a cinematic sports photograph — not a studio/white
+  backdrop.
+- **No ghost text, no garbled shirt.** Stopped feeding the headline into the edit prompt (gpt-image was
+  painting it as ghost text in the scene — the caption is overlaid separately), and the wardrobe clause forbids
+  any text/logo on the clothing (which was rendering as garbled text).
+- **Variety by design.** Each generation is a fresh stochastic scene/pose, so every image differs.
+- *Trade-offs:* the edit is slower (~40–90s) and the face is preserved by input_fidelity (very close, but an AI
+  regen — not pixel-exact; a `FACESWAP_API_KEY` gives exact). If the edit endpoint is unavailable on the
+  account, it falls back to the split poster automatically.
+
 ## Realistic themed panel (green football pitch) + more campaign variety (2026-07-03)
 - **The themed panel now looks real.** It was forced "navy-dominant" (for text legibility) so a football pitch
   came out dark/navy with no green. Now `_panel_theme_prompt` asks for the scene in its NATURAL colours (a

@@ -1104,23 +1104,26 @@ def _portrait_prompt(headline: str, question: str, variant: int, theme: str = ""
     `theme` (a campaign brief/topic) DRIVES the surroundings + wardrobe when set — so a Football campaign puts
     them on a pitch in kit, a Diwali campaign in festive decor, etc. (only pose/lighting/surroundings change;
     the face is still locked). When there's no theme it falls back to a rotating premium corporate look."""
-    msg = " ".join(x for x in (headline, question) if x).strip()
-    celebrate = (f' The post celebrates: "{msg[:100]}" — let the mood echo it tastefully.' if msg else "")
+    # NOTE: deliberately do NOT feed the literal headline/message into the edit prompt — gpt-image renders it
+    # as GHOST TEXT in the scene despite "NO text". The branded caption is overlaid separately afterwards.
     theme = (theme or "").strip()
     if theme:
         setting = (
-            f'in an environment that clearly and literally reflects this CAMPAIGN THEME: "{theme[:200]}". '
-            "Build the backdrop, location, props and activity around THAT theme so the scene is unmistakably "
-            "on-topic (e.g. a football campaign -> on a real football pitch / stadium with a ball; a Diwali "
-            "campaign -> warm festive lights, diyas and decor; a wellness campaign -> a calm bright studio). "
-            "Give them a natural, confident pose that suits the theme"
+            f'FULLY IMMERSED INSIDE the real environment of this CAMPAIGN THEME: "{theme[:200]}". Put them ON '
+            "LOCATION in that world as a cinematic, dramatic editorial PHOTOGRAPH — NOT a plain studio backdrop "
+            "and NOT a flat white wall (e.g. a football campaign -> standing confidently on the GREEN pitch "
+            "INSIDE a floodlit STADIUM at dusk, a blurred cheering crowd and stadium lights behind them; a "
+            "Diwali campaign -> among real festive diyas, lights and decor; a wellness campaign -> in a bright "
+            "airy studio). Real depth, atmosphere and dramatic lighting. A strong, confident pose (e.g. arms "
+            "crossed) that suits the theme"
         )
         wardrobe = (
-            "WARDROBE: dress them appropriately FOR THE CAMPAIGN THEME above — sporty kit, festive, smart-"
-            "casual or formal exactly as the theme demands — NOT a default business blazer unless the theme "
-            "itself is corporate. "
+            "WARDROBE: dress them in clean, theme-appropriate attire (a football campaign -> a proper team "
+            "FOOTBALL JERSEY in deep navy with subtle red accents; a festival -> fitting festive wear; "
+            "otherwise smart attire for the theme) — plain and clean with ABSOLUTELY NO text, NO words, NO "
+            "letters, NO numbers and NO logos anywhere on the clothing (it tends to render as garbled text). "
         )
-        kind = "themed campaign"
+        kind = "immersive themed campaign"
     else:
         setting = _PORTRAIT_LOOKS[variant % len(_PORTRAIT_LOOKS)]
         wardrobe = (
@@ -1136,7 +1139,7 @@ def _portrait_prompt(headline: str, question: str, variant: int, theme: str = ""
         "EXACTLY ONE PERSON: render only this single individual — do NOT add, invent, duplicate or "
         "hallucinate any other people or extra faces. If the source shows more than one person or is a "
         "graphic/screenshot, focus on the SINGLE main subject only. "
-        f"Re-pose, re-light and re-stage them for the best look: place them {setting}.{celebrate} "
+        f"Re-pose, re-light and re-stage them for the best look: place them {setting}. "
         + wardrobe +
         "COMPOSITION: a clean 1:1 square; compose the person on the RIGHT with their head in the upper-right; "
         "keep the LEFT ~40% as calm, softly-lit, uncluttered negative space for a caption. Talentrupt brand "
@@ -1809,17 +1812,17 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
                          keyword="", theme=""):
-    """Featured-employee banner that keeps the person's EXACT real face. `theme` (a campaign brief) drives the
-    scene/background so the person is placed in the campaign's world; pass name="" to omit the on-image name
-    label (e.g. campaign images). Priority — strongest identity first:
-      • FACESWAP key set -> a full AI scene (person genuinely IN the themed environment) with the person's
-        EXACT real face swapped on (`_build_faceswap_banner`). Best of both: immersive scene + real face.
-      • Otherwise (DEFAULT) -> a PREMIUM EDITORIAL composite of the REAL cut-out person on a themed background
-        (`_build_editorial_banner`). The face + clothing are literally their photo — never redrawn — so the
-        identity is exact and there's no hallucinated text on their shirt.
-    NOTE: we deliberately do NOT use gpt-image's image-EDIT path by default — even at input_fidelity=high it
-    REGENERATES the face (it drifts) and hallucinates garbage text on clothing. It's only used *inside*
-    faceswap, where the real face is then swapped back on. Any failure -> a deterministic template."""
+    """Featured-employee banner. `theme` (a campaign brief) drives the scene so the person is placed INSIDE the
+    campaign's world; pass name="" to omit the on-image name label (e.g. campaign images). Priority:
+      • FACESWAP key set -> an immersive AI scene (person genuinely IN the themed environment) with the
+        person's EXACT real face swapped on (`_build_faceswap_banner`). Best: immersive + pixel-exact face.
+      • Otherwise (DEFAULT) -> an IMMERSIVE AI scene via gpt-image-1's edit endpoint (input_fidelity='high'):
+        the SAME person placed INSIDE the theme (on the pitch, in a stadium/jersey — like a ChatGPT result),
+        `_build_ai_portrait_banner`. Their face is preserved (not pixel-exact — it's an AI regeneration, so it
+        can drift a little; add a FACESWAP key for exact). Full scene, NO plain white background.
+      • If the edit fails / is unavailable -> the REAL cut-out / split-poster composite (`_build_editorial_banner`,
+        exact face + clothes, but the person sits on their own background beside a themed panel).
+    Any failure -> a deterministic template so a post is never broken."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1840,7 +1843,9 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         result = None
         if faceswap.faceswap_available():   # immersive AI scene + EXACT real face (opt-in key, strongest)
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                  # DEFAULT: real cut-out composite — face + clothes are exactly theirs
+        if result is None:                  # DEFAULT: immersive AI scene — the person INSIDE the theme (ChatGPT-style)
+            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+        if result is None:                  # FALLBACK: real cut-out / split-poster composite (edit unavailable)
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result

@@ -89,17 +89,19 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   1. **FACESWAP key (strongest, immersive):** if a `FACESWAP_API_KEY` (Replicate) is set, it makes a full AI
      scene (person genuinely IN the themed environment) and swaps the person's REAL face onto it via a hosted
      face-swap API (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face**.
-  2. **Real cut-out composite (DEFAULT):** `_build_editorial_banner` composites the person's REAL cut-out
-     onto a themed background and INTEGRATES it (not a framed card) via an 8-stage pipeline
-     (`_place_editorial_person`). The face + clothing are literally their photo — exact, never redrawn.
-     Clean cut-outs come from remove.bg / rembg when available, else a free numpy + flood-fill
-     **plain-studio-background keyer** (`_key_plain_bg`). *Limit:* the free keyer can't reliably cut a person
-     off a plain studio wall — when it can't, the image falls back to the person on their ORIGINAL background
-     (no themed scene). A themed scene + real face reliably needs `BG_REMOVAL_API_KEY` or `FACESWAP_API_KEY`.
-  3. **Deterministic series template (never-broken):** any failure falls back to a deterministic template.
-  NOTE: the gpt-image image-EDIT path (`_build_ai_portrait_banner`/`_ai_portrait_canvas`, `input_fidelity='high'`)
-  is deliberately NOT in the default chain — it REGENERATES the face (drifts to a different person) and
-  hallucinates garbage text on clothing; it is used only *inside* faceswap, where the real face is swapped back.
+  2. **Immersive AI scene (DEFAULT):** `_build_ai_portrait_banner` → `_ai_portrait_canvas` uses gpt-image-1's
+     image-EDIT endpoint (`input_fidelity='high'`, quality medium) to place the SAME person INSIDE the theme —
+     on the pitch, in a floodlit stadium, in a clean jersey (a ChatGPT-style result, no white background).
+     `_portrait_prompt` drives the immersive scene/wardrobe; the headline is NOT fed to it (gpt-image would
+     paint it as ghost text — the caption is overlaid after) and text/logos on clothing are forbidden (they
+     render garbled). The face is preserved by input_fidelity (very close, but an AI regen — can drift; use a
+     FACESWAP key for pixel-exact). Each generation is a fresh stochastic scene, so images vary.
+  3. **Real cut-out / split-poster (FALLBACK):** if the edit is unavailable on the account (`_EDITS_DISABLED`),
+     `_build_editorial_banner` composites the REAL cut-out onto a themed background, or — when the free keyer
+     can't cut the person off a plain wall — a bold magazine SPLIT poster (`_bold_split_poster`: real photo
+     crop beside a themed panel, side/colour/seam/accent rotate). Exact face + clothes, but the person is on
+     their own background beside the theme rather than inside it.
+  4. **Deterministic series template (never-broken):** any failure falls back to a deterministic template.
   **Nothing overrides:** `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced**
   (`_enhance_photo`).
   **CAMPAIGN mode** (an asset generated inside a campaign) changes two things: (a) the campaign brief is passed
