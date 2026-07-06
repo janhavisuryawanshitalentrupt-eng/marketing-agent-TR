@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Cleaner cut-outs — strip the "cream shadow" wall remnant + smooth rough edges (2026-07-03)
+On some photos the cut-out left a light **wall remnant behind the shoulder** (a cream "shadow") and rough,
+jagged edges — because the hole-fill step re-filled a wall region enclosed behind the shoulder as if it were
+the person. Fixed in `_key_plain_bg`: after the hole-fill, any **bright NEUTRAL patch that's still opaque is
+stripped** (leftover light wall — it isn't warm skin, hair or dark clothes), and the edge cleanup is stronger
+(MedianFilter 7 → MinFilter → MedianFilter 5 → feather) to remove the rough fringe. Verified on the real
+studio photo: clean cut-out onto the graphic plate, no cream remnant, smooth edges. (A busy/non-plain
+background can still leave an edge — `BG_REMOVAL_API_KEY` guarantees a perfect cut on any photo.)
+
 ## Themed images now cut the person out (transparent) onto the scene — no more white wall (2026-07-03)
 The person kept showing their white studio wall (beside a themed panel) instead of being cut out and placed
 IN the theme. Root cause: the `cut_ok` gate required the cut-out to be ≥42% of the ORIGINAL photo width — but

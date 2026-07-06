@@ -166,10 +166,17 @@ def _key_plain_bg(img: Image.Image):
                 alpha = np.where(reached, 0, 255).astype(np.uint8)
         except Exception:
             pass
-        # Despeckle, then ERODE 1px (MinFilter) to cut the light background fringe that causes a 'pasted'
-        # halo on a real photo, then a tight feather.
-        a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(5))
-             .filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(1.0)))
+        # Any BRIGHT NEUTRAL patch still opaque is LEFTOVER LIGHT WALL (e.g. a wall region enclosed behind a
+        # shoulder that the hole-fill wrongly re-filled — the "cream shadow" behind the person). It is NOT skin
+        # (warm, bigger channel spread), hair or dark clothes, so strip it. The despeckle below closes the tiny
+        # true holes (eye-whites) this also clears.
+        wall2 = (alpha > 127) & ((mx - mn) < 26) & (bright > 150)
+        if 0.0 < float(wall2.mean()) < 0.22:  # safety: never nuke a genuinely pale subject
+            alpha = np.where(wall2, 0, alpha).astype(np.uint8)
+        # Despeckle harder (kills rough fringe + speckle), ERODE 1px to cut the light background halo, feather.
+        a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(7))
+             .filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MedianFilter(5))
+             .filter(ImageFilter.GaussianBlur(1.2)))
         out = rgb.convert("RGBA")
         out.putalpha(a)
         bbox = out.getbbox()
