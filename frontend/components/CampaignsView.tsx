@@ -1502,7 +1502,21 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
                           {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
                         </div>
                       )}
-                      {m.content && !m.pending && <ReplyActions text={m.content} />}
+                      {m.content && !m.pending && (
+                        <ReplyActions
+                          text={m.content}
+                          onRegenerate={(() => {
+                            for (let k = i - 1; k >= 0; k--) {
+                              if (messages[k].role === "user" && messages[k].content) {
+                                const prompt = messages[k].content;
+                                return () => send(prompt); // re-run the same prompt for a fresh result
+                              }
+                            }
+                            return undefined;
+                          })()}
+                          regenerating={busy}
+                        />
+                      )}
                       {m.chips && m.chips.length > 0 && !busy && (
                         <div className="flex flex-wrap gap-1.5">
                           {m.chips.map((c) => (

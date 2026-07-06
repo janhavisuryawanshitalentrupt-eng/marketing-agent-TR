@@ -3,6 +3,12 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Regenerate button on replies (2026-07-03)
+Added a **Regenerate** button (the curved-arrow icon) to the reply action row in `ReplyActions`, next to the
+existing thumbs/copy/download. Clicking it **re-runs the same prompt** for a fresh result (finds the nearest
+preceding user message and re-submits it). Wired in the main **Chat** and the **internal Campaign** chat; it's
+hidden when there's no prior prompt and disabled (with a spinning icon) while a turn is in flight.
+
 ## Fix: 502 on image generation (out-of-memory on the 2 GB droplet) (2026-07-03)
 Generating an employee image could return a **502** — the process was OOM-killed mid-request. Employee
 uploads are 5000px+ (~5 MB), and `_enhance_photo` + the numpy `_cutout` ran on the FULL-resolution image

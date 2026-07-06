@@ -279,6 +279,16 @@ export function ChatPanel() {
                         text={m.content}
                         downloadUrl={img?.file_url}
                         downloadName={(img?.file_url || "").split("/").pop() || undefined}
+                        onRegenerate={(() => {
+                          for (let k = i - 1; k >= 0; k--) {
+                            if (messages[k].role === "user" && messages[k].content) {
+                              const prompt = messages[k].content;
+                              return () => submit(prompt); // re-run the same prompt for a fresh result
+                            }
+                          }
+                          return undefined;
+                        })()}
+                        regenerating={busy}
                       />
                     )}
                     {!m.pending && img && i === messages.length - 1 && (

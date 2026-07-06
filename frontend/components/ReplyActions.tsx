@@ -40,18 +40,23 @@ function Thumb({ dir, active, onToggle }: { dir: "up" | "down"; active: boolean;
 }
 
 /**
- * Compact action row under an assistant reply — quick feedback (👍/👎), copy, and download when the reply
- * produced a file. The thumbs are a local reaction the user can toggle on/off (a solid fill + accent colour
- * confirm the click); copy writes the reply to the clipboard; download saves the asset. No backend calls.
+ * Compact action row under an assistant reply — quick feedback (👍/👎), copy, regenerate (re-run the same
+ * prompt), and download when the reply produced a file. The thumbs are a local reaction the user can toggle
+ * on/off; copy writes the reply to the clipboard; regenerate re-runs the turn (hidden when not available or
+ * while a turn is in flight); download saves the asset.
  */
 export function ReplyActions({
   text,
   downloadUrl,
   downloadName,
+  onRegenerate,
+  regenerating,
 }: {
   text: string;
   downloadUrl?: string | null;
   downloadName?: string;
+  onRegenerate?: () => void;
+  regenerating?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [vote, setVote] = useState<"up" | "down" | null>(null);
@@ -78,6 +83,31 @@ export function ReplyActions({
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
         )}
       </button>
+      {onRegenerate && (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={regenerating}
+          aria-label="Regenerate"
+          title="Regenerate"
+          className={`${btn} disabled:opacity-40`}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={regenerating ? "animate-spin" : ""}
+          >
+            <path d="M23 4v6h-6M1 20v-6h6" />
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+          </svg>
+        </button>
+      )}
       {downloadUrl && (
         <button
           type="button"
