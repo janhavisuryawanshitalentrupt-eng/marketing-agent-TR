@@ -1439,10 +1439,16 @@ def export_campaign_prospects(
 @app.get("/api/assets")
 def list_assets(
     type: str | None = None,
+    general: bool = False,
     db: Session = Depends(get_db),
     role: str = Depends(require_auth),
 ):
+    """List the caller's assets. `general=true` returns ONLY non-campaign assets (the Chat / Create
+    'Your generations' gallery) — campaign-specific images live in that campaign's Generated content tab, so
+    a football campaign banner never bleeds into the general Chat area."""
     q = db.query(Asset).filter(Asset.owner == role)
+    if general:
+        q = q.filter(Asset.campaign_id.is_(None))
     if type:
         q = q.filter(Asset.type == type)
     return [serialize_asset(a) for a in q.order_by(Asset.id.desc()).all()]

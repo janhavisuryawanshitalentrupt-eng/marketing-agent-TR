@@ -734,7 +734,11 @@ async def build_images(
     # In a campaign, any variation that would show PEOPLE is rendered as a REAL employee (rotating through
     # the roster) placed in the campaign-themed scene — never a random AI face, and with no name label.
     team_photos = list(team_photos or [])
-    scene_theme = (theme or brief or concept or "").strip()
+    # The SCENE theme (the background an employee is staged in) comes ONLY from an explicit campaign
+    # theme/brief — NEVER from the free-text concept. In Chat/Create there is no campaign theme, so this is
+    # empty and people are staged on the generic Talentrupt BRAND backdrop; only a campaign's brief themes the
+    # scene (football pitch, festive decor, …). This stops a campaign topic from bleeding into general Chat.
+    scene_theme = (theme or brief or "").strip()
     # CAMPAIGN images must be grounded in the campaign BRIEF — NOT Talentrupt's generic RPO corpus.
     # retrieve.brand_context/image_references pull from one shared RPO/holiday past-post library, so
     # for a non-RPO campaign (cricket, football) they bleed "RPO Done Right" taglines and cross-topic

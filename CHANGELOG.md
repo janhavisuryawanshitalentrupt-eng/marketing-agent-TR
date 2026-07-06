@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: campaign images no longer bleed into the general Chat area (2026-07-07)
+Chat and Campaign are different jobs — Chat = general Talentrupt-brand image creation; Campaign = images
+customized to that campaign's brief. But the Chat/Create "Your generations" gallery listed EVERY asset the
+account owned, including campaign-specific ones — so a Football-campaign banner showed up in the general Chat
+section. Fixed:
+
+- `/api/assets` gained a `general=true` param that returns only NON-campaign assets (`campaign_id IS NULL`);
+  the Chat/Create gallery (`getAssets`) now always passes it. Campaign images stay in that campaign's
+  Generated-content tab. Verified live: `general=true` dropped all 58 campaign assets (163→105), and the Chat
+  gallery renders only brand posts (e.g. Nishant "Inspiration through Excellence" on the navy brand backdrop),
+  no football.
+- Hardened `images.build_images`: the SCENE theme now comes ONLY from an explicit campaign theme/brief, never
+  the free-text `concept` (`scene_theme = theme or brief or ""`). So a campaign topic can never theme a Chat
+  scene; in Chat a featured person is staged on the generic Talentrupt brand backdrop. (Chat's feature path
+  already used `theme=""` — the on-image name is kept and the eyebrow is the team rotation, confirmed by test.)
+
 ## Fix: green speckles on the person + crisper shirt text (2026-07-06)
 On a green-pitch scene, coloured speckles appeared on the subject's arms/hands — the bright background showing
 through tiny holes the free keyer punched in the body (a watch, a specular highlight, a light tattoo). Fixed

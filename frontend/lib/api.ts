@@ -447,9 +447,12 @@ export async function revokeCampaignProspect(id: number): Promise<CampaignProspe
   return res.json();
 }
 
+// The Chat / Create "Your generations" gallery — general (non-campaign) assets only, so campaign-specific
+// images (e.g. a Football campaign banner) stay in that campaign's Generated content tab, not the chat area.
 export async function getAssets(type?: string): Promise<Asset[]> {
-  const q = type ? `?type=${encodeURIComponent(type)}` : "";
-  const res = await fetchRetry(`${API_BASE}/api/assets${q}`, { headers: authHeaders() });
+  const params = new URLSearchParams({ general: "true" });
+  if (type) params.set("type", type);
+  const res = await fetchRetry(`${API_BASE}/api/assets?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load assets");
   return res.json();
 }
