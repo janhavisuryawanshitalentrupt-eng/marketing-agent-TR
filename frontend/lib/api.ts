@@ -181,6 +181,20 @@ export async function getMessages(id: number): Promise<ChatMessage[]> {
   return res.json();
 }
 
+/**
+ * Drop the last `drop` messages of a conversation — used by the transcript's "edit message" action, which
+ * removes the edited turn + everything after it before re-sending the edited prompt (so persisted history
+ * matches the on-screen edit). Best-effort: a null conversation id (turn not yet persisted) is a no-op.
+ */
+export async function truncateConversation(id: number | null, drop: number): Promise<void> {
+  if (!id || drop <= 0) return;
+  await fetch(`${API_BASE}/api/conversations/${id}/truncate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ drop }),
+  }).catch(() => {});
+}
+
 export async function renameCampaign(id: number, name: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/campaigns/${id}`, {
     method: "PATCH",

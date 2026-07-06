@@ -26,8 +26,13 @@ only: the **content** the app produces is still Talentrupt's (brand grounding, "
   rails are a deep-navy panel via the `.rail` class in `app/globals.css` (it re-scopes theme tokens locally
   so rail utilities read light-on-navy). The Myra mark (`MyraLogo.tsx`) is an app-icon-style navy badge with
   a coral "M" (self-contained → reads on any surface). Chat replies use a shared reply chrome — `MyraAvatar`
-  beside each assistant message, `ReplyActions` (copy / 👍👎 / download) under it, user-initials `Avatar` on
-  user messages, and `RefineChips` (one-tap image tweaks) under an image reply in Chat/Create.
+  beside each assistant message, `ReplyActions` (copy / 👍👎 / download / regenerate) under it, and
+  `RefineChips` (one-tap image tweaks) under an image reply in Chat/Create. A user (input) message renders via
+  the shared `UserMessage` component (used in Chat/Create + the campaign chat): attachments + navy bubble +
+  user-initials `Avatar`, with hover actions **Copy** and **Edit** — editing turns the bubble into an inline
+  textarea and, on save, drops that turn + everything after it from the transcript AND the persisted history
+  (`editMessage` → `POST /api/conversations/{id}/truncate {drop}`, counted from the back) before re-sending, so
+  the corrected prompt re-runs ChatGPT-style with no duplicate.
 - **Backend:** FastAPI + SQLAlchemy 2 + SQLite (WAL). Pydantic-settings reads `backend/.env`.
 - **AI:** OpenAI — `gpt-4o-mini` (text), `gpt-image-2` (images; auto-falls back to `gpt-image-1` if the key lacks access), `text-embedding-3-small` (RAG).
   Providers are gated: `LLM_PROVIDER`/`IMAGE_PROVIDER` must be `openai` or you get a deterministic fallback.

@@ -13,6 +13,7 @@ import {
   getConversations,
   getMessages,
   streamChat,
+  truncateConversation,
   uploadAttachment,
 } from "@/lib/api";
 import type { Asset, Attachment, ChatMessage, Conversation } from "@/lib/types";
@@ -29,6 +30,7 @@ export interface ChatState {
   stop: () => void;
   attach: (file: File) => Promise<void>;
   removeAttachment: (id: number) => void;
+  editMessage: (index: number, text: string) => void;
   newChat: () => void;
   openConversation: (id: number) => void;
   deleteConversation: (id: number) => void;
@@ -202,6 +204,21 @@ export function makeChatStore(endpoint: string, kind: string) {
       [busy, attaching, conversationId, refresh, attachments],
     );
 
+    // Edit a prior USER message (ChatGPT-style): drop that turn + everything after it from BOTH the persisted
+    // history (truncate — counted from the back, so it's index-safe) and the on-screen transcript, then
+    // re-send the edited text so it re-runs cleanly with the corrected prompt.
+    const editMessage = useCallback(
+      async (index: number, text: string) => {
+        const t = text.trim();
+        if (!t || busy || attaching) return;
+        const drop = messages.length - index;
+        if (drop > 0) await truncateConversation(conversationId, drop);
+        setMessages((m) => m.slice(0, index));
+        send(t);
+      },
+      [messages, busy, attaching, conversationId, send],
+    );
+
     const attach = useCallback(async (file: File) => {
       setInFlight((n) => n + 1);
       setStatus("");
@@ -280,7 +297,7 @@ export function makeChatStore(endpoint: string, kind: string) {
       <Ctx.Provider
         value={{
           messages, status, busy, conversationId, conversations,
-          attachments, attaching, send, stop, attach, removeAttachment, newChat, openConversation,
+          attachments, attaching, send, stop, attach, removeAttachment, editMessage, newChat, openConversation,
           deleteConversation,
         }}
       >

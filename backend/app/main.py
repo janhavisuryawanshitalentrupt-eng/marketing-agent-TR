@@ -18,7 +18,7 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -278,6 +278,39 @@ def list_messages(
         .order_by(Message.id)
         .all()
     )
+
+
+@app.post("/api/conversations/{conversation_id}/truncate")
+def truncate_conversation(
+    conversation_id: int, body: dict = Body(default={}),
+    db: Session = Depends(get_db), role: str = Depends(require_auth),
+):
+    """Delete the LAST `drop` messages of a conversation. Used by the transcript's 'edit message' action,
+    which removes the edited turn + everything after it before the client re-sends the edited prompt — so the
+    persisted history matches the on-screen edit (and stays consistent on reload). Owner-checked. Counting
+    from the back is index-safe: it doesn't matter whether the client shows any synthetic (unpersisted)
+    greeting at the front."""
+    conv = db.get(Conversation, conversation_id)
+    if not conv or conv.owner != role:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    try:
+        drop = max(0, int(body.get("drop") or 0))
+    except (TypeError, ValueError):
+        drop = 0
+    dropped = 0
+    if drop:
+        rows = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation_id)
+            .order_by(Message.id.desc())
+            .limit(drop)
+            .all()
+        )
+        for m in rows:
+            db.delete(m)
+        dropped = len(rows)
+        db.commit()
+    return {"dropped": dropped}
 
 
 # --- Chat / Create (SSE streaming) ----------------------------------------

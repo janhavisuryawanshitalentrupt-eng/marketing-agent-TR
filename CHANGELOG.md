@@ -3,6 +3,21 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Edit + copy on your own chat messages (2026-07-06)
+User (input) messages in the transcript now have hover actions — **Copy** and **Edit** — in Chat/Create and
+in the campaign chat. Copy puts the message text on the clipboard. Edit turns the bubble into an inline
+textarea (Enter saves · Esc cancels · Shift+Enter newline); saving re-runs the corrected prompt ChatGPT-style:
+it removes that turn + everything after it from BOTH the on-screen transcript and the persisted history, then
+re-sends — so there's no duplicate and the history stays consistent on reload.
+
+- New shared `UserMessage` component (attachments + bubble + hover copy/edit + inline editing) replaces the
+  duplicated user-row markup in `ChatPanel` and `CampaignsView`.
+- `ChatProvider.editMessage(index, text)` (and the campaign view's local equivalent) drop `messages.length -
+  index` turns — counted from the BACK, so it's unaffected by any synthetic (unpersisted) greeting at the
+  front — via a new `POST /api/conversations/{id}/truncate` (`{drop}`, owner-checked), then re-send.
+- Verified live end-to-end: editing "List three colors" → "List three fruits" removed the old turn + reply,
+  truncated the conversation (`/truncate → 200`), and produced a fresh fruit list — clean transcript, no errors.
+
 ## Conversational image editing (ChatGPT-style) + a person "fit" control (2026-07-06)
 Follow-up edits on a generated image now EDIT that image in place instead of re-asking for a style. Before,
 saying "the person doesn't fit" or "change the background" made the campaign brief-intake treat it as a brand
