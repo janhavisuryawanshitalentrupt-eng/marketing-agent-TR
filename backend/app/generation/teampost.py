@@ -1846,17 +1846,15 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
                          keyword="", theme="", prefer=""):
-    """Featured-employee banner. `theme` (a campaign brief) drives the scene so the person is placed INSIDE the
-    campaign's world; pass name="" to omit the on-image name label (e.g. campaign images). Priority:
-      • FACESWAP key set -> an immersive AI scene (person genuinely IN the themed environment) with the
-        person's EXACT real face swapped on (`_build_faceswap_banner`). Best: immersive + pixel-exact face.
-      • Otherwise (DEFAULT) -> an IMMERSIVE AI scene via gpt-image-1's edit endpoint (input_fidelity='high'):
-        the SAME person placed INSIDE the theme (on the pitch, in a stadium/jersey — like a ChatGPT result),
-        `_build_ai_portrait_banner`. Their face is preserved (not pixel-exact — it's an AI regeneration, so it
-        can drift a little; add a FACESWAP key for exact). Full scene, NO plain white background.
-      • If the edit fails / is unavailable -> the REAL cut-out / split-poster composite (`_build_editorial_banner`,
-        exact face + clothes, but the person sits on their own background beside a themed panel).
-    Any failure -> a deterministic template so a post is never broken."""
+    """Featured-employee banner. HARD RULE: the face is ALWAYS the person's REAL uploaded photo — NEVER an
+    AI-generated face. `theme` drives the scene; pass name="" to omit the on-image name label. Priority:
+      • FACESWAP key set -> an immersive AI scene with the person's EXACT REAL face swapped on
+        (`_build_faceswap_banner`). Best: immersive scene + real face.
+      • Otherwise (DEFAULT) -> the REAL cut-out person composited onto the themed scene
+        (`_build_editorial_banner`, require_cutout) — their actual photo, face + clothes untouched.
+      • No clean cut-out -> a clean framed/split design of the real photo (still the REAL face).
+    The gpt-image edit path (`_build_ai_portrait_banner`) makes an AI face and is DELIBERATELY NOT used except
+    inside faceswap (where the real face is swapped back on). Any failure -> a deterministic template."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1875,19 +1873,17 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        if prefer == "graphic":            # 'Bold graphic poster' -> real CUT-OUT person on a designed plate
+        # HARD RULE: NEVER AI-generate the face — always use the REAL uploaded photo's face. So the person is
+        # only ever their real cut-out photo, or (with a FACESWAP key) an AI scene with their EXACT real face
+        # swapped on. The plain gpt-image edit (`_build_ai_portrait_banner`) makes an AI face and is NOT used.
+        if faceswap.faceswap_available():       # immersive AI scene + EXACT REAL face swapped on (best; opt-in key)
+            result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+        if result is None and prefer == "graphic":  # bold graphic poster with the real cut-out person
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        else:
-            # DEFAULT / 'In the action': the IMMERSIVE dramatic AI scene — the person standing powerfully INSIDE
-            # the theme (epic stadium, floodlights, crowd), like a premium sports poster (ChatGPT-style).
-            if faceswap.faceswap_available():   # immersive scene + EXACT real face (opt-in key, strongest)
-                result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-            if result is None:                  # PRIMARY: immersive dramatic AI scene
-                result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-            if result is None:                  # edit unavailable -> real cut-out composited onto the themed scene
-                result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme, require_cutout=True)
-            if result is None:                  # last resort -> split poster
-                result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+        if result is None:                      # DEFAULT: real cut-out person composited onto the themed scene
+            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme, require_cutout=True)
+        if result is None:                      # no clean cut-out -> clean framed/split design (still the REAL face)
+            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result
     except Exception:

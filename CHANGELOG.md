@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## HARD RULE: never an AI face — always the real uploaded photo's face (2026-07-03)
+Per the user: for any image, do NOT generate an AI face — only use the uploaded photo's face. The gpt-image
+edit path (`_build_ai_portrait_banner`) regenerates the face (an AI face), so it's **removed from the default**
+in `build_ai_scene`. New priority: **FACESWAP key (immersive AI scene + the EXACT real face swapped on) → real
+cut-out composite (the actual photo) → clean framed/split design (still the real photo) → template.** The edit
+path now survives ONLY inside faceswap, where the real face is swapped back on. Consequence: the fully
+immersive "person in the stadium" look with a REAL face needs a `FACESWAP_API_KEY`; without it you get the real
+cut-out on a themed background or a framed design — but the face is always genuinely theirs. Verified: the
+default renderer is now the real-photo composite, never the AI-face edit.
+
 ## Never ship a rough cut-out — quality gate on the free keyer (2026-07-03)
 Some photos still cut out messy on the free keyer (jagged edge / leftover "cream shadow" wall), and with the
 relaxed `cut_ok` those messy cuts were being shipped. Added a **quality gate** at the end of `_key_plain_bg`:
