@@ -789,16 +789,18 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
 
 
 async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None, theme="",
-                     design=""):
+                     design="", eyebrow=""):
     """Render one featured-person post. 'ai' style / 'photo' skin (or a campaign `theme`) -> a VARIED editorial
     design + real cut-out (async), with the theme steering the surroundings; otherwise a deterministic
     series/legacy template on the given SKIN. Both keep the REAL face. `variant` (from the style intake)
-    selects the design; None -> random. `design` ('scene'|'graphic'|'') is the chosen image TYPE. Pass name=""
-    to omit the on-image name label."""
+    selects the design; None -> random. `design` ('scene'|'graphic'|'') is the chosen image TYPE. `eyebrow` is
+    the intent label (ANNOUNCEMENT / CELEBRATING …) drawn above the headline. Pass name="" to omit the on-image
+    name label."""
     v = variant if variant is not None else random.randint(0, 5)
     if style == "ai" or skin == "photo" or (theme or "").strip():
         return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
-                                             question=subline, variant=v, theme=theme, prefer=design)
+                                             question=subline, variant=v, theme=theme, prefer=design,
+                                             eyebrow=eyebrow)
     return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
                                      question=subline, variant=v, style=style, skin=skin)
 
@@ -891,6 +893,35 @@ async def _polish_headline(message: str, name: str = "", use_name: bool = True) 
         return head[:70] if head else msg
     except Exception:
         return msg
+
+
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august",
+           "september", "october", "november", "december")
+
+
+def _post_eyebrow(message: str, theme: str = "") -> str:
+    """Classify the post INTENT from the user's words (+ campaign theme) and return the small eyebrow label
+    drawn above the headline, so the design reads as WHAT IT IS. An ANNOUNCEMENT / advertisement / event reads
+    'SAVE THE DATE' (when a month is named) or 'ANNOUNCEMENT' — never 'In the Spotlight', which makes an event
+    look like a feature / success story. An achievement reads 'CELEBRATING'; a welcome reads 'WELCOME TO THE
+    TEAM'. Returns '' when nothing matches (the renderer then picks a neutral label)."""
+    t = f"{message} {theme}".lower()
+
+    def has(*ws):
+        return any(w in t for w in ws)
+
+    if has("achievement", "achieved", "congrat", "milestone", "anniversary", "award", "awarded",
+           "winner", "we won", "years with", "year strong", "proud to", "promotion", "promoted",
+           "success story"):
+        return "CELEBRATING"
+    if has("welcome", "welcoming", "new hire", "newest member", "just joined", "joining us", "onboard"):
+        return "WELCOME TO THE TEAM"
+    if has("announce", "announcing", "announcement", "save the date", "coming soon", "launch",
+           "presenting", "join us", "register", "sign up", "competition", "competetion", "competation",
+           "tournament", "championship", "event", "festival", "carnival", "kick off", "kickoff",
+           "happening", "invite", "rsvp", "advertis", "promo"):
+        return "SAVE THE DATE" if any(re.search(r"\b" + m + r"\b", t) for m in _MONTHS) else "ANNOUNCEMENT"
+    return ""
 
 
 def _find_employee(db, owner: str, query: str):
@@ -1090,6 +1121,9 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     theme = _campaign_theme(state)  # campaign NAME + brief -> themed even when the brief is empty
     render_name = "" if in_campaign else match.name
     render_role = "" if in_campaign else match.role
+    # INTENT eyebrow: read the user's words (+ theme) so an announcement/event reads 'SAVE THE DATE'/
+    # 'ANNOUNCEMENT' and an achievement reads 'CELEBRATING' — never 'In the Spotlight' on an event banner.
+    eyebrow = _post_eyebrow(raw_msg, theme if in_campaign else "")
     style_arg = (args.get("style") or "").strip().lower()
     skin_arg = (args.get("skin") or "").strip().lower()
     design = (args.get("design") or "").strip().lower()  # 'scene' | 'graphic' | '' — the image TYPE from the intake
@@ -1134,10 +1168,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
                 style = "spotlight_series"
                 path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style,
                                                      skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False),
-                                                     variant=variant, theme=theme, design=design)
+                                                     variant=variant, theme=theme, design=design, eyebrow=eyebrow)
         else:
             path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style, skin,
-                                                 variant=variant, theme=theme, design=design)
+                                                 variant=variant, theme=theme, design=design, eyebrow=eyebrow)
     except Exception:
         return {"summary": "Couldn't build the post — please try again.", "assets": []}
     used_skin = meta.get("skin", skin)

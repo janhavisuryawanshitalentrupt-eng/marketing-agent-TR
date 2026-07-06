@@ -3,6 +3,25 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Announcement banners read as announcements + shirt text stays in-frame (2026-07-06)
+Two fixes for the campaign employee banner (reported on the Football announcement featuring Pooja):
+
+**Reads like an announcement, not a success story.** The eyebrow above the headline was a fixed rotation of
+feature labels ("IN THE SPOTLIGHT", "MEET THE TEAM"…), which made an event announcement look like an
+achievement / spotlight post. New `_post_eyebrow(message, theme)` classifies the post INTENT from the user's
+words: an announcement / advertisement / event → **"SAVE THE DATE"** (when a month is named) or
+**"ANNOUNCEMENT"**; an achievement → **"CELEBRATING"**; a welcome → **"WELCOME TO THE TEAM"**. The label is
+plumbed through `_build_one → build_ai_scene → _build_editorial_banner (eyebrow=…)` and drawn on ALL three
+editorial layouts (layout 2 previously drew no eyebrow at all). A role-model / campaign banner (no on-image
+name) now NEVER says "In the Spotlight" — it falls back to "TALENTRUPT PRESENTS" when no intent matches.
+
+**Shirt text no longer cut off / darkened.** `_place_editorial_person` scaled the cut-out to 90% height and
+bottom-anchored it, so a HALF-BODY (head-to-torso) photo jammed the shirt — and any printed text like
+"emerge-evolve-establish" — against the bottom edge and into the dark bottom scrim. It now detects a half-body
+crop (bottom 10% of the alpha is a wide band of body = no feet) and renders it a touch smaller (80% H) and
+LIFTED (7% H) on every template (never the top-bleed crop), so the shirt text sits fully in-frame, above the
+scrim. A full-body shot still floor-anchors with a contact shadow. Verified across layouts 1/2/3.
+
 ## Preserve the text on the person's t-shirt (2026-07-03)
 Rule: never change or garble the text/logo printed on a person's shirt (e.g. the "emerge-evolve-establish"
 tee) — preserve it exactly unless explicitly asked. The default already honours this (themed images keep the

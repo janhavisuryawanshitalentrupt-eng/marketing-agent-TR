@@ -108,7 +108,16 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   as a `theme` down through `build_ai_scene` → `_portrait_prompt`/`_scene_prompt`, so the employee is staged in
   the campaign's world (a Football brief → on a pitch in kit). The theme = **campaign name + brief**
   (`_campaign_theme`), so a campaign named "Football Campaign" is themed even with an empty brief; and (b) the on-image name label is suppressed
-  (`name=""`), per the "no names on campaign images" rule. Generic campaign scenes (`images.build_images`, via
+  (`name=""`), per the "no names on campaign images" rule.
+  **Post INTENT → eyebrow:** `_post_eyebrow(message, theme)` reads the user's words and sets the small eyebrow
+  above the headline so the design reads as what it IS — an announcement/event → **"SAVE THE DATE"** (month
+  named) or **"ANNOUNCEMENT"**, an achievement → **"CELEBRATING"**, a welcome → **"WELCOME TO THE TEAM"**;
+  plumbed via `_build_one`/`build_ai_scene`/`_build_editorial_banner (eyebrow=…)` and drawn on all three
+  editorial layouts. A role-model / campaign banner (no name) never says "In the Spotlight" — it defaults to
+  "TALENTRUPT PRESENTS". **Shirt text always in-frame:** `_place_editorial_person` detects a HALF-BODY crop
+  (bottom 10% of the alpha is a wide band = no feet) and renders it smaller + LIFTED (never top-bleed) so
+  printed shirt text (e.g. "emerge-evolve-establish") clears the frame edge and the dark scrim; a full body
+  still floor-anchors. Generic campaign scenes (`images.build_images`, via
   `exec_generate_image`) additionally get the account's real employee photos (`team_photos`): the planner flags
   each variation `has_people`, and every people-variation is rendered as a REAL employee (rotating the roster)
   in the themed scene — never a random AI face — while object/scenery/data variations stay AI-generated. In

@@ -1520,8 +1520,20 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
     import numpy as np
     from PIL import ImageChops, ImageEnhance
     warm = skin.key in ("light", "cream", "photo")
-    # STAGE 0 — prominent size + floor-anchored position
-    if layout == 2:
+    # HALF-BODY vs FULL-BODY: sample the bottom 10% of the cut-out. A head-to-torso crop fills that band with
+    # body — its bottom edge IS the shirt/chest, so any TEXT printed there lands at the frame edge; a full body
+    # tapers to narrow feet or empty. The ratio is scale-invariant, so measure it on the input alpha.
+    try:
+        _b = np.asarray(hero.split()[-1])[int(hero.height * 0.90):, :]
+        half_body = _b.size > 0 and float((_b > 40).mean()) > 0.42
+    except Exception:
+        half_body = False
+    # STAGE 0 — size + position. A half-body crop is a touch smaller and LIFTED (never top-bleed, on ANY
+    # template) so the shirt — and its printed text — clears the frame edge and the dark bottom scrim; a full
+    # body stays prominent + floor-anchored (layout 2 = a deliberate dramatic top-bleed crop).
+    if half_body:
+        target_h, cap, right_pad = int(H * 0.80), (W * 0.56 if layout == 3 else W * 0.58), 24
+    elif layout == 2:
         target_h, cap, right_pad = int(H * 0.98), W * 0.60, 16
     elif layout == 3:
         target_h, cap, right_pad = int(H * 0.90), W * 0.56, 24
@@ -1533,7 +1545,12 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
     hero = hero.resize((max(1, int(hero.width * scale)), max(1, int(hero.height * scale))), Image.LANCZOS)
     a = hero.split()[-1]
     hx = 24 if layout == 3 else (W - hero.width - right_pad)
-    hy = -int(hero.height * 0.04) if layout == 2 else (H - hero.height)
+    if half_body:
+        hy = H - hero.height - int(H * 0.07)     # lift the torso crop so the shirt text stays fully in-frame
+    elif layout == 2:
+        hy = -int(hero.height * 0.04)
+    else:
+        hy = H - hero.height                     # floor-anchor a full body
     # STAGE 1 — colour-grade. Only tone-MATCH toward a real PHOTO plate (on a flat colour block that would
     # tint the person the block's colour). Always a gentle polish.
     try:
@@ -1554,8 +1571,9 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
     # STAGE 2 — feather + a 1px erode (kills the 'sticker' edge)
     a = a.filter(ImageFilter.GaussianBlur(0.6)).filter(ImageFilter.MinFilter(3))
     hero.putalpha(a)
-    # STAGE 3 — contact shadow pooling at the feet (skip for the top-bleed crop)
-    if layout != 2:
+    # STAGE 3 — contact shadow pooling at the feet (only a floor-anchored FULL body has feet; skip it for the
+    # top-bleed crop AND the lifted half-body torso, which has no feet touching the ground)
+    if layout != 2 and not half_body:
         sil = Image.new("RGBA", hero.size, (0, 0, 0, 0))
         sil.paste((0, 0, 0, 165), (0, 0), a)
         ground = sil.resize((hero.width, max(1, int(hero.height * 0.10))), Image.LANCZOS)
@@ -1611,6 +1629,9 @@ def _draw_editorial_text(canvas, d, skin, name, role, headline, question, keywor
     elif layout == 2:                                 # subject RIGHT (top-bleed) -> text LEFT, featuring high
         hl_w = max(320, person_box[0] - pad - 50)
         boxes.append(_draw_featuring_script(d, pad, 322, name, role, skin, max_w=hl_w))
+        if kicker:                                    # intent eyebrow (ANNOUNCEMENT / SAVE THE DATE …)
+            d.text((pad, 446), kicker, font=heading_font(24), fill=skin.accent)
+            boxes.append((pad, 446, pad + hl_w, 476))
         y, hb = _draw_headline_highlight(d, pad, 492, headline or "On a Mission!", hl_w, skin, keyword=keyword, size=104, max_lines=3)
         boxes.append(hb)
         if question:
@@ -1771,17 +1792,26 @@ async def _bold_split_poster(photo, variant, theme=""):
 
 
 async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme="",
-                                  require_cutout=False):
+                                  require_cutout=False, eyebrow=""):
     """Keep the person AS-IS (their exact real photo — never regenerated) and change only the BACKGROUND:
     cut the real person out and composite them onto a REALISTIC themed background photo (a real stadium/pitch),
     graded + grounded so they sit in the scene. If there's no theme / no clean cut-out, fall back to the bold
-    SPLIT poster (person cut-out beside a themed panel). Returns (path, fname, meta), or None."""
+    SPLIT poster (person cut-out beside a themed panel). `eyebrow` (optional intent label) drives the small
+    kicker line above the headline. Returns (path, fname, meta), or None."""
     import numpy as np
     from ..providers import llm
     skin = SKINS["photo"]
     template = int(variant) % 6
     layout = (template % 3) + 1
-    kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
+    # EYEBROW: an explicit INTENT label (ANNOUNCEMENT / SAVE THE DATE / CELEBRATING …) wins, so the post reads
+    # as what it IS. A personal feature (has an on-image name) keeps the rotating team kicker; a role-model /
+    # campaign banner (no name) NEVER says 'IN THE SPOTLIGHT' — that makes an event look like a success story.
+    if (eyebrow or "").strip():
+        kicker = eyebrow.strip().upper()[:26]
+    elif name:
+        kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
+    else:
+        kicker = "TALENTRUPT PRESENTS"
     canvas = person_box = None
     if (theme or "").strip() and llm.image_provider_available():
         hero = _cutout(photo)                                  # the REAL person, exact — only the bg changes
@@ -1805,7 +1835,7 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
     boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box,
-                                 kicker or "TEAM // SPOTLIGHT")
+                                 kicker)
     _ensure_clear("editorial_L%d" % layout, person_box, *boxes)
     return _finish_editorial(canvas, "team_editorial")
 
@@ -1864,7 +1894,7 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
-                         keyword="", theme="", prefer=""):
+                         keyword="", theme="", prefer="", eyebrow=""):
     """Featured-employee banner. HARD RULE: the face is ALWAYS the person's REAL uploaded photo — NEVER an
     AI-generated face. `theme` drives the scene; pass name="" to omit the on-image name label. Priority:
       • FACESWAP key set -> an immersive AI scene with the person's EXACT REAL face swapped on
@@ -1897,7 +1927,8 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
         if faceswap.faceswap_available():       # (opt-in) seamless AI scene + EXACT real face swapped on
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is None:                      # DEFAULT: real cut-out person (as-is) on a realistic themed bg
-            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant,
+                                                   keyword, theme, eyebrow=eyebrow)
         if result is not None:
             return result
     except Exception:
