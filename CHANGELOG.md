@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Themed images now cut the person out (transparent) onto the scene — no more white wall (2026-07-03)
+The person kept showing their white studio wall (beside a themed panel) instead of being cut out and placed
+IN the theme. Root cause: the `cut_ok` gate required the cut-out to be ≥42% of the ORIGINAL photo width — but
+the team's studio shots are landscape, so the person is a narrow strip and every valid cut-out was rejected →
+it always fell back to the white-wall split poster. Fixed: `cut_ok` now judges the cut ITSELF (real
+transparency + a 30–97% opaque coverage of its tight crop), independent of the source aspect ratio. So the
+free keyer's clean cut-outs are accepted, and the **default for a themed image is now a real CUT-OUT portrait
+(transparent background) composited onto the themed scene** (the person on the football pitch — exact face,
+real shirt). Fallback order: faceswap → cut-out composite → immersive AI scene (no white bg either) → split
+poster (last resort). Themed background dropped to `quality='medium'` to trim latency. Verified with the real
+Nishant photo: cut out cleanly onto the pitch. *Note:* the free keyer handles plain studio walls; a busy/non-
+plain background still needs `BG_REMOVAL_API_KEY` for a guaranteed cut.
+
 ## Campaigns now ASK "what kind of image?" before generating (2026-07-03)
 Featuring a teammate in a campaign (e.g. "@Pooja" or "create an image of @Pooja") now first asks the image
 TYPE with tappable chips — **In the action — themed scene** (immersive: the person inside the themed scene,

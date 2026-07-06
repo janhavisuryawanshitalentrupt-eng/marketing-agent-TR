@@ -1711,22 +1711,32 @@ async def _bold_split_poster(photo, variant, theme=""):
     return canvas, person_box, (1 if panel_left else 3)
 
 
-async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme=""):
-    """PREMIUM EDITORIAL composite — the REAL person on a designed background. With a clean cut-out they're
-    integrated into a gpt-image themed scene / bold graphic plate; WITHOUT one they get a bold magazine SPLIT
-    poster (`_bold_split_poster`) instead of a plain photo. The FACE is never changed. `theme` (a campaign
-    brief) steers the photographic backdrop. Returns (path, fname, meta), or None on failure."""
+async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme="",
+                                  require_cutout=False):
+    """PREMIUM EDITORIAL composite — the REAL CUT-OUT person (transparent background) composited onto a
+    designed background: a gpt-image themed scene (person on the pitch) or a bold graphic plate. WITHOUT a
+    clean cut-out they get a bold magazine SPLIT poster — unless `require_cutout=True`, in which case it
+    returns None so the caller can try the immersive AI scene instead. The FACE is never changed. Returns
+    (path, fname, meta), or None."""
+    import numpy as np
     from ..providers import llm
     skin = SKINS["photo"]
     template = int(variant) % 6          # 6 distinct designs (0-4 = bold graphic, 5 = photographic scene)
     layout = (template % 3) + 1          # person position rotates too
     text_left = layout != 3
     kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
-    # Cut out FIRST so we only pay for a gpt-image scene when we can actually composite the person onto it
-    # (a failed cut-out uses the instant split poster instead — no wasted scene call).
+    # Cut out FIRST so we only pay for a gpt-image scene when we can actually composite the person onto it.
     hero = _cutout(photo)
-    cut_ok = (hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
-              and hero.width >= photo.width * 0.42 and hero.height >= photo.height * 0.45)
+    # A valid cut-out has real transparency and a sensible opaque fraction of its TIGHT crop — judged on the
+    # cut itself, NOT the original photo's aspect ratio (a landscape studio shot yields a narrow person, which
+    # the old width>=42%-of-photo test wrongly rejected → it always fell back to the white-wall split poster).
+    cut_ok = False
+    if hero.mode == "RGBA" and hero.width >= 160 and hero.height >= 240:
+        al = np.asarray(hero.split()[-1])
+        cov = float((al > 127).mean())
+        cut_ok = int(al.min()) < 245 and 0.30 <= cov <= 0.97
+    if require_cutout and not cut_ok:
+        return None  # caller wants a real cut-out only -> let it fall through to the immersive AI scene
     if cut_ok:
         # With a campaign THEME set, use a photographic themed backdrop (so the scene matches the campaign);
         # otherwise a BOLD graphic plate (instant + looks designed).
@@ -1734,7 +1744,8 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
         bg = None
         if photo_bg:
             try:
-                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme), size="1024x1024")
+                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme),
+                                                      size="1024x1024", quality="medium")
                 if data:
                     bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
             except Exception:
@@ -1841,16 +1852,18 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        # `prefer='graphic'` (the user chose a bold poster) -> skip the immersive AI edit and go straight to the
-        # designed split poster. Otherwise the immersive AI scene is the default.
-        if prefer == "graphic":
+        if prefer == "graphic":            # bold graphic poster with the CUT-OUT person (split poster if no clean cut)
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         else:
-            if faceswap.faceswap_available():   # immersive AI scene + EXACT real face (opt-in key, strongest)
+            # DEFAULT: a REAL CUT-OUT portrait (transparent background) composited onto the themed scene — the
+            # person on the pitch, not on their studio wall.
+            if faceswap.faceswap_available():   # cut-out AI scene + EXACT real face (opt-in key, strongest)
                 result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-            if result is None:                  # DEFAULT: immersive AI scene — the person INSIDE the theme (ChatGPT-style)
+            if result is None:                  # PRIMARY: real cut-out composited onto the themed background
+                result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme, require_cutout=True)
+            if result is None:                  # no clean cut-out -> immersive AI scene (person INSIDE the theme, no white bg)
                 result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-            if result is None:                  # FALLBACK: real cut-out / split-poster composite (edit unavailable)
+            if result is None:                  # last resort -> split poster
                 result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result
