@@ -3,6 +3,14 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Softened photo sharpening so it stops garbling real shirt text (2026-07-07)
+An aggressive `UnsharpMask` (radius 1.5, 95%) added crunchy halos to the small, already-soft logo printed on a
+real (out-of-focus, wrinkled) t-shirt — making "emerge·evolve·establish" look broken. Dialed it back to a
+moderate mask (radius 1.1, 55%) that still keeps printed text legible without haloing. Confirmed on a
+clean-text synthetic that the pipeline itself renders shirt text crisply — the remaining softness is inherent
+to the SOURCE photo's small logo (we keep it exactly as-is; we never redraw it). Truly large/crisp shirt text
+needs a closer/higher-res source photo or a tighter chest crop.
+
 ## Fix: campaign images no longer bleed into the general Chat area (2026-07-07)
 Chat and Campaign are different jobs — Chat = general Talentrupt-brand image creation; Campaign = images
 customized to that campaign's brief. But the Chat/Create "Your generations" gallery listed EVERY asset the

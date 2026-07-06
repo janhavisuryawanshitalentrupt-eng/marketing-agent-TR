@@ -276,10 +276,11 @@ def _enhance_photo(img: Image.Image) -> Image.Image:
         img = ImageEnhance.Brightness(img).enhance(1.03)
         img = ImageEnhance.Color(img).enhance(1.06)          # a little more life in the colour
         img = ImageEnhance.Contrast(img).enhance(1.05)
-        img = ImageEnhance.Sharpness(img).enhance(1.10)
-        # UnsharpMask crisps EDGES (printed shirt text / logos, eyes) better than the flat sharpness enhancer,
-        # so a small brand tee logo stays legible in the composite. threshold=3 keeps smooth skin clean.
-        img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=95, threshold=3))
+        img = ImageEnhance.Sharpness(img).enhance(1.12)
+        # a MODERATE unsharp mask: enough to keep printed text/logos legible, but gentle enough that it does
+        # NOT halo/garble the already-soft text on a real (slightly out-of-focus, wrinkled) t-shirt — an
+        # aggressive mask made the shirt logo look crunchy/broken. We never redraw the text; this only cleans.
+        img = img.filter(ImageFilter.UnsharpMask(radius=1.1, percent=55, threshold=3))
     except Exception:
         pass
     return img
