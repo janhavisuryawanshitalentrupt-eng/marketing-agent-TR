@@ -857,29 +857,37 @@ def _clean_headline(message: str, name: str = "") -> str:
     return "" if (words and all(w in _FILLER_WORDS for w in words)) else m  # filler-only => no real headline
 
 
-async def _polish_headline(message: str, name: str = "") -> str:
+async def _polish_headline(message: str, name: str = "", use_name: bool = True) -> str:
     """Turn a rough phrase into a warm, CREATIVE marketing headline — the user gives the CONTEXT, the model
-    writes the copy — using the featured person's FIRST NAME where it reads well (so 'welcoming her at
-    talentrupt' for Pooja -> 'A Warm Welcome to Pooja!', not a literal 'Welcoming Her To Talentrupt').
-    Best-effort: returns the input unchanged on any error or when no AI provider is configured."""
+    writes the copy. When `use_name` is True the featured person's FIRST NAME may be woven in (e.g. a welcome
+    post). When False (event/advertisement/campaign banners) the person is just a ROLE MODEL for the visual —
+    the copy is about the THEME/EVENT and NEVER names the person. Best-effort: returns the input unchanged on
+    any error or when no AI provider is configured."""
     msg = (message or "").strip()
     if not msg or not llm.provider_available():
         return msg
     first = (name or "").strip().split()[0] if (name or "").strip() else ""
-    who = (f" This post FEATURES {name} (first name: {first}) — weave in their first name where it reads "
-           "naturally." if first else "")
+    if use_name and first:
+        who = (f" This post FEATURES {name} (first name: {first}) — weave in their first name where it reads "
+               "naturally.")
+    else:
+        who = (" The person in the visual is just a ROLE MODEL / face for the design — write the headline about "
+               "the THEME / EVENT / topic ONLY. Do NOT mention, weave in or invent ANY person's name.")
     try:
         out = await llm.chat_json([
             {"role": "system", "content":
              "You are a sharp, creative copywriter for Talentrupt, an RPO (recruitment) firm. The user gives "
              "the ROUGH CONTEXT of a post; YOU write the headline. Turn it into ONE warm, punchy, genuinely "
              "CREATIVE marketing headline (about 3-7 words) — Title Case, no quotes, an optional single '!' "
-             "allowed. Be human and natural, NEVER a literal echo of their words (e.g. 'welcoming her at "
-             "talentrupt' -> 'A Warm Welcome to <First>!', NOT 'Welcoming Her To Talentrupt')."
+             "allowed. Be human and natural, NEVER a literal echo of their words."
              + who + " Reply ONLY as JSON: {\"headline\": \"...\"}."},
             {"role": "user", "content": msg},
         ], temperature=0.75)
         head = ((out or {}).get("headline") or "").strip().strip('"').strip()
+        if head and not use_name and name:  # safety: strip any person-name the model slipped in
+            for tok in name.split():
+                head = re.sub(r"\b" + re.escape(tok) + r"\b", "", head, flags=re.I)
+            head = re.sub(r"\s{2,}", " ", head).strip(" -,:;")
         return head[:70] if head else msg
     except Exception:
         return msg
@@ -1070,7 +1078,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}
     raw_msg = (args.get("message") or "").strip()
-    message = await _polish_headline(_clean_headline(raw_msg, match.name), match.name)
+    # In a campaign the person is a ROLE MODEL for the banner — the copy is about the EVENT/theme, never their
+    # name. In plain Chat/Create a personal post may weave their first name in (e.g. a welcome).
+    message = await _polish_headline(_clean_headline(raw_msg, match.name), match.name,
+                                     use_name=state.get("campaign_id") is None)
     head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
     # CAMPAIGN mode: the campaign brief becomes the THEME that drives the employee's scene (football pitch,
     # festive decor, …), and the on-image NAME label is suppressed (the user asked for no names on campaign

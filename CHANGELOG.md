@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## No person's name in campaign/event banners (the person is a role model) (2026-07-03)
+Campaign banners were putting the featured person's name in the copy (e.g. "Join Pooja at the Championship
+Showdown!"). On a campaign/event/advertisement banner the person is just a ROLE MODEL for the visual — the
+headline should be about the theme/event, never their name. `_polish_headline` was explicitly told to "weave
+in their first name"; it now takes `use_name` and `exec_feature_employee` passes `use_name=False` in campaign
+mode, so the headline is written about the event/theme with no name (plus a regex safety strip). Verified:
+campaign → "Kick Off the Ultimate Championship!" (no name); Chat/Create still allows the first name for
+personal posts (e.g. a welcome). The on-image "Featuring [Name]" label was already suppressed on campaigns.
+
 ## Themed images: keep the person AS-IS, change only the background to a realistic scene (2026-07-03)
 Per the user: keep the person's photo exactly as-is (do NOT regenerate them) and just change the background to
 a realistic themed one. So the themed default is now the REAL cut-out person (their exact photo — face, pose,
