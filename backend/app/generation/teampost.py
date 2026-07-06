@@ -1606,12 +1606,28 @@ def _finish_editorial(canvas, renderer):
     }
 
 
-def _bold_split_poster(photo, variant):
-    """No clean cut-out -> a BOLD magazine SPLIT poster instead of a plain photo: a solid brand-colour panel
-    (holding the oversized caption) beside a tight PORTRAIT CROP of the real photo. It's fully designed, keeps
-    the person's EXACT face (just a crop — nothing redrawn), and every graphic sits in a SAFE zone so it never
-    covers the subject or the text. Panels stay dark navy/teal so the white caption + red keyword box pop.
-    Returns (canvas, person_box)."""
+def _panel_theme_prompt(theme: str) -> str:
+    """A THEMED graphic for the poster panel (no people, no text) so the split poster visibly reflects the
+    campaign — e.g. football -> a stylised ball / pitch lines / goal net / stadium light."""
+    return (
+        f'A bold, premium VERTICAL poster-panel BACKGROUND graphic representing this theme: "{theme[:170]}". '
+        "Depict the theme's iconic objects, setting and atmosphere as a rich DESIGNED graphic (football -> a "
+        "stylised football, pitch lines, goal net, stadium floodlight; cricket -> bat, ball, pitch; a festival "
+        "-> its lights/decor). Talentrupt brand palette: deep navy #0B3559, coral red #F6404C, warm cream "
+        "#EBE9DF — NAVY-DOMINANT so white text stays legible, keep the TOP third calmer/darker for a headline. "
+        "ABSOLUTELY NO people, NO faces, NO text, NO words, NO letters, NO numbers, NO logos, NO signage. Tall "
+        "vertical composition, cinematic, high-end."
+    )
+
+
+async def _bold_split_poster(photo, variant, theme=""):
+    """No clean cut-out -> a BOLD magazine SPLIT poster instead of a plain photo: a designed panel (holding the
+    oversized caption) beside a tight PORTRAIT CROP of the real photo. Keeps the person's EXACT face (just a
+    crop — nothing redrawn), and every graphic sits in a SAFE zone so it never covers the subject or text.
+    When a `theme` is set the panel background is a THEMED graphic (a football/cricket/festival scene, no
+    people/text) so the poster visibly reflects the campaign; otherwise a flat dark brand panel. Returns
+    (canvas, person_box)."""
+    from ..providers import llm
     import numpy as np
     t = int(variant) % 4
     panel_w = int(W * 0.44)
@@ -1627,17 +1643,35 @@ def _bold_split_poster(photo, variant):
     for i in range(90):
         ed.line([(i, 0), (i, H)], fill=(*NAVY, int(150 * (1 - i / 90))))
     canvas.paste(es, (panel_w, 0), es)
-    # LEFT: a bold dark brand panel with a gentle top->bottom gradient for depth.
-    PANELS = [(0x0B, 0x35, 0x59), (0x0A, 0x24, 0x3E), (0x11, 0x2E, 0x38), (0x0C, 0x2A, 0x4C)]
-    base = np.array(PANELS[t], float)
-    ramp = np.linspace(1.08, 0.80, H)[:, None, None]
-    parr = np.clip(np.broadcast_to(base, (H, panel_w, 3)) * ramp, 0, 255).astype("uint8")
-    canvas.paste(Image.fromarray(parr, "RGB"), (0, 0))
-    # bold graphics in SAFE zones only: an angled coral seam ribbon + a dotted arc + a squiggle low down.
+    # LEFT PANEL: a THEMED graphic (football/…) when a theme is set + provider is up, else a flat brand panel.
+    themed = False
+    panel = None
+    if (theme or "").strip() and llm.image_provider_available():
+        try:
+            data = await llm.generate_image_bytes(_panel_theme_prompt(theme), size="1024x1024", quality="low")
+            if data:
+                panel = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), panel_w, H)
+                # navy scrim: strong at TOP (behind the headline) fading DOWN so the theme still shows lower.
+                pa = np.asarray(panel.convert("RGB")).astype(np.float32)
+                ys = np.linspace(0, 1, H)[:, None, None]
+                al = np.clip(0.86 - ys * 0.55, 0.32, 0.86)
+                panel = Image.fromarray((pa * (1 - al) + np.array(NAVY, float) * al).astype("uint8"), "RGB")
+                themed = True
+        except Exception:
+            panel = None
+    if panel is None:  # flat dark brand panel with a gentle top->bottom gradient
+        PANELS = [(0x0B, 0x35, 0x59), (0x0A, 0x24, 0x3E), (0x11, 0x2E, 0x38), (0x0C, 0x2A, 0x4C)]
+        ramp = np.linspace(1.08, 0.80, H)[:, None, None]
+        panel = Image.fromarray(
+            np.clip(np.broadcast_to(np.array(PANELS[t], float), (H, panel_w, 3)) * ramp, 0, 255).astype("uint8"), "RGB")
+    canvas.paste(panel, (0, 0))
+    # bold graphics in SAFE zones only: an angled coral seam ribbon (always) + a ring/squiggle when the panel
+    # is flat (skip them on a themed panel so the theme graphic stays clean).
     ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     od = ImageDraw.Draw(ov)
     od.polygon([(panel_w - 30, 0), (panel_w + 34, 0), (panel_w - 30, H), (panel_w - 94, H)], fill=(*RED, 255))
-    od.ellipse([70, int(H * 0.50), 70 + 210, int(H * 0.50) + 210], outline=(*RED, 170), width=14)  # ring in the empty mid-panel
+    if not themed:
+        od.ellipse([70, int(H * 0.50), 70 + 210, int(H * 0.50) + 210], outline=(*RED, 170), width=14)
     _accent_squiggle(od, 70, H - 150, panel_w - 150, amp=9, color=(*RED, 255), width=6)
     canvas = Image.alpha_composite(canvas.convert("RGBA"), ov).convert("RGB")
     return canvas, (panel_w + 40, 0, W, H)
@@ -1677,9 +1711,9 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
         canvas = _editorial_scrim(bg, layout, blur=2.4 if photo_bg else 0,
                                   strength=0.86 if photo_bg else 0.82, reach=0.55 if photo_bg else 0.40)
         person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=photo_bg)
-    else:  # no clean cut-out -> BOLD designed split poster (real face kept, no plain-photo look)
+    else:  # no clean cut-out -> BOLD designed split poster (real face kept), with a THEMED panel when set
         photo_bg = False
-        canvas, person_box = _bold_split_poster(photo, variant)
+        canvas, person_box = await _bold_split_poster(photo, variant, theme)
         layout = 1
         kicker = kicker or "TEAM // SPOTLIGHT"
     canvas = _apply_grain(canvas, variant, 3.0 if not photo_bg else 4.0)

@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Split-poster panel now shows the campaign THEME (free, real face) (2026-07-03)
+The bold split poster kept the real face but its panel was a flat brand colour — so a "football" campaign
+didn't look like football. Now, when a theme is set, the panel background is a **themed graphic** (a
+gpt-image football pitch / ball / goal-net — no people, no text, navy-dominant) generated behind the
+oversized caption, beside the person's real photo crop. So the poster visibly reflects the campaign AND keeps
+the exact real face — no cut-out or API key needed. `_panel_theme_prompt` + async `_bold_split_poster(theme)`;
+a navy scrim fades top→down so the headline stays legible while the theme shows lower. One low-quality panel
+call (~15s); no theme (or provider down) → the instant flat brand panel.
+
 ## Bold magazine-poster design when there's no clean cut-out (free, no key) (2026-07-03)
 Previously, when the free keyer couldn't cut a person off their background, the image fell back to a plain
 full photo + a scrim + headline — clean but flat. That fallback is now a **bold designed magazine SPLIT
