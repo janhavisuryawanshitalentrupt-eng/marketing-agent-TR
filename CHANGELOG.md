@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: green/grey dots ON the shirt text (2026-07-07)
+The printed shirt logo ("emerge·evolve·establish") was speckled with coloured dots on a scene composite. Root
+cause: the free keyer's neutral/wall gates strip bright, low-saturation pixels to remove a cast shadow /
+leftover wall — but the WHITE letters of the shirt text are also bright + low-saturation, so they were keyed
+OUT deep on the chest, and the (fragile) hole-fill missed them, leaving transparent letters that showed the
+green pitch through as dots. Fixed by making those gates **near-edge only**: a `MaxFilter(19)` dilation of the
+border-connected background marks the outline zone, and neutral/wall pixels are stripped ONLY there (where
+shadows/wall actually live) — never deep in the chest interior. So printed shirt text is never punched into
+holes. Verified on a navy-shirt-with-logo synthetic over a stadium: the logo renders solid, no dots. (Any
+enclosed wall behind a shoulder that this keeps is caught by the existing wall_left quality gate → clean
+split-poster fallback.)
+
 ## Removed the "Bold graphic poster" option from the campaign Create intake (2026-07-07)
 The campaign "what kind of image?" chips (`_EMP_TYPE_CHIPS`) no longer offer "Bold graphic poster" — they're
 now just "In the action — themed scene" and "Surprise me — your call", so a campaign employee image always

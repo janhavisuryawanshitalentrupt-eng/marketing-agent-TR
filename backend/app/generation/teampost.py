@@ -133,12 +133,18 @@ def _key_plain_bg(img: Image.Image):
         mx = arr.max(-1)
         mn = arr.min(-1)
         bright = arr.mean(-1)
+        # NEAR-EDGE ONLY: the cast SHADOW and leftover LIGHT WALL live right at the person's OUTLINE; the deep
+        # interior (the CHEST) is the shirt. Restrict the neutral/wall strip to pixels NEAR the border-connected
+        # background so a bright printed SHIRT LOGO / TEXT (also neutral + bright) deep on the chest is NEVER
+        # punched into holes — those holes used to show the scene through as green/grey DOTS on the shirt text.
+        near_bg = np.asarray(
+            Image.fromarray((is_bg.astype(np.uint8) * 255), "L").filter(ImageFilter.MaxFilter(19))) > 127
         # Remove the person's cast SHADOW and any leftover LIGHT WALL the flood-fill couldn't reach (the exact
         # "white shadow" patch behind a shoulder). Both are NEUTRAL (low-saturation) greys/whites; skin is WARM
         # (bigger channel spread) and hair/dark clothes are dark, so gating on low saturation + not-too-dark
         # strips the wall & shadow without eating the person. (A LIGHT-coloured shirt is the one exception —
         # use the remove.bg key for those.)
-        neutral = (~is_bg) & ((mx - mn) < 22) & (bright > 74)
+        neutral = near_bg & (~is_bg) & ((mx - mn) < 22) & (bright > 74)
         is_bg = is_bg | neutral
         frac = float(is_bg.mean())
         if frac < 0.10 or frac > 0.92:  # no real subject, or nearly everything keyed -> bail
@@ -172,7 +178,8 @@ def _key_plain_bg(img: Image.Image):
         # shoulder that the hole-fill wrongly re-filled — the "cream shadow" behind the person). It is NOT skin
         # (warm, bigger channel spread), hair or dark clothes, so strip it. The despeckle below closes the tiny
         # true holes (eye-whites) this also clears.
-        wall2 = (alpha > 127) & ((mx - mn) < 26) & (bright > 150)
+        # Only near the person's OUTLINE (near_bg) — so bright SHIRT TEXT deep on the chest is protected.
+        wall2 = near_bg & (alpha > 127) & ((mx - mn) < 26) & (bright > 150)
         if 0.0 < float(wall2.mean()) < 0.22:  # safety: never nuke a genuinely pale subject
             alpha = np.where(wall2, 0, alpha).astype(np.uint8)
         # SOLIDIFY the interior: re-close every hole the neutral / wall2 gates punched INSIDE the body (a bright
