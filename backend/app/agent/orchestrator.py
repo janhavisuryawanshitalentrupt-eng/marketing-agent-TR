@@ -117,7 +117,7 @@ def _pending_feature_person(history) -> str:
 # EDIT the asset the user is looking at — not re-ask for a style or start a new one.
 _REFINE_CUE = re.compile(
     r"\b(chang\w*|replac\w*|swap\w*|updat\w*|edit|modif\w*|adjust\w*|fix\w*|correct\w*|redo|revis\w*|"
-    r"tweak\w*|mov\w*|shift\w*|remov\w*|recolou?r\w*|shrink|reduce|enlarge|fit|fits|fitt\w*|bigger|"
+    r"tweak\w*|mov\w*|shift\w*|remov\w*|recolou?r\w*|differ\w*|another|shrink|reduce|enlarge|fit|fits|fitt\w*|bigger|"
     r"smaller|larg\w*|zoom\w*|crop\w*|centre|center|align\w*|improv\w*|better|blur\w*|pathetic|"
     r"too\s+(?:big|small|dark|bright|large|tiny))\b", re.I)
 _REFINE_OBJ = re.compile(
@@ -158,10 +158,15 @@ def _is_refinement(text: str) -> bool:
     return bool(_REFINE_CUE.search(t) and _REFINE_OBJ.search(t))
 
 
-def _last_refinable_asset(db, owner: str, campaign_id):
-    """The most recent regeneratable asset in this context (scoped by campaign in campaign mode, else the
-    caller's most recent standalone asset) — the target of a conversational edit."""
+def _last_refinable_asset(db, owner: str, campaign_id, conversation_id=None):
+    """The target of a conversational edit: the last regeneratable asset IN THIS CONVERSATION (so 'edit this'
+    stays on the image the user is looking at, not a different person from another thread); only if the
+    conversation has none do we fall back to the campaign's / owner's most recent."""
     from ..models import Asset
+    from .tools import _last_conversation_asset
+    a = _last_conversation_asset(db, conversation_id, owner)
+    if a is not None:
+        return a
     q = db.query(Asset).filter(Asset.owner == owner, Asset.type.in_(("image", "post", "deck", "pdf")))
     q = q.filter(Asset.campaign_id == campaign_id) if campaign_id is not None else q.filter(Asset.campaign_id.is_(None))
     return q.order_by(Asset.id.desc()).first()
@@ -303,7 +308,9 @@ async def run(
 
     # The caller's account scopes everything the agent creates (assets/campaigns/opportunities/tasks)
     # and reads (prospects/tasks/analytics) — so the two accounts never see each other's data.
-    state: dict = {"owner": owner}
+    # conversation_id lets a refine target the asset in THIS thread (not the account's global most-recent,
+    # which could be a different person from another chat).
+    state: dict = {"owner": owner, "conversation_id": conversation_id}
     # Make any attached IMAGE available to executors (so an uploaded employee photo can be featured
     # with their REAL face — never AI-generated). Resolve the persisted upload by its SourceFile id —
     # but ONLY if it's the caller's own upload (or shared), never another account's file.
@@ -356,7 +363,7 @@ async def run(
         # background", "change the text to X", "the person doesn't fit") refines it in place — instead of the
         # brief-intake below re-asking for a style or starting a new asset. Only when a refinable asset exists.
         if mode in ("campaign", "create") and _is_refinement(user_text):
-            last = _last_refinable_asset(db, owner, state.get("campaign_id"))
+            last = _last_refinable_asset(db, owner, state.get("campaign_id"), conversation_id)
             if last is not None:
                 async for ev in _refine_and_emit(db, state, brand, last, user_text):
                     yield ev

@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: "keep the same person, change the background" no longer swaps the person (2026-07-07)
+Refining an image in Chat with "keep the same person but use a different background" swapped the person (Pooja
+→ Vaishnav). Cause: when the refine had no explicit asset id/title it fell back to the account's GLOBAL
+most-recent asset — which could be a different person from another chat. Now it targets the last asset IN THE
+CURRENT CONVERSATION first:
+
+- New `_last_conversation_asset(db, conversation_id, owner)` reads the conversation's own messages
+  (`Message.assets`) to find the image the user is actually looking at. `state` now carries `conversation_id`.
+- `exec_regenerate_asset` and the orchestrator's `_last_refinable_asset` resolve the conversation asset FIRST,
+  only falling back to the campaign/owner most-recent when the thread has none.
+- `_is_refinement` now also recognises "different"/"another" (so "use a different background" is caught).
+- Verified: with Vaishnav as the global most-recent asset, refining inside the Pooja thread resolves to Pooja.
+
 ## Softened photo sharpening so it stops garbling real shirt text (2026-07-07)
 An aggressive `UnsharpMask` (radius 1.5, 95%) added crunchy halos to the small, already-soft logo printed on a
 real (out-of-focus, wrinkled) t-shirt — making "emerge·evolve·establish" look broken. Dialed it back to a

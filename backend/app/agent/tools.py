@@ -729,6 +729,30 @@ async def exec_manage_task(db, state, brand, args) -> dict:
     return {"summary": msg, "assets": []}
 
 
+def _last_conversation_asset(db, conversation_id, owner: str):
+    """The most recent regeneratable Asset referenced in THIS conversation's messages. This is what a
+    'refine this / keep the same person, change the background' edit must target — NOT the account's global
+    most-recent asset, which could be a DIFFERENT person from another chat (that swapped Pooja for Vaishnav)."""
+    if not conversation_id:
+        return None
+    from ..models import Message
+    msgs = (db.query(Message).filter(Message.conversation_id == conversation_id)
+            .order_by(Message.id.desc()).all())
+    for m in msgs:
+        for snap in reversed(list(m.assets or [])):
+            aid = snap.get("id") if isinstance(snap, dict) else snap
+            if not aid:
+                continue
+            try:
+                asset = db.get(Asset, int(aid))
+            except (TypeError, ValueError):
+                asset = None
+            if (asset and getattr(asset, "owner", owner) == owner
+                    and asset.type in ("image", "post", "deck", "pdf")):
+                return asset
+    return None
+
+
 async def exec_regenerate_asset(db, state, brand, args) -> dict:
     """Regenerate/refine a prior asset, saved as a NEW version (mirrors POST /assets/{id}/regenerate)."""
     owner = state.get("owner", "admin")
@@ -746,9 +770,13 @@ async def exec_regenerate_asset(db, state, brand, args) -> dict:
             a = next((x for x in db.query(Asset).filter(Asset.owner == owner)
                       .order_by(Asset.id.desc()).all() if title in (x.title or "").lower()), None)
     if not a:
-        # No id / no title match -> default to the MOST RECENT asset in this context. The user is almost
-        # always refining the image they're looking at; NEVER loop asking for an internal title/ID they
-        # don't know (that was a real dead-end). Scope to the campaign when in one, else the owner's latest.
+        # No id / no title match -> target the last asset IN THIS CONVERSATION (the image the user is
+        # looking at). This keeps 'refine this / same person' on the right person — never a different one
+        # from another chat. Only if there's no conversation asset do we fall back to campaign/owner recent.
+        a = _last_conversation_asset(db, state.get("conversation_id"), owner)
+    if not a:
+        # NEVER loop asking for an internal title/ID they don't know. Scope to the campaign when in one,
+        # else the owner's latest standalone asset.
         q = db.query(Asset).filter(Asset.owner == owner, Asset.type.in_(("image", "post", "deck", "pdf")))
         cid = state.get("campaign_id")
         q = q.filter(Asset.campaign_id == cid) if cid is not None else q.filter(Asset.campaign_id.is_(None))
