@@ -3,6 +3,30 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Conversational image editing (ChatGPT-style) + a person "fit" control (2026-07-06)
+Follow-up edits on a generated image now EDIT that image in place instead of re-asking for a style. Before,
+saying "the person doesn't fit" or "change the background" made the campaign brief-intake treat it as a brand
+-new request and ask "What style do you envision?". Now:
+
+- **Routing** (`orchestrator.py`): `_is_refinement(text)` detects an edit follow-up ("change the background",
+  "change the text to X", "make the person smaller", "the person doesn't fit", "make it more colourful") vs a
+  brand-new request ("create a new image"). When one fires in Campaign/Create mode and a refinable asset
+  exists (`_last_refinable_asset`, scoped by campaign), `_refine_and_emit` refines the LAST asset in place —
+  BEFORE the brief-intake can re-ask for a style.
+- **Interpretation** (`refine.py`): `_parse_image_edit` uses the LLM to turn the instruction into
+  `{op: text|background|fit|design, headline, background, fit, eyebrow}`. The team-image regenerate reuses the
+  ORIGINAL design `variant` + `eyebrow` so only the requested thing changes: text → new headline;
+  background/scene/location → new themed scene (person kept as-is); "doesn't fit"/too big/small → a `fit`
+  nudge; "different design" → a fresh variant. Returns a plain-English confirmation (`refine_note`).
+- **Fit control** (`teampost.py`): `build_ai_scene`/`_build_editorial_banner`/`_place_editorial_person` take
+  `fit` ('smaller'|'bigger'|'fit') to scale + reposition the subject, and `build_ai_scene` now stamps the
+  design `variant`+`eyebrow` into the result meta so refines stay consistent. The default half-body lift was
+  softened (7%→5%) so the subject looks grounded, not floating.
+
+Verified end-to-end against a real DB asset: "change the text to Register Now for the August Cup" → headline
+updates, eyebrow/theme/person unchanged; "change the background to a beach" → person kept on a new beach
+scene; "the person doesn't fit" → subject scaled down, shirt text still readable.
+
 ## Announcement banners read as announcements + shirt text stays in-frame (2026-07-06)
 Two fixes for the campaign employee banner (reported on the Football announcement featuring Pooja):
 

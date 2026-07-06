@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterator
 
 from sqlalchemy.orm import Session
@@ -109,6 +110,66 @@ def _pending_feature_person(history) -> str:
         return ""
     mt = re.search(r"would you like for (.+?)'s post", (last.content or ""), re.I)
     return mt.group(1).strip() if mt else ""
+
+
+# --- Conversational EDIT of the current asset (ChatGPT-style follow-ups) --------------------------------
+# A follow-up like "change the background", "change the text to X", "make the person fit / smaller" should
+# EDIT the asset the user is looking at — not re-ask for a style or start a new one.
+_REFINE_CUE = re.compile(
+    r"\b(chang\w*|replac\w*|swap\w*|updat\w*|edit|modif\w*|adjust\w*|fix\w*|correct\w*|redo|revis\w*|"
+    r"tweak\w*|mov\w*|shift\w*|remov\w*|recolou?r\w*|shrink|reduce|enlarge|fit|fits|fitt\w*|bigger|"
+    r"smaller|larg\w*|zoom\w*|crop\w*|centre|center|align\w*|improv\w*|better|blur\w*|pathetic|"
+    r"too\s+(?:big|small|dark|bright|large|tiny))\b", re.I)
+_REFINE_OBJ = re.compile(
+    r"\b(background|bg|backdrop|text|wording|headline|title|subtitle|font|colou?rs?|person|face|her|him|"
+    r"them|image|photo|picture|banner|poster|design|layout|logo|eyebrow|label|scene|setting|location|"
+    r"this|it)\b", re.I)
+_MAKE_EDIT = re.compile(r"\bmake\s+(?:it|the|her|him|them|this|that)\b", re.I)
+_NEW_ASSET = re.compile(r"\b(?:creat\w*|generat\w*|produc\w*|draft|build)\s+(?:a|an|another|new|me|some)\b", re.I)
+
+
+def _is_refinement(text: str) -> bool:
+    """True when the message EDITS the current asset (a ChatGPT-style follow-up) rather than requesting a
+    brand-new one. An edit cue targeting a part of the design ('change the background', 'make it smaller',
+    'the person doesn't fit') qualifies; an explicit 'create a new image' does not."""
+    t = (text or "").strip()
+    if not t or _NEW_ASSET.search(t):
+        return False
+    if re.search(r"\b(?:not|isn'?t|does\s*n'?t|don'?t)\b.{0,20}\bfit", t, re.I):
+        return True
+    if _MAKE_EDIT.search(t):
+        return True
+    return bool(_REFINE_CUE.search(t) and _REFINE_OBJ.search(t))
+
+
+def _last_refinable_asset(db, owner: str, campaign_id):
+    """The most recent regeneratable asset in this context (scoped by campaign in campaign mode, else the
+    caller's most recent standalone asset) — the target of a conversational edit."""
+    from ..models import Asset
+    q = db.query(Asset).filter(Asset.owner == owner, Asset.type.in_(("image", "post", "deck", "pdf")))
+    q = q.filter(Asset.campaign_id == campaign_id) if campaign_id is not None else q.filter(Asset.campaign_id.is_(None))
+    return q.order_by(Asset.id.desc()).first()
+
+
+async def _refine_and_emit(db, state, brand, asset, instruction):
+    """Refine the given asset in place of starting over, streaming status/asset/done."""
+    from ..generation import refine as gen_refine
+    from .tools import serialize_asset
+    label = {"image": "Editing the image", "post": "Rewriting the copy",
+             "deck": "Updating the deck", "pdf": "Updating the document"}.get(asset.type, "Refining that")
+    yield {"event": "status", "data": label}
+    try:
+        new = await gen_refine.regenerate_asset(db, asset.id, instruction, replace=False)
+    except Exception as e:
+        log.warning("conversational refine failed: %s", e)
+        new = None
+    if new is None:
+        yield {"event": "done", "data": (
+            "I couldn't apply that edit — try being specific, e.g. \"change the background to a beach\", "
+            "\"change the text to Join us this August\", or \"make the person smaller\".")}
+        return
+    yield {"event": "asset", "data": serialize_asset(new)}
+    yield {"event": "done", "data": (new.meta or {}).get("refine_note") or "Here's the updated version."}
 
 
 async def _feature_and_emit(db, state, brand, person, message, variant, design=""):
@@ -275,6 +336,15 @@ async def run(
                                               _style_to_variant(user_text), _type_to_design(user_text)):
                 yield ev
             return
+        # CONVERSATIONAL EDIT (ChatGPT-style): a follow-up that edits the CURRENT asset ("change the
+        # background", "change the text to X", "the person doesn't fit") refines it in place — instead of the
+        # brief-intake below re-asking for a style or starting a new asset. Only when a refinable asset exists.
+        if mode in ("campaign", "create") and _is_refinement(user_text):
+            last = _last_refinable_asset(db, owner, state.get("campaign_id"))
+            if last is not None:
+                async for ev in _refine_and_emit(db, state, brand, last, user_text):
+                    yield ev
+                return
     if at and not use_attached:
         from .tools import _clean_headline
         from ..models import Employee

@@ -11,6 +11,7 @@ import random
 import re
 
 from ..models import Asset, Brand, Campaign, Employee
+from ..providers import llm
 from . import decks, images, pdf, posts, teampost
 
 
@@ -22,21 +23,55 @@ def _augment(base: str, instruction: str) -> str:
     return f"{base}. {instr}".strip(". ").strip()
 
 
-# Refine-instruction keywords -> team post FORMAT (a refine may change layout, never the face).
-_STYLE_CUES = {
-    "magazine": "magazine", "full photo": "magazine", "full-photo": "magazine", "cover": "magazine",
-    "split": "split", "side by side": "split", "side-by-side": "split", "panel": "split",
-    "framed": "framed", "frame": "framed", "card": "framed", "portrait": "framed",
-    "spotlight": "spotlight", "cut out": "spotlight", "cut-out": "spotlight", "cutout": "spotlight",
-}
-
-
-def _team_style_from(instruction: str, default: str) -> str:
-    instr = (instruction or "").lower()
-    for cue, style in _STYLE_CUES.items():
-        if cue in instr:
-            return style
-    return default
+async def _parse_image_edit(instruction: str, prev_headline: str = "", prev_eyebrow: str = "") -> dict:
+    """Interpret a natural-language edit on an existing employee campaign image (ChatGPT-style). The image has
+    a REAL person photo (kept as-is), a themed BACKGROUND, a big HEADLINE and a small EYEBROW label. Returns
+    {op, headline, background, fit, eyebrow} where op ∈ text|background|fit|design|other. Best-effort: falls
+    back to a regex parse when no AI provider is configured."""
+    instr = (instruction or "").strip()
+    if not instr:
+        return {"op": "other"}
+    if llm.provider_available():
+        try:
+            out = await llm.chat_json([
+                {"role": "system", "content":
+                 "You edit an existing marketing image. It has a REAL person photo (kept unchanged), a themed "
+                 "BACKGROUND scene, a big HEADLINE, and a small EYEBROW label above the headline. Read the "
+                 "user's edit instruction and return ONLY JSON: {\"op\": \"text\"|\"background\"|\"fit\"|"
+                 "\"design\"|\"other\", \"headline\": \"\", \"background\": \"\", \"fit\": \"smaller\"|"
+                 "\"bigger\"|\"fit\"|\"\", \"eyebrow\": \"\"}. Rules: changing the WORDS / text / headline / "
+                 "caption / what it says -> op=text and put ONLY the new headline words (Title Case, no quotes) "
+                 "in \"headline\". Changing the background / scene / setting / location / place / where they "
+                 "are -> op=background and describe the NEW scene in \"background\". The person doesn't fit / "
+                 "is too big / too small / make them bigger|smaller / reposition -> op=fit and set \"fit\". A "
+                 "different design / layout / colours / style / another version -> op=design. Changing ONLY "
+                 "the small eyebrow/label -> put it in \"eyebrow\". Fill ONLY the field(s) you actually change; "
+                 "leave the others as empty strings."},
+                {"role": "user", "content":
+                 f'Current headline: "{prev_headline}". Current eyebrow: "{prev_eyebrow}".\nEdit: {instr}'},
+            ], temperature=0.2)
+            if isinstance(out, dict) and out.get("op"):
+                return out
+        except Exception:
+            pass
+    low = instr.lower()
+    m = re.search(r"(?:text|headline|caption|words?|title|heading)\s+(?:to|into|say[s]?|as|reads?|:)\s+(.+)",
+                  instr, re.I)
+    if m:
+        return {"op": "text", "headline": m.group(1).strip().strip('"').strip()}
+    m = re.search(r"(?:background|backdrop|scene|setting|location|place)\s+(?:to|into|as|with|:)\s+(.+)",
+                  instr, re.I)
+    if m:
+        return {"op": "background", "background": m.group(1).strip().strip('"').strip()}
+    if re.search(r"\b(smaller|too\s+big|reduce|shrink)\b", low):
+        return {"op": "fit", "fit": "smaller"}
+    if re.search(r"\b(bigger|larger|too\s+small|zoom)\b", low):
+        return {"op": "fit", "fit": "bigger"}
+    if re.search(r"\b(fit|doesn'?t\s+fit|not\s+fit|reposition|centre|center)\b", low):
+        return {"op": "fit", "fit": "fit"}
+    if re.search(r"\b(design|layout|colou?r|style|different|another|variation|redesign|again)\b", low):
+        return {"op": "design"}
+    return {"op": "other"}
 
 
 async def regenerate_asset(
@@ -89,31 +124,51 @@ async def regenerate_asset(
                 team_label = photo["label"]
         if not raw:
             return None  # no real photo on file -> refuse rather than invent a face
-        # A "change the design / different style" instruction keeps the ORIGINAL copy and just re-rolls the
-        # design; any other instruction supplies new copy.
-        design_only = bool(re.search(
-            r"\b(design|style|layout|colou?r|theme|look|different|another|redesign|variation|variety|again)\b",
-            instruction.lower()))
-        if instruction.strip() and not design_only:
-            head, sub = teampost.split_message(instruction)
-        else:
-            head, sub = body.get("headline") or "", body.get("subline") or ""
         # Campaign asset -> keep the campaign theme + suppress the on-image name (as the campaign generator does).
         theme, in_campaign = "", a.campaign_id is not None
         if in_campaign:
             camp = db.get(Campaign, a.campaign_id)
             if camp:
                 theme = (f"{camp.name} — {camp.goal}" if (camp.goal or "").strip() else (camp.name or "")).strip(" —")
+        # Reuse the ORIGINAL design inputs so a conversational edit changes ONLY what the user asked
+        # (ChatGPT-style): keep the same headline/eyebrow/design variant unless the edit targets one of them.
+        head, sub = body.get("headline") or "", body.get("subline") or ""
+        eyebrow = body.get("eyebrow") or ""
+        try:
+            variant = int(body.get("variant")) if body.get("variant") is not None else random.randint(0, 5)
+        except (TypeError, ValueError):
+            variant = random.randint(0, 5)
+        fit, note = "", ""
+        edit = await _parse_image_edit(instruction, head, eyebrow)
+        op = (edit.get("op") or "other").lower()
+        if op == "text" and (edit.get("headline") or "").strip():
+            head, sub = teampost.split_message(edit["headline"].strip())
+            note = f'Updated the text to “{edit["headline"].strip()}”.'
+        elif op == "background" and (edit.get("background") or "").strip():
+            theme = edit["background"].strip()              # person stays; only the scene changes
+            note = f'Changed the background to {theme}.'
+        elif op == "fit":
+            fit = (edit.get("fit") or "fit").lower()
+            note = "Adjusted how the person fits the frame."
+        elif op in ("design", "other"):
+            variant = random.randint(0, 5)                  # a fresh take on the same brief
+            note = "Refreshed the design."
+        if (edit.get("eyebrow") or "").strip():             # optional standalone label change
+            eyebrow = edit["eyebrow"].strip()
+            note = note or f'Changed the label to “{eyebrow}”.'
         path, _fn, m = await teampost.build_ai_scene(
             brand, raw, name=("" if in_campaign else name), role=("" if in_campaign else role),
-            headline=head, question=sub, variant=random.randint(0, 5), theme=theme)
+            headline=head, question=sub, variant=variant, theme=theme, eyebrow=eyebrow, fit=fit)
         file_path, file_url, new_meta = path, m["url"], dict(m)
         if team_label:
             new_meta["team_photo"] = team_label
         if emp_id:
             new_meta["employee_id"] = emp_id
-        new_body = {"person": name, "role": role, "headline": head, "subline": sub,
-                    "kind": "team", "style": m.get("style", "ai"), "employee_id": emp_id}
+        if note:
+            new_meta["refine_note"] = note
+        new_body = {"person": name, "role": role, "headline": head, "subline": sub, "kind": "team",
+                    "style": m.get("style", "ai"), "employee_id": emp_id,
+                    "variant": m.get("variant", variant), "eyebrow": eyebrow}
         title = name + (f" — {role}" if role else "")
     elif a.type == "image":
         concept = _augment(body.get("concept") or a.title, instruction)

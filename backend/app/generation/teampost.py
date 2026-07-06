@@ -1512,7 +1512,7 @@ def _editorial_scrim(bg, layout, blur=2.4, strength=0.86, reach=0.55):
     return Image.alpha_composite(base.convert("RGBA"), layer).convert("RGB")
 
 
-def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
+def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=""):
     """Composite the REAL cut-out cleanly (NO fake white glow): a tight feathered edge, a colour-grade that
     only tone-matches a PHOTO plate (never a flat colour block), a grounded contact shadow + a soft cast
     shadow, and a WHISPER of rim so it reads as designed, not pasted. `layout` 1=hero-right, 2=big-crop
@@ -1528,17 +1528,22 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
         half_body = _b.size > 0 and float((_b > 40).mean()) > 0.42
     except Exception:
         half_body = False
+    # FIT nudge (from a conversational edit, e.g. "make her smaller / fit properly / bigger"): scale the
+    # subject down or up so the user can dial the composition without re-shooting.
+    fit = (fit or "").lower()
+    fit_mul = (0.86 if fit in ("smaller", "fit", "shrink", "reduce", "smaller person")
+               else 1.12 if fit in ("bigger", "larger", "zoom", "grow") else 1.0)
     # STAGE 0 — size + position. A half-body crop is a touch smaller and LIFTED (never top-bleed, on ANY
     # template) so the shirt — and its printed text — clears the frame edge and the dark bottom scrim; a full
     # body stays prominent + floor-anchored (layout 2 = a deliberate dramatic top-bleed crop).
     if half_body:
-        target_h, cap, right_pad = int(H * 0.80), (W * 0.56 if layout == 3 else W * 0.58), 24
+        target_h, cap, right_pad = int(H * 0.82 * fit_mul), (W * 0.56 if layout == 3 else W * 0.58), 24
     elif layout == 2:
-        target_h, cap, right_pad = int(H * 0.98), W * 0.60, 16
+        target_h, cap, right_pad = int(H * 0.98 * fit_mul), W * 0.60, 16
     elif layout == 3:
-        target_h, cap, right_pad = int(H * 0.90), W * 0.56, 24
+        target_h, cap, right_pad = int(H * 0.90 * fit_mul), W * 0.56, 24
     else:
-        target_h, cap, right_pad = int(H * 0.90), W * 0.58, 24
+        target_h, cap, right_pad = int(H * 0.90 * fit_mul), W * 0.58, 24
     scale = target_h / hero.height
     if hero.width * scale > cap:
         scale = cap / hero.width
@@ -1546,7 +1551,7 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True):
     a = hero.split()[-1]
     hx = 24 if layout == 3 else (W - hero.width - right_pad)
     if half_body:
-        hy = H - hero.height - int(H * 0.07)     # lift the torso crop so the shirt text stays fully in-frame
+        hy = H - hero.height - int(H * 0.05)     # lift the torso crop so the shirt text stays fully in-frame
     elif layout == 2:
         hy = -int(hero.height * 0.04)
     else:
@@ -1792,7 +1797,7 @@ async def _bold_split_poster(photo, variant, theme=""):
 
 
 async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme="",
-                                  require_cutout=False, eyebrow=""):
+                                  require_cutout=False, eyebrow="", fit=""):
     """Keep the person AS-IS (their exact real photo — never regenerated) and change only the BACKGROUND:
     cut the real person out and composite them onto a REALISTIC themed background photo (a real stadium/pitch),
     graded + grounded so they sit in the scene. If there's no theme / no clean cut-out, fall back to the bold
@@ -1828,7 +1833,7 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
                 bg = None
             if bg is not None:                                 # realistic themed scene + the real person on top
                 canvas = _editorial_scrim(bg, layout, blur=2.0, strength=0.82, reach=0.5)
-                person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=True)
+                person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=fit)
     if canvas is None:                                          # no theme / no clean cut -> split poster
         canvas, person_box, layout = await _bold_split_poster(photo, variant, theme)
     canvas = _apply_grain(canvas, variant, 4.0)
@@ -1894,7 +1899,7 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
-                         keyword="", theme="", prefer="", eyebrow=""):
+                         keyword="", theme="", prefer="", eyebrow="", fit=""):
     """Featured-employee banner. HARD RULE: the face is ALWAYS the person's REAL uploaded photo — NEVER an
     AI-generated face. `theme` drives the scene; pass name="" to omit the on-image name label. Priority:
       • FACESWAP key set -> an immersive AI scene with the person's EXACT REAL face swapped on
@@ -1928,8 +1933,14 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is None:                      # DEFAULT: real cut-out person (as-is) on a realistic themed bg
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant,
-                                                   keyword, theme, eyebrow=eyebrow)
+                                                   keyword, theme, eyebrow=eyebrow, fit=fit)
         if result is not None:
+            try:                                # stamp the design inputs so a later REFINE can reuse them
+                result[2]["variant"] = int(variant)
+                if (eyebrow or "").strip():
+                    result[2]["eyebrow"] = eyebrow
+            except Exception:
+                pass
             return result
     except Exception:
         pass

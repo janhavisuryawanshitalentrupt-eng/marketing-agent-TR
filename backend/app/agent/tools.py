@@ -1178,7 +1178,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     title = match.name + (f" — {match.role}" if match.role else "")
     a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
                     body={"person": match.name, "role": match.role, "headline": head, "subline": sub,
-                          "kind": "team", "style": style, "skin": used_skin, "employee_id": match.id},
+                          "kind": "team", "style": style, "skin": used_skin, "employee_id": match.id,
+                          # design inputs so a later conversational edit keeps the SAME look + only changes
+                          # what the user asked (see refine.regenerate_asset).
+                          "variant": meta.get("variant"), "eyebrow": eyebrow},
                     file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
                     owner=owner)
     if in_campaign:
