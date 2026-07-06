@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Different design every time + "change the design" works (2026-07-03)
+Employee posts looked the same each time (studio photos always fail the cut-out → always the one split
+poster, with only a subtle shade change), and typing "change the design" errored. Fixed both:
+- **Genuine variety in the split poster.** `_bold_split_poster` now rotates by `variant`: the panel/photo
+  **side flips** (mirror — text left vs right), plus the **colour scheme, seam style (ribbon/bar/double-rule)
+  and accent (ring/dots/chevrons/squiggle)** all rotate. Consecutive generations (random variant) now look
+  clearly different — verified across all 6 variants with no text collisions.
+- **"Change the design" (regenerate) now works for uploaded employees.** `refine.regenerate_asset` looked for
+  the photo only in the ZIP Team library, so employees added via **Folders** (an `employee_id` asset) weren't
+  found → it returned an error. It now loads the photo from the **Employee record**, re-runs the **current
+  engine** (`build_ai_scene`) with a fresh random design, preserves the campaign **theme** and name
+  suppression, and — for a "change the design / different style" instruction — keeps the original copy and just
+  re-rolls the design (rather than turning "change the design" into the headline).
+
 ## Regenerate button on replies (2026-07-03)
 Added a **Regenerate** button (the curved-arrow icon) to the reply action row in `ReplyActions`, next to the
 existing thumbs/copy/download. Clicking it **re-runs the same prompt** for a fresh result (finds the nearest

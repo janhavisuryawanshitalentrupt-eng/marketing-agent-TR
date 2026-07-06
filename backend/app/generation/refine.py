@@ -8,8 +8,9 @@ overwrite in place. This is additive — the one-shot generation flow is untouch
 from __future__ import annotations
 
 import random
+import re
 
-from ..models import Asset, Brand
+from ..models import Asset, Brand, Campaign, Employee
 from . import decks, images, pdf, posts, teampost
 
 
@@ -58,34 +59,61 @@ async def regenerate_asset(
         items = await posts.generate_posts(brand, None, count=1, platform=platform, angle=angle)
         p = items[0] if items else body
         new_body, new_meta, title = p, {"platform": p.get("platform", platform)}, p.get("hook", title)
-    elif a.type == "image" and (body.get("kind") == "team" or meta_in.get("team_photo")):
-        # TEAM image: re-run the REAL-photo composer. NEVER fall through to images.build_images —
-        # that would synthesize a brand-new (wrong) face. We only ever recolor/redesign, never the face.
+    elif a.type == "image" and (body.get("kind") == "team" or meta_in.get("team_photo")
+                                or meta_in.get("employee_id") or body.get("employee_id")):
+        # TEAM image: re-run the REAL-photo composer with a FRESH random design. NEVER synthesize a new
+        # (wrong) face — we only recolor/redesign. Find the photo: prefer the uploaded Employee record
+        # (Folders), else the ZIP Team library.
         from ..knowledge import retrieve
-        label = meta_in.get("team_photo") or ""
-        photo = next((it for it in retrieve.list_team_photos() if it["label"] == label), None)
-        if photo is None:  # fall back to any real shot of the same person
-            cand = retrieve.person_photos(body.get("person") or a.title)
-            photo = cand[0] if cand else None
-        if photo is None:
-            return None  # no real photo on file -> refuse rather than invent a face
-        raw = retrieve.team_reference_bytes(photo["path"])
-        if not raw:
-            return None
+        raw = None
         name = body.get("person") or a.title
         role = body.get("role") or ""
-        style = _team_style_from(instruction, body.get("style") or meta_in.get("style") or "spotlight")
-        if instruction.strip():  # an instruction supplies new copy; else keep the original message
+        team_label = meta_in.get("team_photo") or ""
+        emp_id = meta_in.get("employee_id") or body.get("employee_id")
+        if emp_id:
+            try:
+                emp = db.get(Employee, int(emp_id))
+                if emp and emp.photo_path:
+                    with open(emp.photo_path, "rb") as f:
+                        raw = f.read()
+                    name, role = emp.name or name, emp.role or role
+            except Exception:
+                raw = None
+        if raw is None:  # ZIP Team library fallback (photos uploaded to the brand knowledge base)
+            photo = next((it for it in retrieve.list_team_photos() if it["label"] == team_label), None)
+            if photo is None:
+                cand = retrieve.person_photos(name)
+                photo = cand[0] if cand else None
+            if photo is not None:
+                raw = retrieve.team_reference_bytes(photo["path"])
+                team_label = photo["label"]
+        if not raw:
+            return None  # no real photo on file -> refuse rather than invent a face
+        # A "change the design / different style" instruction keeps the ORIGINAL copy and just re-rolls the
+        # design; any other instruction supplies new copy.
+        design_only = bool(re.search(
+            r"\b(design|style|layout|colou?r|theme|look|different|another|redesign|variation|variety|again)\b",
+            instruction.lower()))
+        if instruction.strip() and not design_only:
             head, sub = teampost.split_message(instruction)
         else:
             head, sub = body.get("headline") or "", body.get("subline") or ""
-        path, _fn, m = teampost.build_team_image(
-            brand, raw, name=name, role=role, headline=head, question=sub,
-            variant=random.randint(0, 5), style=style)
+        # Campaign asset -> keep the campaign theme + suppress the on-image name (as the campaign generator does).
+        theme, in_campaign = "", a.campaign_id is not None
+        if in_campaign:
+            camp = db.get(Campaign, a.campaign_id)
+            if camp:
+                theme = (f"{camp.name} — {camp.goal}" if (camp.goal or "").strip() else (camp.name or "")).strip(" —")
+        path, _fn, m = await teampost.build_ai_scene(
+            brand, raw, name=("" if in_campaign else name), role=("" if in_campaign else role),
+            headline=head, question=sub, variant=random.randint(0, 5), theme=theme)
         file_path, file_url, new_meta = path, m["url"], dict(m)
-        new_meta["team_photo"] = photo["label"]
+        if team_label:
+            new_meta["team_photo"] = team_label
+        if emp_id:
+            new_meta["employee_id"] = emp_id
         new_body = {"person": name, "role": role, "headline": head, "subline": sub,
-                    "kind": "team", "style": style}
+                    "kind": "team", "style": m.get("style", "ai"), "employee_id": emp_id}
         title = name + (f" — {role}" if role else "")
     elif a.type == "image":
         concept = _augment(body.get("concept") or a.title, instruction)

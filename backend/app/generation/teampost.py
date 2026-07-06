@@ -1621,61 +1621,88 @@ def _panel_theme_prompt(theme: str) -> str:
     )
 
 
+# Dark panel colour schemes (all dark so the white caption + red keyword box stay legible). Rotating these +
+# the panel SIDE + the seam + the accent makes every no-cut-out poster look genuinely different.
+_SPLIT_SCHEMES = [(0x0B, 0x35, 0x59), (0x0A, 0x24, 0x3E), (0x12, 0x2E, 0x38),
+                  (0x10, 0x2A, 0x4E), (0x14, 0x22, 0x3A), (0x0C, 0x33, 0x3B)]
+
+
 async def _bold_split_poster(photo, variant, theme=""):
     """No clean cut-out -> a BOLD magazine SPLIT poster instead of a plain photo: a designed panel (holding the
     oversized caption) beside a tight PORTRAIT CROP of the real photo. Keeps the person's EXACT face (just a
     crop — nothing redrawn), and every graphic sits in a SAFE zone so it never covers the subject or text.
-    When a `theme` is set the panel background is a THEMED graphic (a football/cricket/festival scene, no
-    people/text) so the poster visibly reflects the campaign; otherwise a flat dark brand panel. Returns
-    (canvas, person_box)."""
+    DESIGN VARIES with `variant`: the panel SIDE flips (mirror), the colour scheme, seam style and accent all
+    rotate — so consecutive generations look different. When a `theme` is set the panel background is a THEMED
+    graphic (football/cricket/festival, no people/text). Returns (canvas, person_box, layout)."""
     from ..providers import llm
     import numpy as np
-    t = int(variant) % 4
-    panel_w = int(W * 0.44)
+    v = int(variant)
+    scheme = _SPLIT_SCHEMES[v % len(_SPLIT_SCHEMES)]
+    panel_left = (v % 2 == 0)                       # alternate the side the panel/text sits on (big visual flip)
+    panel_w = int(W * (0.42 + 0.02 * (v % 3)))      # slight width variety
     photo_w = W - panel_w
-    # RIGHT: a tight portrait crop of the real photo (keeps the centred face), punchier cinematic contrast.
+    px = 0 if panel_left else W - panel_w           # panel x-origin
+    fx = panel_w if panel_left else 0               # photo x-origin
+    seam_x = panel_w if panel_left else photo_w     # where panel meets photo
+    # PHOTO: a tight portrait crop of the real photo (keeps the centred face), punchier cinematic contrast.
     pic = _cover_fit(photo, photo_w, H)
     arr = np.clip((np.asarray(pic.convert("RGB")).astype(np.float32) - 128) * 1.10 + 128, 0, 255)
-    canvas = Image.new("RGB", (W, H), NAVY)
-    canvas.paste(Image.fromarray(arr.astype("uint8"), "RGB"), (panel_w, 0))
-    # a soft edge-scrim on the photo's left so the seam reads clean
+    canvas = Image.new("RGB", (W, H), scheme)
+    canvas.paste(Image.fromarray(arr.astype("uint8"), "RGB"), (fx, 0))
+    # soft edge-scrim on the photo's panel-facing edge so the seam reads clean
     es = Image.new("RGBA", (photo_w, H), (0, 0, 0, 0))
     ed = ImageDraw.Draw(es)
     for i in range(90):
-        ed.line([(i, 0), (i, H)], fill=(*NAVY, int(150 * (1 - i / 90))))
-    canvas.paste(es, (panel_w, 0), es)
-    # LEFT PANEL: a THEMED graphic (football/…) when a theme is set + provider is up, else a flat brand panel.
-    themed = False
-    panel = None
+        a = int(150 * (1 - i / 90))
+        ed.line([((i if panel_left else photo_w - 1 - i), 0), ((i if panel_left else photo_w - 1 - i), H)], fill=(*scheme, a))
+    canvas.paste(es, (fx, 0), es)
+    # PANEL: a THEMED graphic when a theme is set + provider up, else a flat scheme gradient.
+    themed, panel = False, None
     if (theme or "").strip() and llm.image_provider_available():
         try:
             data = await llm.generate_image_bytes(_panel_theme_prompt(theme), size="1024x1024", quality="low")
             if data:
                 panel = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), panel_w, H)
-                # navy scrim: strong at TOP (behind the headline) fading DOWN so the theme still shows lower.
                 pa = np.asarray(panel.convert("RGB")).astype(np.float32)
                 ys = np.linspace(0, 1, H)[:, None, None]
-                al = np.clip(0.86 - ys * 0.55, 0.32, 0.86)
-                panel = Image.fromarray((pa * (1 - al) + np.array(NAVY, float) * al).astype("uint8"), "RGB")
+                al = np.clip(0.86 - ys * 0.55, 0.32, 0.86)   # strong scrim top (behind headline) -> theme shows lower
+                panel = Image.fromarray((pa * (1 - al) + np.array(scheme, float) * al).astype("uint8"), "RGB")
                 themed = True
         except Exception:
             panel = None
-    if panel is None:  # flat dark brand panel with a gentle top->bottom gradient
-        PANELS = [(0x0B, 0x35, 0x59), (0x0A, 0x24, 0x3E), (0x11, 0x2E, 0x38), (0x0C, 0x2A, 0x4C)]
+    if panel is None:
         ramp = np.linspace(1.08, 0.80, H)[:, None, None]
         panel = Image.fromarray(
-            np.clip(np.broadcast_to(np.array(PANELS[t], float), (H, panel_w, 3)) * ramp, 0, 255).astype("uint8"), "RGB")
-    canvas.paste(panel, (0, 0))
-    # bold graphics in SAFE zones only: an angled coral seam ribbon (always) + a ring/squiggle when the panel
-    # is flat (skip them on a themed panel so the theme graphic stays clean).
+            np.clip(np.broadcast_to(np.array(scheme, float), (H, panel_w, 3)) * ramp, 0, 255).astype("uint8"), "RGB")
+    canvas.paste(panel, (px, 0))
+    # SEAM (style rotates) + one ACCENT in the panel's safe mid zone (skipped on a themed panel to stay clean).
     ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     od = ImageDraw.Draw(ov)
-    od.polygon([(panel_w - 30, 0), (panel_w + 34, 0), (panel_w - 30, H), (panel_w - 94, H)], fill=(*RED, 255))
+    seam = v % 3
+    if seam == 0:      # angled ribbon
+        pts = ([(seam_x - 30, 0), (seam_x + 34, 0), (seam_x - 30, H), (seam_x - 94, H)] if panel_left
+               else [(seam_x + 30, 0), (seam_x - 34, 0), (seam_x + 30, H), (seam_x + 94, H)])
+        od.polygon(pts, fill=(*RED, 255))
+    elif seam == 1:    # straight bold bar
+        od.rectangle([seam_x - 14, 0, seam_x + 14, H], fill=(*RED, 255))
+    else:              # thin double rule
+        for dx in (-10, 12):
+            od.rectangle([seam_x + dx - 3, 0, seam_x + dx + 3, H], fill=(*RED, 255))
     if not themed:
-        od.ellipse([70, int(H * 0.50), 70 + 210, int(H * 0.50) + 210], outline=(*RED, 170), width=14)
-    _accent_squiggle(od, 70, H - 150, panel_w - 150, amp=9, color=(*RED, 255), width=6)
+        ax = (70 if panel_left else px + 60)         # accent x inside the panel (safe, below headline)
+        ay = int(H * 0.52)
+        acc = v % 4
+        if acc == 0:
+            od.ellipse([ax, ay, ax + 200, ay + 200], outline=(*RED, 170), width=14)
+        elif acc == 1:
+            _accent_dot_grid(od, ax, ay, 4, 4, gap=30, r=6, fill=(*RED, 220))
+        elif acc == 2:
+            _accent_chevrons(od, ax, ay, n=3, size=40, gap=26, color=(*RED, 230), width=9)
+        else:
+            _accent_squiggle(od, ax, ay, panel_w - 150, amp=10, color=(*RED, 230), width=7)
     canvas = Image.alpha_composite(canvas.convert("RGBA"), ov).convert("RGB")
-    return canvas, (panel_w + 40, 0, W, H)
+    person_box = (panel_w + 40, 0, W, H) if panel_left else (0, 0, photo_w - 40, H)
+    return canvas, person_box, (1 if panel_left else 3)
 
 
 async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme=""):
@@ -1712,10 +1739,9 @@ async def _build_editorial_banner(brand, photo, name, role, headline, question, 
         canvas = _editorial_scrim(bg, layout, blur=2.4 if photo_bg else 0,
                                   strength=0.86 if photo_bg else 0.82, reach=0.55 if photo_bg else 0.40)
         person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=photo_bg)
-    else:  # no clean cut-out -> BOLD designed split poster (real face kept), with a THEMED panel when set
+    else:  # no clean cut-out -> BOLD designed split poster (real face kept), side/colour/seam/accent rotate
         photo_bg = False
-        canvas, person_box = await _bold_split_poster(photo, variant, theme)
-        layout = 1
+        canvas, person_box, layout = await _bold_split_poster(photo, variant, theme)
         kicker = kicker or "TEAM // SPOTLIGHT"
     canvas = _apply_grain(canvas, variant, 3.0 if not photo_bg else 4.0)
     d = ImageDraw.Draw(canvas)
