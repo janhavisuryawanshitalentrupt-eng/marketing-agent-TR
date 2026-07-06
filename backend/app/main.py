@@ -148,8 +148,18 @@ def health() -> dict:
         "image_model": settings.openai_image_model,            # configured image model
         "image_model_last": getattr(llm, "LAST_IMAGE_MODEL", settings.openai_image_model),  # model that actually ran last
         "enrichment_ready": settings.enrichment_available(),
+        "cutout_ready": _cutout_ready(),        # True once a BG_REMOVAL_API_KEY is live (clean cut-outs on any photo)
+        "faceswap_ready": settings.faceswap_available(),
         "database": settings.database_url.split(":")[0],
     }
+
+
+def _cutout_ready() -> bool:
+    try:
+        from .generation import cutout
+        return cutout.cutout_available()
+    except Exception:
+        return False
 
 
 # --- Auth endpoints -------------------------------------------------------
