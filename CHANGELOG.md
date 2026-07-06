@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## "In the action" is now the immersive DRAMATIC scene (ChatGPT-level) (2026-07-03)
+The user compared a ChatGPT poster (person standing powerfully inside an epic floodlit stadium) to our flat
+cut-out-on-a-panel and asked why ours wasn't as professional. So the DEFAULT / "In the action" themed image is
+the **immersive dramatic AI scene** again — the person re-posed as a HERO standing INSIDE the theme. Two
+levers: (1) routing — `build_ai_scene` now runs the immersive AI scene FIRST for the scene/default path
+(cut-out composite is the fallback + the "Bold graphic poster" choice); (2) the themed `_portrait_prompt` is
+much more cinematic — "EPIC, packed floodlit stadium at night, roaring crowd, lens flares, glowing embers,
+dramatic high-contrast rim lighting, powerful hero stance". It even re-poses a casual/sitting source photo
+into a standing hero. Verified with the real photo: dramatic stadium, hero pose, clean jersey, face preserved,
+legible headline — far closer to the ChatGPT reference. ("Bold graphic poster" still gives the clean cut-out
+on a designed plate.)
+
 ## Cleaner cut-outs — strip the "cream shadow" wall remnant + smooth rough edges (2026-07-03)
 On some photos the cut-out left a light **wall remnant behind the shoulder** (a cream "shadow") and rough,
 jagged edges — because the hole-fill step re-filled a wall region enclosed behind the shoulder as if it were

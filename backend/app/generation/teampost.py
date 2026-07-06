@@ -1116,13 +1116,14 @@ def _portrait_prompt(headline: str, question: str, variant: int, theme: str = ""
     theme = (theme or "").strip()
     if theme:
         setting = (
-            f'FULLY IMMERSED INSIDE the real environment of this CAMPAIGN THEME: "{theme[:200]}". Put them ON '
-            "LOCATION in that world as a cinematic, dramatic editorial PHOTOGRAPH — NOT a plain studio backdrop "
-            "and NOT a flat white wall (e.g. a football campaign -> standing confidently on the GREEN pitch "
-            "INSIDE a floodlit STADIUM at dusk, a blurred cheering crowd and stadium lights behind them; a "
-            "Diwali campaign -> among real festive diyas, lights and decor; a wellness campaign -> in a bright "
-            "airy studio). Real depth, atmosphere and dramatic lighting. A strong, confident pose (e.g. arms "
-            "crossed) that suits the theme"
+            f'FULLY IMMERSED INSIDE the real environment of this CAMPAIGN THEME: "{theme[:200]}", as an EPIC, '
+            "CINEMATIC premium SPORTS-POSTER photograph — NOT a plain studio backdrop and NOT a flat white "
+            "wall (e.g. a football campaign -> standing powerfully mid-field on the floodlit GREEN pitch inside "
+            "a packed roaring STADIUM at night, a huge blurred crowd, bright stadium floodlights and lens "
+            "flares behind them, glowing embers/sparks in the air, dramatic high-contrast rim lighting; a "
+            "Diwali campaign -> among glowing diyas, fireworks and rich festive decor). Big depth, atmosphere, "
+            "energy and drama; theatrical back/rim lighting that separates them from the background. A powerful, "
+            "confident HERO stance (e.g. arms crossed, chin up) that commands the frame"
         )
         wardrobe = (
             "WARDROBE: dress them in clean, theme-appropriate attire (a football campaign -> a proper team "
@@ -1859,17 +1860,17 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        if prefer == "graphic":            # bold graphic poster with the CUT-OUT person (split poster if no clean cut)
+        if prefer == "graphic":            # 'Bold graphic poster' -> real CUT-OUT person on a designed plate
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         else:
-            # DEFAULT: a REAL CUT-OUT portrait (transparent background) composited onto the themed scene — the
-            # person on the pitch, not on their studio wall.
-            if faceswap.faceswap_available():   # cut-out AI scene + EXACT real face (opt-in key, strongest)
+            # DEFAULT / 'In the action': the IMMERSIVE dramatic AI scene — the person standing powerfully INSIDE
+            # the theme (epic stadium, floodlights, crowd), like a premium sports poster (ChatGPT-style).
+            if faceswap.faceswap_available():   # immersive scene + EXACT real face (opt-in key, strongest)
                 result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-            if result is None:                  # PRIMARY: real cut-out composited onto the themed background
-                result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme, require_cutout=True)
-            if result is None:                  # no clean cut-out -> immersive AI scene (person INSIDE the theme, no white bg)
+            if result is None:                  # PRIMARY: immersive dramatic AI scene
                 result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+            if result is None:                  # edit unavailable -> real cut-out composited onto the themed scene
+                result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme, require_cutout=True)
             if result is None:                  # last resort -> split poster
                 result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
