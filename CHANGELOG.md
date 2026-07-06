@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Employee images keep the REAL face again (no AI face-swap drift, no garbled shirt text) (2026-07-03)
+The gpt-image image-EDIT default (added for "strict facial consistency") turned out to REGENERATE the face
+(it drifted to a different person) and hallucinated garbage text on the person's shirt. Reverted the default:
+- `build_ai_scene` priority is now: **FACESWAP key → real cut-out composite (DEFAULT) → deterministic
+  template.** The default composites the person's ACTUAL photo, so the face + clothing are exactly theirs —
+  never redrawn, no invented text. The drifting image-EDIT path is no longer used except *inside* faceswap
+  (where the real face is swapped back on).
+- **Known limit (needs a key):** the free, code-only background remover can't reliably cut a person off a
+  plain studio wall, so when it can't, the image falls back to the person on their ORIGINAL background
+  (no themed scene). A **themed scene + the real face** requires one small API key — `BG_REMOVAL_API_KEY`
+  (remove.bg → clean cut-out onto a themed background) or `FACESWAP_API_KEY` (Replicate → an immersive AI
+  scene with the real face swapped on). Both are already wired; unset → the clean real-photo spotlight above.
+
 ## Campaign images: themed by campaign NAME, faster, clearer wait (2026-07-03)
 Two fixes for "campaign image generation doesn't use the theme / seems not to generate":
 - **Themed by the campaign NAME, not just the brief.** The image theme is now `campaign name + brief`, so a

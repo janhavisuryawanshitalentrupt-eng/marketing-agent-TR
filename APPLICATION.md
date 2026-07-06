@@ -86,24 +86,20 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   surroundings. The exact wording is the canonical `STRICT_FACE_DIRECTIVE` constant (in `teampost.py`, also in
   `docs/IMAGE-GENERATION.md` + the assistant's memory) — every face-editing prompt reuses it; any new
   face-editing path must too. Priority order:
-  1. **FACESWAP key (strongest):** if a `FACESWAP_API_KEY` (Replicate) is set, it makes a full AI portrait
-     (blazer + varied scene) and swaps the person's REAL face onto it via a hosted face-swap API
-     (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face** (pixel-exact).
-  2. **Identity-locked AI edit (new default):** `_build_ai_portrait_banner` → `_ai_portrait_canvas` calls the
-     gpt-image-1 **image-EDIT** endpoint with `input_fidelity='high'` and a strict-consistency prompt
-     (`_portrait_prompt`, 8 rotating looks: office / studio / golden-hour / bold-brand / rooftop …). It
-     re-poses/re-lights/re-stages the *same* person while preserving every facial feature. This is the
-     strongest identity lock the image API offers but is still an AI regeneration, so the face can drift
-     slightly on some photos (add a FACESWAP key for a pixel-exact face).
-  3. **Real cut-out composite (fallback):** if the edit fails or is refused, `_build_editorial_banner`
-     composites the person's REAL cut-out into a gpt-image editorial scene and INTEGRATES it (not a framed
-     card) via an 8-stage pipeline (`_place_editorial_person`): focal-pocket bloom, colour-grade/tone-match to
-     the plate, feather+despill, contact + navy cast shadow, directional rim light, and shared film grain, so
-     the person reads as photographed INTO the scene. Clean cut-outs come from remove.bg / rembg when
-     available, else a free numpy + flood-fill **plain-studio-background keyer** (`_key_plain_bg`, removes the
-     wall + cast shadow). Three modern EDITORIAL layouts rotate (masthead hero-right / off-centre big-crop /
-     hero-left mirror) with oversized type, a kicker and a script "Featuring [Name]".
-  4. **Deterministic series template (never-broken):** any failure falls back to a deterministic template.
+  1. **FACESWAP key (strongest, immersive):** if a `FACESWAP_API_KEY` (Replicate) is set, it makes a full AI
+     scene (person genuinely IN the themed environment) and swaps the person's REAL face onto it via a hosted
+     face-swap API (`generation/faceswap.py` → `_build_faceswap_banner`) — AI everything **except the face**.
+  2. **Real cut-out composite (DEFAULT):** `_build_editorial_banner` composites the person's REAL cut-out
+     onto a themed background and INTEGRATES it (not a framed card) via an 8-stage pipeline
+     (`_place_editorial_person`). The face + clothing are literally their photo — exact, never redrawn.
+     Clean cut-outs come from remove.bg / rembg when available, else a free numpy + flood-fill
+     **plain-studio-background keyer** (`_key_plain_bg`). *Limit:* the free keyer can't reliably cut a person
+     off a plain studio wall — when it can't, the image falls back to the person on their ORIGINAL background
+     (no themed scene). A themed scene + real face reliably needs `BG_REMOVAL_API_KEY` or `FACESWAP_API_KEY`.
+  3. **Deterministic series template (never-broken):** any failure falls back to a deterministic template.
+  NOTE: the gpt-image image-EDIT path (`_build_ai_portrait_banner`/`_ai_portrait_canvas`, `input_fidelity='high'`)
+  is deliberately NOT in the default chain — it REGENERATES the face (drifts to a different person) and
+  hallucinates garbage text on clothing; it is used only *inside* faceswap, where the real face is swapped back.
   **Nothing overrides:** `_ensure_clear` asserts mutually-disjoint boxes; every photo is **auto-enhanced**
   (`_enhance_photo`).
   **CAMPAIGN mode** (an asset generated inside a campaign) changes two things: (a) the campaign brief is passed

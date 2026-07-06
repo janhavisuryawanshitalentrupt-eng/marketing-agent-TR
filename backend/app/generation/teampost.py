@@ -1708,18 +1708,17 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
                          keyword="", theme=""):
-    """Featured-employee banner in STRICT FACIAL-CONSISTENCY mode — the reference photo is the source of
-    truth for the face; only pose/lighting/surroundings are adapted. `theme` (a campaign brief) drives those
-    surroundings/wardrobe so the person is placed in the campaign's world; pass name="" to omit the on-image
-    name label (e.g. campaign images).
-      • If a FACESWAP key is set -> the AI portrait (blazer/scene) with the person's EXACT real face swapped
-        on (`_build_faceswap_banner`) — the strongest identity guarantee.
-      • Otherwise (default) -> an identity-LOCKED AI portrait via the image-EDIT endpoint
-        (`input_fidelity='high'`), which re-poses/re-lights/re-stages the SAME person while preserving their
-        facial features (`_build_ai_portrait_banner`).
-      • If the edit fails or is refused -> a PREMIUM EDITORIAL composite of the REAL cut-out person
-        (`_build_editorial_banner`), so the face is still exactly theirs.
-    Any failure -> a deterministic series template, so a post is never broken."""
+    """Featured-employee banner that keeps the person's EXACT real face. `theme` (a campaign brief) drives the
+    scene/background so the person is placed in the campaign's world; pass name="" to omit the on-image name
+    label (e.g. campaign images). Priority — strongest identity first:
+      • FACESWAP key set -> a full AI scene (person genuinely IN the themed environment) with the person's
+        EXACT real face swapped on (`_build_faceswap_banner`). Best of both: immersive scene + real face.
+      • Otherwise (DEFAULT) -> a PREMIUM EDITORIAL composite of the REAL cut-out person on a themed background
+        (`_build_editorial_banner`). The face + clothing are literally their photo — never redrawn — so the
+        identity is exact and there's no hallucinated text on their shirt.
+    NOTE: we deliberately do NOT use gpt-image's image-EDIT path by default — even at input_fidelity=high it
+    REGENERATES the face (it drifts) and hallucinates garbage text on clothing. It's only used *inside*
+    faceswap, where the real face is then swapped back on. Any failure -> a deterministic template."""
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -1733,11 +1732,9 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        if faceswap.faceswap_available():   # AI scene + EXACT real face (opt-in, strongest lock)
+        if faceswap.faceswap_available():   # immersive AI scene + EXACT real face (opt-in key, strongest)
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                  # DEFAULT: identity-locked AI edit (strict facial consistency)
-            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                  # SAFETY: real cut-out composite (face is exactly theirs)
+        if result is None:                  # DEFAULT: real cut-out composite — face + clothes are exactly theirs
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result
