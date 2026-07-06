@@ -130,12 +130,28 @@ _NEW_ASSET = re.compile(r"\b(?:creat\w*|generat\w*|produc\w*|draft|build)\s+(?:a
 
 def _is_refinement(text: str) -> bool:
     """True when the message EDITS the current asset (a ChatGPT-style follow-up) rather than requesting a
-    brand-new one. An edit cue targeting a part of the design ('change the background', 'make it smaller',
-    'the person doesn't fit') qualifies; an explicit 'create a new image' does not."""
+    brand-new one. Intent-based, not just keyword verbs: an edit cue on part of the design ('change the
+    background', 'make it smaller'), a layout complaint ('the placement is off', 'position isn't right'), or
+    plain dissatisfaction ('it doesn't look good', 'looks off') all qualify; an explicit 'create a new image'
+    does not. When unsure we still lean toward True in Campaign/Create because the refine now safely targets
+    the most recent asset — so a mis-read just re-renders, it never dead-ends asking for a title."""
     t = (text or "").strip()
     if not t or _NEW_ASSET.search(t):
         return False
-    if re.search(r"\b(?:not|isn'?t|does\s*n'?t|don'?t)\b.{0,20}\bfit", t, re.I):
+    # layout / placement feedback (no standard edit verb needed). Unambiguous layout words only — NOT bare
+    # "position" (that also means "market position" / "position to hire").
+    if re.search(r"\b(placement|positioned|reposition|repositioned|alignment|aligned|arrange|arranged|"
+                 r"spacing|cropp?ed|framing)\b", t, re.I):
+        return True
+    # dissatisfaction: "not proper / doesn't look right / isn't good / not fitting / not visible …"
+    if re.search(r"\b(?:not|isn'?t|does\s*n'?t|doesn'?t|no|n'?t)\b[\s\w']{0,24}\b"
+                 r"(?:fit|fitting|proper|properly|right|good|nice|correct|clear|centered|aligned|great|well|"
+                 r"visible|readable)\b", t, re.I):
+        return True
+    if re.search(r"\b(?:is|are|it'?s|looks?|seems?)\s+off\b", t, re.I):
+        return True
+    if re.search(r"\blooks?\s+(?:bad|weird|wrong|odd|strange|awkward|messy|cluttered|small|big|empty)\b",
+                 t, re.I):
         return True
     if _MAKE_EDIT.search(t):
         return True

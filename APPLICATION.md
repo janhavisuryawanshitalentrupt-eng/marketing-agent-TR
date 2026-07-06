@@ -134,12 +134,15 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   `common.script_font` = bundled Caveat (OFL). `refine.py` — regenerate/refine an asset into a new version.
   **Conversational editing (ChatGPT-style):** in Campaign/Create, a follow-up that EDITS the current image —
   "change the background to a beach", "change the text to X", "the person doesn't fit", "make it more
-  colourful" — is caught by `orchestrator._is_refinement` and routed to `refine.regenerate_asset` on the LAST
+  colourful" — is caught by `orchestrator._is_refinement` (INTENT-based — layout/placement feedback, plain dissatisfaction
+like "not proper"/"doesn't look right", not just edit verbs) and routed to `refine.regenerate_asset` on the LAST
   asset (`_last_refinable_asset`, scoped by campaign) BEFORE the brief-intake can re-ask for a style. For a
   team image, `refine._parse_image_edit` (LLM) maps the instruction to `{op: text|background|fit|design}` and
   reuses the ORIGINAL design `variant`+`eyebrow` so ONLY the requested thing changes (text→new headline;
   background→new themed scene, person kept as-is; fit→scale/reposition via `build_ai_scene(fit=…)`;
-  design→fresh variant). A brand-new request ("create a new image") is NOT treated as an edit.
+  design→fresh variant). A brand-new request ("create a new image") is NOT treated as an edit. If the model
+  takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
+  no id/title — it never dead-ends asking the user for an internal asset title.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
   the ingested TR library. **Campaign** generation grounds in the campaign's **brief** (`Campaign.goal`),
   threaded into every generator so content stays on the campaign's theme (no off-theme RPO leakage).

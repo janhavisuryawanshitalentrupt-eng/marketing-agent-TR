@@ -731,19 +731,31 @@ async def exec_manage_task(db, state, brand, args) -> dict:
 
 async def exec_regenerate_asset(db, state, brand, args) -> dict:
     """Regenerate/refine a prior asset, saved as a NEW version (mirrors POST /assets/{id}/regenerate)."""
+    owner = state.get("owner", "admin")
     a = None
     if args.get("asset_id"):
         try:
             a = db.get(Asset, int(args["asset_id"]))
         except (TypeError, ValueError):
             a = None
+        if a and getattr(a, "owner", owner) != owner:  # never touch another account's asset
+            a = None
     if not a:
         title = (args.get("title") or "").strip().lower()
         if title:
-            a = next((x for x in db.query(Asset).order_by(Asset.id.desc()).all()
-                      if title in (x.title or "").lower()), None)
+            a = next((x for x in db.query(Asset).filter(Asset.owner == owner)
+                      .order_by(Asset.id.desc()).all() if title in (x.title or "").lower()), None)
     if not a:
-        return {"summary": "Tell me which asset to regenerate (its title or id) — I couldn't match one.", "assets": []}
+        # No id / no title match -> default to the MOST RECENT asset in this context. The user is almost
+        # always refining the image they're looking at; NEVER loop asking for an internal title/ID they
+        # don't know (that was a real dead-end). Scope to the campaign when in one, else the owner's latest.
+        q = db.query(Asset).filter(Asset.owner == owner, Asset.type.in_(("image", "post", "deck", "pdf")))
+        cid = state.get("campaign_id")
+        q = q.filter(Asset.campaign_id == cid) if cid is not None else q.filter(Asset.campaign_id.is_(None))
+        a = q.order_by(Asset.id.desc()).first()
+    if not a:
+        return {"summary": "There's nothing generated yet to adjust — create an image or post first, then I "
+                "can refine it.", "assets": []}
     new = await gen_refine.regenerate_asset(db, a.id, (args.get("instruction") or "").strip(), False)
     if not new:
         return {"summary": f"Couldn't regenerate “{a.title}”.", "assets": []}
@@ -1573,13 +1585,17 @@ TOOL_SCHEMAS = [
         },
         ["company", "action"]),
     _fn("regenerate_asset",
-        "Regenerate or refine a previously generated image/deck/PDF with an optional instruction (e.g. "
-        "'make the deck punchier', 'new variation'). Saves a NEW version; the original is kept. Use "
-        "when the user asks to redo, refine, tweak, or make another version of something already made.",
+        "Refine / adjust / edit the CURRENT image/deck/PDF/post the user is looking at, with an instruction "
+        "in the user's own words (e.g. 'change the background to a stadium', 'adjust the person's placement', "
+        "'make the deck punchier'). Saves a NEW version; the original is kept. Use this WHENEVER the user gives "
+        "feedback about something already generated — including vague or non-keyword phrasing like 'the "
+        "placement isn't proper', 'it doesn't look right', 'move the person', 'fix it'. CRITICAL: OMIT asset_id "
+        "and title — this automatically targets the MOST RECENT asset. NEVER ask the user for an asset title, "
+        "ID, or 'which asset' — just call this with their feedback as the instruction.",
         {
-            "asset_id": {"type": "integer", "description": "The asset id, if known"},
-            "title": {"type": "string", "description": "Or match by the asset's title/topic"},
-            "instruction": {"type": "string", "description": "Optional change to apply"},
+            "asset_id": {"type": "integer", "description": "Rarely needed — OMIT to target the most recent asset"},
+            "title": {"type": "string", "description": "Rarely needed — OMIT to target the most recent asset"},
+            "instruction": {"type": "string", "description": "The change to apply, in the user's own words"},
         },
         []),
     _fn("animate_asset",

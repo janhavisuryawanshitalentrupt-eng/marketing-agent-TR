@@ -3,6 +3,21 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: refine never dead-ends asking for an asset title (2026-07-06)
+A follow-up like "the person's placement is not proper" could get stuck in a loop where the assistant kept
+asking for "the exact title or ID of the asset" — an internal detail the user doesn't know. Root causes fixed:
+
+- **`exec_regenerate_asset` now defaults to the MOST RECENT asset** in the campaign/context when no id or
+  title matches (was: returned "tell me which asset" → the LLM relayed it → infinite loop). It also scopes
+  the title/id match to the caller's own assets. The loop is impossible now: refine always has a target.
+- **`regenerate_asset` tool description rewritten** to tell the model to OMIT asset_id/title (it auto-targets
+  the latest) and to NEVER ask the user for a title — just call it with the user's feedback as the instruction.
+- **`_is_refinement` is now intent-based, not keyword-rigid** (the user's ask: "free it to think on its own").
+  It catches layout feedback ("placement", "reposition", "cropped", "framing"), plain dissatisfaction ("not
+  proper", "doesn't look right", "isn't clear", "not visible"), and "is/looks off" — while still excluding
+  genuine new-asset requests ("create a new image") and unrelated asks ("our market position", "position to
+  hire"). Verified end-to-end: a wrong guessed title still refines the latest asset instead of looping.
+
 ## Edit + copy on your own chat messages (2026-07-06)
 User (input) messages in the transcript now have hover actions — **Copy** and **Edit** — in Chat/Create and
 in the campaign chat. Copy puts the message text on the clipboard. Edit turns the bubble into an inline
