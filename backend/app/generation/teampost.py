@@ -1166,11 +1166,15 @@ def _portrait_prompt(headline: str, question: str, variant: int, theme: str = ""
         "graphic/screenshot, focus on the SINGLE main subject only. "
         f"Re-pose, re-light and re-stage them for the best look: place them {setting}. "
         + wardrobe +
+        "SEAMLESS INTEGRATION: they must look GENUINELY PHOTOGRAPHED at that location, fully part of the scene — "
+        "match the environment's perspective and camera angle, cast realistic contact + directional SHADOWS, "
+        "add subtle reflections/bounce light and matching depth of field, and colour-grade the subject to the "
+        "scene's light and palette. Blend foreground and background PERFECTLY — absolutely NO cut-out edges, NO "
+        "pasted or sticker look, NO halo. Preserve their natural skin tones, facial features, clothing details "
+        "and body proportions. Photorealistic, highly detailed, cinematic and visually premium. "
         "COMPOSITION: a clean 1:1 square; compose the person on the RIGHT with their head in the upper-right; "
-        "keep the LEFT ~40% as calm, softly-lit, uncluttered negative space for a caption. Talentrupt brand "
-        "palette — deep navy #0B3559, coral red #F6404C, warm cream #EBE9DF — used tastefully, and VARY the "
-        "dominant tone per the setting above (do NOT make it uniformly dark navy). Crisp focus, flattering "
-        "light, high-end editorial quality. Absolutely NO text, NO words, NO letters, NO logos, NO watermarks."
+        "keep the LEFT ~40% as calm, softly-lit, uncluttered negative space for a caption. Crisp focus, "
+        "flattering light. Absolutely NO text, NO words, NO letters, NO logos, NO watermarks anywhere."
     )
 
 
@@ -1854,12 +1858,15 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        # HARD RULE: NEVER AI-generate the face — always the REAL uploaded photo's face. So the person is only
-        # ever their real cut-out/photo (the SPLIT poster), or — with a FACESWAP key — an AI scene with their
-        # EXACT real face swapped on. The plain gpt-image edit makes an AI face and is NOT used.
-        if faceswap.faceswap_available():       # immersive AI scene + EXACT REAL face swapped on (best; opt-in key)
+        # THEMED images: a SEAMLESS, photorealistic scene — the person genuinely photographed INSIDE the theme,
+        # NO cutout / no pasted look (per the user's spec). Priority:
+        if faceswap.faceswap_available():       # seamless AI scene + EXACT REAL face swapped on (best; opt-in key)
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                      # DEFAULT: the SPLIT poster — real cut-out person + themed panel
+        if result is None and (theme or "").strip() and prefer != "graphic":
+            # DEFAULT for a theme: identity-preserving immersive scene (input_fidelity='high' keeps the face,
+            # skin, clothing) blended seamlessly into the themed environment — no cutout.
+            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+        if result is None:                      # fallback (no theme / 'Bold graphic' / edit unavailable): split poster
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result

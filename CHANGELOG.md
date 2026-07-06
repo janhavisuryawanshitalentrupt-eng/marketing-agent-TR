@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Themed images: seamless photorealistic scene (person genuinely IN the location, no cutout) (2026-07-03)
+Per the user's spec — for a themed image the person should be *seamlessly photographed inside the themed
+environment* (realistic perspective, shadows, reflections, depth of field, colour grading), *blended
+perfectly with NO cutout or artificial look*, features preserved, cinematic/premium. So the immersive
+identity-preserving AI scene (`_build_ai_portrait_banner`, gpt-image-1 edit, `input_fidelity='high'`) is the
+**default again for any theme** (`build_ai_scene`: faceswap → immersive scene [theme, non-'graphic'] → split
+poster). `_portrait_prompt` now embeds the seamless-integration spec verbatim (perspective/shadows/reflections/
+DoF/colour-grade, no cut-out edges/halo, preserve skin tones/features/clothing/proportions, photorealistic +
+cinematic). Verified with the real photo: person genuinely inside the floodlit stadium, blended, features
+preserved. The 'Bold graphic poster' choice and the no-theme case still use the split-poster cut-out.
+*input_fidelity preserves the face well but isn't pixel-exact — `FACESWAP_API_KEY` gives the seamless scene
+with the EXACT real face.*
+
 ## The split poster now cuts the person out (transparent) + drops the pasted full-scene composite (2026-07-03)
 The user liked the SPLIT design (person beside a themed panel) but (a) the person showed their white wall and
 (b) a separate "full-scene composite" path was putting the cut-out on a random indoor room and looked pasted.
