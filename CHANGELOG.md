@@ -3,6 +3,12 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Removed the "Bold graphic poster" option from the campaign Create intake (2026-07-07)
+The campaign "what kind of image?" chips (`_EMP_TYPE_CHIPS`) no longer offer "Bold graphic poster" — they're
+now just "In the action — themed scene" and "Surprise me — your call", so a campaign employee image always
+uses the themed scene. (The bold split-poster still exists internally only as the automatic fallback when a
+clean cut-out isn't possible; it's no longer a user-selectable style.)
+
 ## Fix: box shadow behind the person + coloured dots on the face (2026-07-07)
 On a scene composite the subject had an ugly grey BOX behind them and coloured speckles on the face. Fixed in
 `_place_editorial_person` + the free keyer:

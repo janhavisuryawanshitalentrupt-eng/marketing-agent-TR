@@ -69,9 +69,9 @@ ERROR_REPLY = "The assistant hit an error and couldn't finish that — please tr
 # --- Employee-post STYLE intake (ask 'what kind of image?' before featuring a teammate) ------------------
 _EMP_STYLE_CHIPS = ["Bold & colourful", "Clean & minimal", "Photographic scene", "Warm & editorial",
                     "Surprise me — your call"]
-# In a themed CAMPAIGN the meaningful choice is the image TYPE (them inside the themed scene vs a bold
-# designed poster), so campaigns ask this instead of the generic style palette.
-_EMP_TYPE_CHIPS = ["In the action — themed scene", "Bold graphic poster", "Surprise me — your call"]
+# In a themed CAMPAIGN the meaningful choice is the image TYPE, so campaigns ask this instead of the generic
+# style palette. (The 'Bold graphic poster' option was removed — campaigns now always use the themed scene.)
+_EMP_TYPE_CHIPS = ["In the action — themed scene", "Surprise me — your call"]
 
 
 def _type_to_design(text: str) -> str:
