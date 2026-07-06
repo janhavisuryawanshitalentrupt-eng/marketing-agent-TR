@@ -1606,45 +1606,82 @@ def _finish_editorial(canvas, renderer):
     }
 
 
+def _bold_split_poster(photo, variant):
+    """No clean cut-out -> a BOLD magazine SPLIT poster instead of a plain photo: a solid brand-colour panel
+    (holding the oversized caption) beside a tight PORTRAIT CROP of the real photo. It's fully designed, keeps
+    the person's EXACT face (just a crop — nothing redrawn), and every graphic sits in a SAFE zone so it never
+    covers the subject or the text. Panels stay dark navy/teal so the white caption + red keyword box pop.
+    Returns (canvas, person_box)."""
+    import numpy as np
+    t = int(variant) % 4
+    panel_w = int(W * 0.44)
+    photo_w = W - panel_w
+    # RIGHT: a tight portrait crop of the real photo (keeps the centred face), punchier cinematic contrast.
+    pic = _cover_fit(photo, photo_w, H)
+    arr = np.clip((np.asarray(pic.convert("RGB")).astype(np.float32) - 128) * 1.10 + 128, 0, 255)
+    canvas = Image.new("RGB", (W, H), NAVY)
+    canvas.paste(Image.fromarray(arr.astype("uint8"), "RGB"), (panel_w, 0))
+    # a soft edge-scrim on the photo's left so the seam reads clean
+    es = Image.new("RGBA", (photo_w, H), (0, 0, 0, 0))
+    ed = ImageDraw.Draw(es)
+    for i in range(90):
+        ed.line([(i, 0), (i, H)], fill=(*NAVY, int(150 * (1 - i / 90))))
+    canvas.paste(es, (panel_w, 0), es)
+    # LEFT: a bold dark brand panel with a gentle top->bottom gradient for depth.
+    PANELS = [(0x0B, 0x35, 0x59), (0x0A, 0x24, 0x3E), (0x11, 0x2E, 0x38), (0x0C, 0x2A, 0x4C)]
+    base = np.array(PANELS[t], float)
+    ramp = np.linspace(1.08, 0.80, H)[:, None, None]
+    parr = np.clip(np.broadcast_to(base, (H, panel_w, 3)) * ramp, 0, 255).astype("uint8")
+    canvas.paste(Image.fromarray(parr, "RGB"), (0, 0))
+    # bold graphics in SAFE zones only: an angled coral seam ribbon + a dotted arc + a squiggle low down.
+    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    od.polygon([(panel_w - 30, 0), (panel_w + 34, 0), (panel_w - 30, H), (panel_w - 94, H)], fill=(*RED, 255))
+    od.ellipse([70, int(H * 0.50), 70 + 210, int(H * 0.50) + 210], outline=(*RED, 170), width=14)  # ring in the empty mid-panel
+    _accent_squiggle(od, 70, H - 150, panel_w - 150, amp=9, color=(*RED, 255), width=6)
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), ov).convert("RGB")
+    return canvas, (panel_w + 40, 0, W, H)
+
+
 async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme=""):
-    """PREMIUM EDITORIAL composite — the REAL cut-out person integrated into a gpt-image editorial scene
-    (graded/grounded/rim-lit, NO frame), with a rotating dynamic layout. The FACE is never changed. `theme`
-    (a campaign brief) steers the photographic backdrop to match the campaign. Returns (path, fname, meta),
-    or None on failure."""
+    """PREMIUM EDITORIAL composite — the REAL person on a designed background. With a clean cut-out they're
+    integrated into a gpt-image themed scene / bold graphic plate; WITHOUT one they get a bold magazine SPLIT
+    poster (`_bold_split_poster`) instead of a plain photo. The FACE is never changed. `theme` (a campaign
+    brief) steers the photographic backdrop. Returns (path, fname, meta), or None on failure."""
     from ..providers import llm
     skin = SKINS["photo"]
     template = int(variant) % 6          # 6 distinct designs (0-4 = bold graphic, 5 = photographic scene)
     layout = (template % 3) + 1          # person position rotates too
     text_left = layout != 3
     kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
-    # background: mostly a BOLD graphic poster (instant + looks designed, not a fake composite); occasionally
-    # a gpt-image photographic scene for depth.
-    # With a campaign THEME set, always use a photographic themed backdrop (so the scene matches the campaign)
-    # rather than a flat brand-graphic plate.
-    photo_bg = (template == 5 or bool((theme or "").strip())) and llm.image_provider_available()
-    bg = None
-    if photo_bg:
-        try:
-            data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme), size="1024x1024")
-            if data:
-                bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
-        except Exception:
-            bg = None
-    if bg is None:                       # graphic poster (also the offline / provider-down path)
-        photo_bg = False
-        bg = _graphic_editorial_bg(template, text_left)
-    canvas = _editorial_scrim(bg, layout, blur=2.4 if photo_bg else 0,
-                              strength=0.86 if photo_bg else 0.82, reach=0.55 if photo_bg else 0.40)
+    # Cut out FIRST so we only pay for a gpt-image scene when we can actually composite the person onto it
+    # (a failed cut-out uses the instant split poster instead — no wasted scene call).
     hero = _cutout(photo)
     cut_ok = (hero.mode == "RGBA" and hero.getextrema()[3][0] < 245
               and hero.width >= photo.width * 0.42 and hero.height >= photo.height * 0.45)
     if cut_ok:
+        # With a campaign THEME set, use a photographic themed backdrop (so the scene matches the campaign);
+        # otherwise a BOLD graphic plate (instant + looks designed).
+        photo_bg = (template == 5 or bool((theme or "").strip())) and llm.image_provider_available()
+        bg = None
+        if photo_bg:
+            try:
+                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme), size="1024x1024")
+                if data:
+                    bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
+            except Exception:
+                bg = None
+        if bg is None:                   # graphic poster (also the offline / provider-down path)
+            photo_bg = False
+            bg = _graphic_editorial_bg(template, text_left)
+        canvas = _editorial_scrim(bg, layout, blur=2.4 if photo_bg else 0,
+                                  strength=0.86 if photo_bg else 0.82, reach=0.55 if photo_bg else 0.40)
         person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=photo_bg)
-    else:  # FRAMELESS fallback (no clean cut-out): full-bleed photo, heavy scrim, NO card
-        full = _cover_fit(photo, W, H)
-        canvas = _editorial_scrim(full, 1, blur=2.4, strength=0.9)
-        person_box = (int(W * 0.5), 0, W, H)
-        layout, kicker = 1, "TEAM // SPOTLIGHT"
+    else:  # no clean cut-out -> BOLD designed split poster (real face kept, no plain-photo look)
+        photo_bg = False
+        canvas, person_box = _bold_split_poster(photo, variant)
+        layout = 1
+        kicker = kicker or "TEAM // SPOTLIGHT"
     canvas = _apply_grain(canvas, variant, 3.0 if not photo_bg else 4.0)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)

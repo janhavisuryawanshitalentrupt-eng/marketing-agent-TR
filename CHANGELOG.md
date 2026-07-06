@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Bold magazine-poster design when there's no clean cut-out (free, no key) (2026-07-03)
+Previously, when the free keyer couldn't cut a person off their background, the image fell back to a plain
+full photo + a scrim + headline — clean but flat. That fallback is now a **bold designed magazine SPLIT
+poster** (`_bold_split_poster`): a solid brand-colour panel with oversized type + red keyword box + kicker +
+wordmark + accents (angled coral seam ribbon, ring, squiggle), beside a **tight portrait crop of the real
+photo**. The face + clothing are exactly theirs (just a crop, nothing redrawn), every graphic sits in a safe
+zone (never over the subject or text, verified by `_ensure_clear`), and it's **instant (~3–5s)** because a
+failed cut-out no longer triggers a wasted gpt-image scene call — the banner also now cuts out FIRST and only
+generates a themed scene when it can actually composite the person onto it.
+
 ## Employee images keep the REAL face again (no AI face-swap drift, no garbled shirt text) (2026-07-03)
 The gpt-image image-EDIT default (added for "strict facial consistency") turned out to REGENERATE the face
 (it drifted to a different person) and hallucinated garbage text on the person's shirt. Reverted the default:
