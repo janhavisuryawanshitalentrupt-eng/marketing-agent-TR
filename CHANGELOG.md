@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: 502 on image generation (out-of-memory on the 2 GB droplet) (2026-07-03)
+Generating an employee image could return a **502** — the process was OOM-killed mid-request. Employee
+uploads are 5000px+ (~5 MB), and `_enhance_photo` + the numpy `_cutout` ran on the FULL-resolution image
+(~60 MB arrays × several copies), which spikes past the shared 2 GB droplet's memory. Fix: cap the working
+image size with `thumbnail((1800, 1800))` BEFORE the enhance/cut-out in both `build_ai_scene` and
+`build_team_image`. The output is 1080px, so there's no quality loss (verified) — and it's a touch faster.
+
 ## Split-poster panel now shows the campaign THEME (free, real face) (2026-07-03)
 The bold split poster kept the real face but its panel was a flat brand colour — so a "football" campaign
 didn't look like football. Now, when a theme is set, the panel background is a **themed graphic** (a

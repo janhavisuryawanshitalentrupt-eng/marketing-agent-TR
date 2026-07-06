@@ -981,6 +981,7 @@ def build_team_image(
     except Exception:
         pass
     photo = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
+    photo.thumbnail((1800, 1800), Image.LANCZOS)  # cap working size (full-res uploads OOM the 2GB droplet)
     sk = resolve_skin(skin)
     if style in _SERIES:
         canvas = _SERIES[style](photo, name, role, headline, question, variant, sk)
@@ -1796,7 +1797,12 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     except Exception:
         pass
     try:
-        photo = _enhance_photo(ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB")))
+        _src = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
+        # Cap the working size BEFORE the numpy cut-out/enhance: uploads are 5000px+ (~60MB RGB arrays) and
+        # processing them full-res on the 2GB droplet spikes memory → OOM-kill → a 502. The output is 1080px,
+        # so 1800px is ample for a crisp crop/cut-out.
+        _src.thumbnail((1800, 1800), Image.LANCZOS)
+        photo = _enhance_photo(_src)
     except Exception:
         return build_team_image(brand, photo_bytes, name, role, headline, question, variant,
                                 style="spotlight_series", skin=random.choice(DETERMINISTIC_SKINS))
