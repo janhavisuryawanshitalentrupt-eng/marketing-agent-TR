@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: box shadow behind the person + coloured dots on the face (2026-07-07)
+On a scene composite the subject had an ugly grey BOX behind them and coloured speckles on the face. Fixed in
+`_place_editorial_person` + the free keyer:
+
+- **Dropped the offset CAST shadow** (STAGE 4) — an offset silhouette read as a grey box behind the person
+  (worse when the free key-out left a strip of studio wall). Kept only a soft, softened contact-shadow pool at
+  the feet of a floor-anchored full body (α 165→90, smaller) so a grounded subject still doesn't float.
+- **Pinhole CLOSE in the keyer**: added a `MaxFilter→MinFilter` morphological close so tiny holes punched
+  inside the face/skin (specular highlights, etc.) are filled — otherwise the busy background showed through
+  them as coloured DOTS. The close preserves silhouette size.
+- **Less noise amplification** in `_enhance_photo`: `Color 1.06→1.03` and `UnsharpMask threshold 3→5`, so
+  smooth skin isn't sharpened into coloured speckles (while printed text stays legible).
+
+Verified on a synthetic with bright facial highlights over a stadium: no box shadow, and the highlights fill
+with the person's own pixels instead of showing the background as dots. NOTE: the free keyer can still leave
+edge artifacts on some photos — a hosted `BG_REMOVAL_API_KEY` (remove.bg, free) removes them entirely.
+
 ## Fix: "keep the same person, change the background" no longer swaps the person (2026-07-07)
 Refining an image in Chat with "keep the same person but use a different background" swapped the person (Pooja
 → Vaishnav). Cause: when the refine had no explicit asset id/title it fell back to the account's GLOBAL

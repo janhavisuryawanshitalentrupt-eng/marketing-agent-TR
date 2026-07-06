@@ -192,10 +192,13 @@ def _key_plain_bg(img: Image.Image):
                 alpha = np.where(outside, 0, 255).astype(np.uint8)
         except Exception:
             pass
-        # Despeckle harder (kills rough fringe + speckle), ERODE 1px to cut the light background halo, feather.
+        # Despeckle + CLOSE pinholes (a MaxFilter dilate then a MinFilter erode = morphological close) so tiny
+        # holes the keyer punched INSIDE the face/skin — which otherwise show the busy background through as
+        # coloured DOTS on the person — are filled, then a light median + feather. The close preserves the
+        # silhouette size while killing pinholes; the medians clean the fringe.
         a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(7))
-             .filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MedianFilter(5))
-             .filter(ImageFilter.GaussianBlur(1.2)))
+             .filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+             .filter(ImageFilter.MedianFilter(5)).filter(ImageFilter.GaussianBlur(1.2)))
         # QUALITY GATE — only ship a cut-out that's actually CLEAN. A clean silhouette is a solid blob with a
         # smooth edge and almost no bright-neutral WALL left inside it (measured clean cut ≈ 0.9% roughness,
         # 0.1% leftover wall). A messy free-key (jagged edge / leftover 'cream shadow') scores far higher — bail
@@ -274,13 +277,13 @@ def _enhance_photo(img: Image.Image) -> Image.Image:
         img = img.convert("RGB")
         img = ImageOps.autocontrast(img, cutoff=1)          # even out exposure
         img = ImageEnhance.Brightness(img).enhance(1.03)
-        img = ImageEnhance.Color(img).enhance(1.06)          # a little more life in the colour
-        img = ImageEnhance.Contrast(img).enhance(1.05)
+        img = ImageEnhance.Color(img).enhance(1.03)          # a touch more life — kept low so it doesn't
+        img = ImageEnhance.Contrast(img).enhance(1.05)       # amplify chroma noise into coloured speckles
         img = ImageEnhance.Sharpness(img).enhance(1.12)
         # a MODERATE unsharp mask: enough to keep printed text/logos legible, but gentle enough that it does
-        # NOT halo/garble the already-soft text on a real (slightly out-of-focus, wrinkled) t-shirt — an
-        # aggressive mask made the shirt logo look crunchy/broken. We never redraw the text; this only cleans.
-        img = img.filter(ImageFilter.UnsharpMask(radius=1.1, percent=55, threshold=3))
+        # NOT halo/garble the already-soft text on a real (out-of-focus, wrinkled) t-shirt. threshold=5 keeps
+        # smooth skin clean so it does NOT sharpen sensor/JPEG noise into coloured dots on the face.
+        img = img.filter(ImageFilter.UnsharpMask(radius=1.1, percent=55, threshold=5))
     except Exception:
         pass
     return img
@@ -1617,23 +1620,19 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=""):
     # STAGE 2 — feather + a 1px erode (kills the 'sticker' edge)
     a = a.filter(ImageFilter.GaussianBlur(0.6)).filter(ImageFilter.MinFilter(3))
     hero.putalpha(a)
-    # STAGE 3 — contact shadow pooling at the feet (only a floor-anchored FULL body has feet; skip it for the
-    # top-bleed crop AND the lifted half-body torso, which has no feet touching the ground)
+    # STAGE 3 — a SUBTLE contact shadow, ONLY a soft pool at the feet of a floor-anchored FULL body (grounds
+    # them so they don't float). We deliberately DROP the big offset CAST shadow: an offset silhouette read as
+    # an ugly grey BOX behind the person (worse when the free key-out left a strip of studio wall). No shadow
+    # is cleaner than a bad one — the user asked for a clean, shadow-free subject.
     if layout != 2 and not half_body:
         sil = Image.new("RGBA", hero.size, (0, 0, 0, 0))
-        sil.paste((0, 0, 0, 165), (0, 0), a)
-        ground = sil.resize((hero.width, max(1, int(hero.height * 0.10))), Image.LANCZOS)
+        sil.paste((0, 0, 0, 90), (0, 0), a)
+        ground = sil.resize((hero.width, max(1, int(hero.height * 0.06))), Image.LANCZOS)
         gl = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        gl.paste(ground, (hx + 18, H - int(hero.height * 0.06)))
-        blurred = gl.filter(ImageFilter.GaussianBlur(26))
+        gl.paste(ground, (hx + 18, H - int(hero.height * 0.04)))
+        blurred = gl.filter(ImageFilter.GaussianBlur(30))
         canvas.paste(blurred, (0, 0), blurred)
-    # STAGE 4 — soft cast shadow (navy-tinted, offset to the light side) BEFORE the person
-    sh = Image.new("RGBA", hero.size, (0, 0, 0, 0))
-    sh.paste((6, 12, 26, 105), (0, 0), a)
-    sh = sh.filter(ImageFilter.GaussianBlur(24))
-    off = (max(RAIL_W, hx - 20), hy + 16) if layout == 3 else (hx + 20, hy + 16)
-    canvas.paste(sh, off, sh)
-    # STAGE 5 — the person
+    # STAGE 5 — the person (no offset cast shadow: it made an ugly grey box behind the subject)
     canvas.paste(hero, (hx, hy), hero)
     # STAGE 6 — a WHISPER of directional rim (subtle; never a glowing sticker outline)
     try:
