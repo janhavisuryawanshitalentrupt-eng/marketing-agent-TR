@@ -1608,16 +1608,17 @@ def _finish_editorial(canvas, renderer):
 
 
 def _panel_theme_prompt(theme: str) -> str:
-    """A THEMED graphic for the poster panel (no people, no text) so the split poster visibly reflects the
-    campaign — e.g. football -> a stylised ball / pitch lines / goal net / stadium light."""
+    """A REALISTIC themed photo for the poster panel (no people, no text) so the split poster looks like the
+    real thing — e.g. football -> a lush GREEN pitch, white lines, a real ball, a goal net, floodlit stadium."""
     return (
-        f'A bold, premium VERTICAL poster-panel BACKGROUND graphic representing this theme: "{theme[:170]}". '
-        "Depict the theme's iconic objects, setting and atmosphere as a rich DESIGNED graphic (football -> a "
-        "stylised football, pitch lines, goal net, stadium floodlight; cricket -> bat, ball, pitch; a festival "
-        "-> its lights/decor). Talentrupt brand palette: deep navy #0B3559, coral red #F6404C, warm cream "
-        "#EBE9DF — NAVY-DOMINANT so white text stays legible, keep the TOP third calmer/darker for a headline. "
-        "ABSOLUTELY NO people, NO faces, NO text, NO words, NO letters, NO numbers, NO logos, NO signage. Tall "
-        "vertical composition, cinematic, high-end."
+        f'A realistic, vivid, cinematic VERTICAL poster-panel photo BACKGROUND for this theme: "{theme[:170]}". '
+        "Show the theme's real setting and objects in their NATURAL, TRUE colours: a football/soccer theme -> a "
+        "lush GREEN grass pitch with crisp white line markings, a real black-and-white football on the grass, a "
+        "goal with a net, a floodlit stadium; cricket -> a green field with a tan pitch strip; a festival -> its "
+        "real lights and decor. Photorealistic, rich saturated colour, natural lighting, shallow depth of field. "
+        "Keep ONLY the TOP third quieter/darker (open sky, shadow or dusk) so a white headline stays readable "
+        "over it; the rest shows the scene in full colour. ABSOLUTELY NO people, NO faces, NO text, NO words, NO "
+        "letters, NO numbers, NO logos, NO signage. Tall vertical composition."
     )
 
 
@@ -1660,13 +1661,15 @@ async def _bold_split_poster(photo, variant, theme=""):
     themed, panel = False, None
     if (theme or "").strip() and llm.image_provider_available():
         try:
-            data = await llm.generate_image_bytes(_panel_theme_prompt(theme), size="1024x1024", quality="low")
+            data = await llm.generate_image_bytes(_panel_theme_prompt(theme), size="1024x1024", quality="medium")
             if data:
                 panel = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), panel_w, H)
                 pa = np.asarray(panel.convert("RGB")).astype(np.float32)
                 ys = np.linspace(0, 1, H)[:, None, None]
-                al = np.clip(0.86 - ys * 0.55, 0.32, 0.86)   # strong scrim top (behind headline) -> theme shows lower
-                panel = Image.fromarray((pa * (1 - al) + np.array(scheme, float) * al).astype("uint8"), "RGB")
+                # Darken ONLY the top ~third (behind the headline) and fade to ~0 below, with a NEAR-BLACK
+                # (not navy) scrim — so the scene keeps its true colour (a football pitch stays GREEN).
+                al = np.clip(0.90 - ys * 1.5, 0.0, 0.9)
+                panel = Image.fromarray((pa * (1 - al) + np.array((10, 15, 24), float) * al).astype("uint8"), "RGB")
                 themed = True
         except Exception:
             panel = None

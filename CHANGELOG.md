@@ -3,6 +3,17 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Realistic themed panel (green football pitch) + more campaign variety (2026-07-03)
+- **The themed panel now looks real.** It was forced "navy-dominant" (for text legibility) so a football pitch
+  came out dark/navy with no green. Now `_panel_theme_prompt` asks for the scene in its NATURAL colours (a
+  football theme → a lush GREEN pitch, white lines, a real black-and-white ball, goal net, floodlit stadium),
+  rendered at `quality='medium'`, and the scrim darkens ONLY the top third (near-black, not navy) so the
+  headline stays readable while the rest keeps its true colour. Verified: green pitch + proper ball, both
+  panel sides.
+- **Campaign generic images vary too.** `images.build_images` was rendering people-variations with a fixed
+  `variant=i` (so count-1 was always variant 0 → same design). Now it uses a random variant, so every campaign
+  image differs (on top of the split-poster side/colour/seam/accent rotation shipped in e28896d).
+
 ## Different design every time + "change the design" works (2026-07-03)
 Employee posts looked the same each time (studio photos always fail the cut-out → always the one split
 poster, with only a subtle shade change), and typing "change the design" errored. Fixed both:

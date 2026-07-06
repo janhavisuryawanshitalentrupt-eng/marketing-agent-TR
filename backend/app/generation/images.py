@@ -761,7 +761,7 @@ async def build_images(
         """Render a real employee into the campaign-themed scene (no name label)."""
         return await teampost.build_ai_scene(
             brand, emp_for[i], name="", role="", headline=p.get("headline", ""),
-            question=p.get("subtext", ""), variant=i, theme=scene_theme)
+            question=p.get("subtext", ""), variant=random.randint(0, 5), theme=scene_theme)
 
     if use_openai:
         # References only help the rich styles; they flatten clean infographic/typographic. NEVER attach
