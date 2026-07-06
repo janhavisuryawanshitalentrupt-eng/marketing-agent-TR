@@ -99,12 +99,14 @@ def _key_plain_bg(img: Image.Image):
             return None
         arr = np.asarray(rgb).astype(np.float32)
         s = max(16, min(w, h) // 18)
-        # Background reference = the TOP strip: for a head-and-shoulders portrait the area above the head is
-        # almost always the plain wall, even when the person fills the frame and touches the side/bottom
-        # borders. The strip must be LIGHT and fairly UNIFORM (a plain studio wall), else we bail.
-        top = arr[:s, :].reshape(-1, 3)
-        bg = np.median(top, axis=0)
-        if float(bg.mean()) < 118 or float(top.std(0).mean()) > 26:
+        # Background reference = the TOP-LEFT + TOP-RIGHT CORNERS (the wall beside the head), NOT the full top
+        # strip: a subject with tall hair / head reaching the top makes the full strip non-uniform, which used
+        # to wrongly bail (→ the raw white-wall photo shipped). The corners are almost always the plain wall.
+        # It must be LIGHT and fairly UNIFORM (a plain studio wall), else we bail.
+        cw = max(12, w // 7)
+        corners = np.concatenate([arr[:s, :cw].reshape(-1, 3), arr[:s, -cw:].reshape(-1, 3)])
+        bg = np.median(corners, axis=0)
+        if float(bg.mean()) < 116 or float(corners.std(0).mean()) > 30:
             return None
         from PIL import ImageDraw
         work = rgb.copy()

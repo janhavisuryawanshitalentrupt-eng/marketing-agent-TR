@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Cut-out works when hair reaches the top of the frame (2026-07-03)
+Subjects with tall hair / head near the top of the photo were failing the cut-out (the wall estimate used the
+whole top strip, which their hair made non-uniform → the remover bailed → the raw white-wall photo shipped in
+the split poster). `_key_plain_bg` now estimates the wall from the top-LEFT + top-RIGHT CORNERS (beside the
+head) instead of the full strip, so a clean studio wall is detected even with hair at the top → the person
+cuts out (transparent) and floats on the themed scene. Verified no regression on the reference photos. (A
+guaranteed cut-out on every photo still needs `BG_REMOVAL_API_KEY` — the free, correct key for transparent
+backgrounds.)
+
 ## HARD RULE: never an AI face — always the real uploaded photo's face (2026-07-03)
 Per the user: for any image, do NOT generate an AI face — only use the uploaded photo's face. The gpt-image
 edit path (`_build_ai_portrait_banner`) regenerates the face (an AI face), so it's **removed from the default**
