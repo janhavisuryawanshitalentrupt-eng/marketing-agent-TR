@@ -1811,7 +1811,7 @@ _EDITORIAL_KICKERS = ["TEAM // SPOTLIGHT", "MEET THE TEAM", "TALENTRUPT PEOPLE",
 
 
 async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", question="", variant=0,
-                         keyword="", theme=""):
+                         keyword="", theme="", prefer=""):
     """Featured-employee banner. `theme` (a campaign brief) drives the scene so the person is placed INSIDE the
     campaign's world; pass name="" to omit the on-image name label (e.g. campaign images). Priority:
       • FACESWAP key set -> an immersive AI scene (person genuinely IN the themed environment) with the
@@ -1841,12 +1841,17 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        if faceswap.faceswap_available():   # immersive AI scene + EXACT real face (opt-in key, strongest)
-            result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                  # DEFAULT: immersive AI scene — the person INSIDE the theme (ChatGPT-style)
-            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                  # FALLBACK: real cut-out / split-poster composite (edit unavailable)
+        # `prefer='graphic'` (the user chose a bold poster) -> skip the immersive AI edit and go straight to the
+        # designed split poster. Otherwise the immersive AI scene is the default.
+        if prefer == "graphic":
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+        else:
+            if faceswap.faceswap_available():   # immersive AI scene + EXACT real face (opt-in key, strongest)
+                result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+            if result is None:                  # DEFAULT: immersive AI scene — the person INSIDE the theme (ChatGPT-style)
+                result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
+            if result is None:                  # FALLBACK: real cut-out / split-poster composite (edit unavailable)
+                result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result
     except Exception:

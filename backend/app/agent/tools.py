@@ -788,15 +788,17 @@ _FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "
                       "In the Spotlight."]
 
 
-async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None, theme=""):
+async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None, theme="",
+                     design=""):
     """Render one featured-person post. 'ai' style / 'photo' skin (or a campaign `theme`) -> a VARIED editorial
     design + real cut-out (async), with the theme steering the surroundings; otherwise a deterministic
     series/legacy template on the given SKIN. Both keep the REAL face. `variant` (from the style intake)
-    selects the design; None -> random. Pass name="" to omit the on-image name label."""
+    selects the design; None -> random. `design` ('scene'|'graphic'|'') is the chosen image TYPE. Pass name=""
+    to omit the on-image name label."""
     v = variant if variant is not None else random.randint(0, 5)
     if style == "ai" or skin == "photo" or (theme or "").strip():
         return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
-                                             question=subline, variant=v, theme=theme)
+                                             question=subline, variant=v, theme=theme, prefer=design)
     return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
                                      question=subline, variant=v, style=style, skin=skin)
 
@@ -1079,6 +1081,7 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     render_role = "" if in_campaign else match.role
     style_arg = (args.get("style") or "").strip().lower()
     skin_arg = (args.get("skin") or "").strip().lower()
+    design = (args.get("design") or "").strip().lower()  # 'scene' | 'graphic' | '' — the image TYPE from the intake
     try:
         variant = int(args["variant"]) if args.get("variant") is not None else None  # design chosen in the style intake
     except (TypeError, ValueError):
@@ -1120,10 +1123,10 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
                 style = "spotlight_series"
                 path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style,
                                                      skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False),
-                                                     variant=variant, theme=theme)
+                                                     variant=variant, theme=theme, design=design)
         else:
             path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style, skin,
-                                                 variant=variant, theme=theme)
+                                                 variant=variant, theme=theme, design=design)
     except Exception:
         return {"summary": "Couldn't build the post — please try again.", "assets": []}
     used_skin = meta.get("skin", skin)

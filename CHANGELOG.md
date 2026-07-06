@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Campaigns now ASK "what kind of image?" before generating (2026-07-03)
+Featuring a teammate in a campaign (e.g. "@Pooja" or "create an image of @Pooja") now first asks the image
+TYPE with tappable chips — **In the action — themed scene** (immersive: the person inside the themed scene,
+on the pitch/in the stadium), **Bold graphic poster** (the designed split poster), or **Surprise me** — and
+generates the chosen type. Chat/Create keep the existing style palette. Wired end-to-end: `_EMP_TYPE_CHIPS` +
+`_type_to_design` route the choice through `_feature_and_emit` → `exec_feature_employee(design=…)` →
+`_build_one` → `build_ai_scene(prefer=…)` (`prefer='graphic'` skips the ~50s immersive edit and goes straight
+to the fast split poster). A bare mention asks; a mention that already gives direction still generates
+straight away.
+
 ## Immersive AI scene is the default again — person INSIDE the theme (ChatGPT-style) (2026-07-03)
 The user shared a ChatGPT image (the person standing in a floodlit stadium, in a jersey, on the pitch — real
 face) vs our split poster (person on their white studio wall beside a themed panel) and asked why it always

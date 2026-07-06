@@ -68,6 +68,20 @@ ERROR_REPLY = "The assistant hit an error and couldn't finish that — please tr
 # --- Employee-post STYLE intake (ask 'what kind of image?' before featuring a teammate) ------------------
 _EMP_STYLE_CHIPS = ["Bold & colourful", "Clean & minimal", "Photographic scene", "Warm & editorial",
                     "Surprise me — your call"]
+# In a themed CAMPAIGN the meaningful choice is the image TYPE (them inside the themed scene vs a bold
+# designed poster), so campaigns ask this instead of the generic style palette.
+_EMP_TYPE_CHIPS = ["In the action — themed scene", "Bold graphic poster", "Surprise me — your call"]
+
+
+def _type_to_design(text: str) -> str:
+    """Map a chosen image TYPE to the generation path: 'scene' = immersive AI scene (person inside the theme),
+    'graphic' = the bold designed split poster, '' = default (immersive)."""
+    t = (text or "").lower()
+    if any(k in t for k in ("graphic", "poster", "bold", "design", "split")):
+        return "graphic"
+    if any(k in t for k in ("action", "scene", "themed", "immersive", "stadium", "field", "photographic")):
+        return "scene"
+    return ""  # 'surprise me' / unclear -> default immersive scene
 
 
 def _style_to_variant(text: str):
@@ -93,18 +107,20 @@ def _pending_feature_person(history) -> str:
     last = next((m for m in reversed(history) if m.role == "assistant"), None)
     if not last:
         return ""
-    mt = re.search(r"style would you like for (.+?)'s post", (last.content or ""), re.I)
+    mt = re.search(r"would you like for (.+?)'s post", (last.content or ""), re.I)
     return mt.group(1).strip() if mt else ""
 
 
-async def _feature_and_emit(db, state, brand, person, message, variant):
+async def _feature_and_emit(db, state, brand, person, message, variant, design=""):
     """Feature a Folders employee and stream the status/asset/done events. `variant` (or None -> random)
-    selects the design chosen in the style intake."""
+    selects the design; `design` ('scene'|'graphic'|'') picks the image TYPE chosen in the intake."""
     from .tools import exec_feature_employee
     yield {"event": "status", "data": STATUS_LABELS.get("feature_employee", "Featuring your team member")}
     args = {"name": person, "message": message}
     if variant is not None:
         args["variant"] = variant
+    if design:
+        args["design"] = design
     try:
         result = await exec_feature_employee(db, state, brand, args)
     except Exception as e:
@@ -255,7 +271,8 @@ async def run(
     if not attached_imgs and not at:
         pending = _pending_feature_person(history)
         if pending:
-            async for ev in _feature_and_emit(db, state, brand, pending, "", _style_to_variant(user_text)):
+            async for ev in _feature_and_emit(db, state, brand, pending, "",
+                                              _style_to_variant(user_text), _type_to_design(user_text)):
                 yield ev
             return
     if at and not use_attached:
@@ -276,12 +293,16 @@ async def run(
             # interactive chat/create modes; a message with real direction or an explicit style skips ahead.
             style_v = _style_to_variant(user_text)
             bare = not _clean_headline(message, person).strip()
-            if bare and style_v is None and mode in ("chat", "create"):
-                yield {"event": "chips", "data": {"items": _EMP_STYLE_CHIPS}}
-                yield {"event": "done",
-                       "data": f"Sure! What style would you like for {person}'s post? Tap one below — or say 'your call'."}
+            if bare and style_v is None and mode in ("chat", "create", "campaign"):
+                # Campaigns ask the image TYPE (themed scene vs bold graphic); chat/create ask the style palette.
+                chips = _EMP_TYPE_CHIPS if mode == "campaign" else _EMP_STYLE_CHIPS
+                ask = ("What kind of image would you like for {p}'s post? Tap one — or say 'your call'."
+                       if mode == "campaign"
+                       else "Sure! What style would you like for {p}'s post? Tap one below — or say 'your call'.")
+                yield {"event": "chips", "data": {"items": chips}}
+                yield {"event": "done", "data": ask.format(p=person)}
                 return
-            async for ev in _feature_and_emit(db, state, brand, person, message, style_v):
+            async for ev in _feature_and_emit(db, state, brand, person, message, style_v, _type_to_design(user_text)):
                 yield ev
             return
 
