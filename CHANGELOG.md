@@ -3,6 +3,14 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Preserve the text on the person's t-shirt (2026-07-03)
+Rule: never change or garble the text/logo printed on a person's shirt (e.g. the "emerge-evolve-establish"
+tee) — preserve it exactly unless explicitly asked. The default already honours this (themed images keep the
+real photo as-is — only the background changes). The face-swap / gpt-image edit path is locked down too:
+`STRICT_FACE_DIRECTIVE` now says to preserve the clothing and reproduce any printed text/logo exactly, and the
+`_portrait_prompt` WARDROBE clause was changed from "dress them in a jersey / NO text on clothing" to "KEEP
+their exact clothing and shirt text — do not swap, re-letter or garble it."
+
 ## No person's name in campaign/event banners (the person is a role model) (2026-07-03)
 Campaign banners were putting the featured person's name in the copy (e.g. "Join Pooja at the Championship
 Showdown!"). On a campaign/event/advertisement banner the person is just a ROLE MODEL for the visual — the

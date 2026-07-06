@@ -1105,6 +1105,9 @@ STRICT_FACE_DIRECTIVE = (
     "facial structure in any way — do NOT slim, reshape, age, de-age, smooth or beautify the face, and do NOT "
     "replace them with a different face. The result must be unmistakably the SAME individual, instantly "
     "recognisable as the person in the reference photo. "
+    "PRESERVE THEIR CLOTHING EXACTLY as in the reference photo — keep the same garment, colour and especially "
+    "any TEXT, wording, letters or logo printed on it EXACTLY as written; do NOT change, re-letter, restyle, "
+    "remove or garble the shirt text unless explicitly instructed. "
 )
 
 
@@ -1153,10 +1156,9 @@ def _portrait_prompt(headline: str, question: str, variant: int, theme: str = ""
             "confident HERO stance (e.g. arms crossed, chin up) that commands the frame"
         )
         wardrobe = (
-            "WARDROBE: dress them in clean, theme-appropriate attire (a football campaign -> a proper team "
-            "FOOTBALL JERSEY in deep navy with subtle red accents; a festival -> fitting festive wear; "
-            "otherwise smart attire for the theme) — plain and clean with ABSOLUTELY NO text, NO words, NO "
-            "letters, NO numbers and NO logos anywhere on the clothing (it tends to render as garbled text). "
+            "WARDROBE: KEEP the person's EXACT clothing from the reference photo — the same garment, colour and "
+            "any text, wording or logo printed on it, reproduced EXACTLY as written. Do NOT swap it for a jersey "
+            "or a different outfit, and do NOT change, re-letter, restyle or garble the shirt text. "
         )
         kind = "immersive themed campaign"
     else:
