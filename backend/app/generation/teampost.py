@@ -1049,13 +1049,23 @@ _SCENE_TYPES = [
 
 def _scene_prompt(headline: str, question: str, variant: int, theme: str = "") -> str:
     theme = (theme or "").strip()
-    # A campaign brief DRIVES the backdrop subject/setting (e.g. football -> a stadium/pitch); with no theme
-    # we rotate a generic on-brand mood. Either way it's a PEOPLE-FREE background (the person is composited on).
-    scene = (f'a setting that clearly reflects this campaign theme — "{theme[:160]}" — its real-world '
-             "location, objects and atmosphere (but with NO people in it)" if theme
-             else _SCENE_TYPES[variant % len(_SCENE_TYPES)])
-    # NOTE: deliberately do NOT feed the literal headline/message into the prompt — gpt-image tends to
-    # RENDER it as ghost text in the background despite "NO text". We only steer the SETTING + on-brand MOOD.
+    # NOTE: deliberately do NOT feed the literal headline/message into the prompt — gpt-image tends to RENDER
+    # it as ghost text in the background despite "NO text". We only steer the SETTING.
+    if theme:
+        # THEME -> a REALISTIC PHOTOGRAPHIC location (a real football stadium/pitch), so the real cut-out
+        # person composited on top looks genuinely photographed there — NOT an abstract corporate graphic.
+        return (
+            f'A realistic, photorealistic, cinematic BACKGROUND PHOTOGRAPH of the real location for this theme: '
+            f'"{theme[:160]}" — shown in its NATURAL, TRUE colours (a football/soccer theme -> a real GREEN '
+            "grass pitch inside a floodlit STADIUM at dusk/night, softly-blurred crowd in the stands, bright "
+            "stadium floodlights and gentle lens flare, shallow depth of field; cricket -> a green field with a "
+            "tan pitch strip; a festival -> its real lights and decor). Shot like a real professional "
+            "photograph — rich saturated colour, natural lighting, real atmosphere and depth. ABSOLUTELY NO "
+            "people, NO person, NO faces, NO text, NO words, NO letters, NO numbers, NO logos, NO signage. Keep "
+            "the RIGHT side a touch clearer for a standing person and the LEFT calmer/darker for a caption. "
+            "Square 1:1 composition."
+        )
+    scene = _SCENE_TYPES[variant % len(_SCENE_TYPES)]
     return (
         f"A richly designed, premium social-media BACKGROUND graphic for a corporate post: {scene}. "
         "Warm, professional, celebratory on-brand mood (welcome, teamwork, growth, a milestone), tasteful. "
@@ -1760,19 +1770,41 @@ async def _bold_split_poster(photo, variant, theme=""):
 
 async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme="",
                                   require_cutout=False):
-    """The person's post as a bold magazine SPLIT poster (the design the user liked): the REAL person on one
-    side — a clean CUT-OUT (transparent, no white wall) when the cut is clean, else their photo crop — beside a
-    THEMED panel (a real football pitch etc.) carrying the oversized caption. The FACE is never changed / never
-    AI-generated. Returns (path, fname, meta), or None."""
+    """Keep the person AS-IS (their exact real photo — never regenerated) and change only the BACKGROUND:
+    cut the real person out and composite them onto a REALISTIC themed background photo (a real stadium/pitch),
+    graded + grounded so they sit in the scene. If there's no theme / no clean cut-out, fall back to the bold
+    SPLIT poster (person cut-out beside a themed panel). Returns (path, fname, meta), or None."""
+    import numpy as np
+    from ..providers import llm
     skin = SKINS["photo"]
     template = int(variant) % 6
-    kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)] or "TEAM // SPOTLIGHT"
-    canvas, person_box, layout = await _bold_split_poster(photo, variant, theme)
-    canvas = _apply_grain(canvas, variant, 3.0)
+    layout = (template % 3) + 1
+    kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
+    canvas = person_box = None
+    if (theme or "").strip() and llm.image_provider_available():
+        hero = _cutout(photo)                                  # the REAL person, exact — only the bg changes
+        cut_ok = False
+        if hero.mode == "RGBA" and hero.width >= 160 and hero.height >= 240:
+            al = np.asarray(hero.split()[-1])
+            cut_ok = int(al.min()) < 245 and 0.30 <= float((al > 127).mean()) <= 0.97
+        if cut_ok:
+            try:
+                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme),
+                                                      size="1024x1024", quality="medium")
+                bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H) if data else None
+            except Exception:
+                bg = None
+            if bg is not None:                                 # realistic themed scene + the real person on top
+                canvas = _editorial_scrim(bg, layout, blur=2.0, strength=0.82, reach=0.5)
+                person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=True)
+    if canvas is None:                                          # no theme / no clean cut -> split poster
+        canvas, person_box, layout = await _bold_split_poster(photo, variant, theme)
+    canvas = _apply_grain(canvas, variant, 4.0)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
-    boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box, kicker)
-    _ensure_clear("split_L%d" % layout, person_box, *boxes)
+    boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box,
+                                 kicker or "TEAM // SPOTLIGHT")
+    _ensure_clear("editorial_L%d" % layout, person_box, *boxes)
     return _finish_editorial(canvas, "team_editorial")
 
 
@@ -1858,15 +1890,11 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        # THEMED images: a SEAMLESS, photorealistic scene — the person genuinely photographed INSIDE the theme,
-        # NO cutout / no pasted look (per the user's spec). Priority:
-        if faceswap.faceswap_available():       # seamless AI scene + EXACT REAL face swapped on (best; opt-in key)
+        # KEEP THE PERSON AS-IS (their exact real photo — never regenerated) and just CHANGE THE BACKGROUND:
+        # cut the real person out and place them onto a REALISTIC themed background (a real stadium/pitch).
+        if faceswap.faceswap_available():       # (opt-in) seamless AI scene + EXACT real face swapped on
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None and (theme or "").strip() and prefer != "graphic":
-            # DEFAULT for a theme: identity-preserving immersive scene (input_fidelity='high' keeps the face,
-            # skin, clothing) blended seamlessly into the themed environment — no cutout.
-            result = await _build_ai_portrait_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                      # fallback (no theme / 'Bold graphic' / edit unavailable): split poster
+        if result is None:                      # DEFAULT: real cut-out person (as-is) on a realistic themed bg
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result

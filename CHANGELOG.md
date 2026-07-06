@@ -3,6 +3,17 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Themed images: keep the person AS-IS, change only the background to a realistic scene (2026-07-03)
+Per the user: keep the person's photo exactly as-is (do NOT regenerate them) and just change the background to
+a realistic themed one. So the themed default is now the REAL cut-out person (their exact photo — face, pose,
+clothes untouched) composited onto a **realistic themed BACKGROUND PHOTO** (a real football stadium/pitch),
+graded + grounded so they sit in the scene — NOT the gpt-image edit (which re-generated the person) and NOT
+the split panel. `_scene_prompt` for a theme is now a realistic photographic prompt (real green pitch, floodlit
+stadium, depth of field — no people/text) instead of an abstract corporate graphic (which was producing that
+random indoor-lounge background). `build_ai_scene` themed default → `_build_editorial_banner` (cut-out on
+realistic bg; split-poster fallback). Verified with the real photo: person unchanged on a realistic floodlit
+stadium, blended, no white wall.
+
 ## Themed images: seamless photorealistic scene (person genuinely IN the location, no cutout) (2026-07-03)
 Per the user's spec — for a themed image the person should be *seamlessly photographed inside the themed
 environment* (realistic perspective, shadows, reflections, depth of field, colour grading), *blended
