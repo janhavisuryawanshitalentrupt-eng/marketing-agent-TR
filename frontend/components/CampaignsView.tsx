@@ -1447,7 +1447,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
             onClick={() => setTab("chat")}
             className={`rounded-md px-3 py-1.5 transition ${tab === "chat" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
           >
-            Chat
+            Create
           </button>
           <button
             onClick={() => { setTab("gallery"); refreshGallery(); }}
@@ -1462,7 +1462,7 @@ function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
         <div className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
           {assets.length === 0 ? (
             <p className="pt-10 text-center text-sm text-muted">
-              Nothing generated yet — switch to Chat and describe what you want.
+              Nothing generated yet — switch to Create and describe what you want.
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
