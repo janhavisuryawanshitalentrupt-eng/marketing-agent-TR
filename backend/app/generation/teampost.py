@@ -1673,18 +1673,36 @@ async def _bold_split_poster(photo, variant, theme=""):
     px = 0 if panel_left else W - panel_w           # panel x-origin
     fx = panel_w if panel_left else 0               # photo x-origin
     seam_x = panel_w if panel_left else photo_w     # where panel meets photo
-    # PHOTO: a tight portrait crop of the real photo (keeps the centred face), punchier cinematic contrast.
-    pic = _cover_fit(photo, photo_w, H)
-    arr = np.clip((np.asarray(pic.convert("RGB")).astype(np.float32) - 128) * 1.10 + 128, 0, 255)
     canvas = Image.new("RGB", (W, H), scheme)
-    canvas.paste(Image.fromarray(arr.astype("uint8"), "RGB"), (fx, 0))
-    # soft edge-scrim on the photo's panel-facing edge so the seam reads clean
-    es = Image.new("RGBA", (photo_w, H), (0, 0, 0, 0))
-    ed = ImageDraw.Draw(es)
-    for i in range(90):
-        a = int(150 * (1 - i / 90))
-        ed.line([((i if panel_left else photo_w - 1 - i), 0), ((i if panel_left else photo_w - 1 - i), H)], fill=(*scheme, a))
-    canvas.paste(es, (fx, 0), es)
+    # PHOTO SIDE: a clean CUT-OUT of the person (transparent -> NO white studio wall) floated on a dark brand
+    # gradient when the cut is clean; otherwise the raw photo crop (still fine, just keeps their own bg).
+    hero = _cutout(photo)
+    clean_cut = hero.mode == "RGBA" and int(np.asarray(hero.split()[-1]).min()) < 245
+    if clean_cut:
+        g = np.linspace(1.14, 0.72, H)[:, None, None]                     # dark brand gradient backdrop
+        pbg = Image.fromarray(np.clip(np.broadcast_to(np.array(scheme, float), (H, photo_w, 3)) * g, 0, 255)
+                              .astype("uint8"), "RGB").convert("RGBA")
+        sc = (H * 0.99) / hero.height                                     # fill the height, anchored bottom
+        hw, hh = max(1, int(hero.width * sc)), max(1, int(hero.height * sc))
+        hero2 = hero.resize((hw, hh), Image.LANCZOS)
+        ox, oy = (photo_w - hw) // 2, H - hh
+        # soft grounding shadow so the cut-out doesn't look pasted
+        sh = Image.new("RGBA", (photo_w, H), (0, 0, 0, 0))
+        sha = hero2.split()[-1].point(lambda v: int(v * 0.5))
+        sh.paste((0, 0, 0, 255), (ox + 10, oy + 16), sha)
+        pbg = Image.alpha_composite(pbg, sh.filter(ImageFilter.GaussianBlur(14)))
+        pbg.alpha_composite(hero2, (ox, oy))
+        canvas.paste(pbg.convert("RGB"), (fx, 0))
+    else:
+        pic = _cover_fit(photo, photo_w, H)
+        arr = np.clip((np.asarray(pic.convert("RGB")).astype(np.float32) - 128) * 1.10 + 128, 0, 255)
+        canvas.paste(Image.fromarray(arr.astype("uint8"), "RGB"), (fx, 0))
+        es = Image.new("RGBA", (photo_w, H), (0, 0, 0, 0))               # soft seam scrim (photo-crop case only)
+        ed = ImageDraw.Draw(es)
+        for i in range(90):
+            a = int(150 * (1 - i / 90))
+            ed.line([((i if panel_left else photo_w - 1 - i), 0), ((i if panel_left else photo_w - 1 - i), H)], fill=(*scheme, a))
+        canvas.paste(es, (fx, 0), es)
     # PANEL: a THEMED graphic when a theme is set + provider up, else a flat scheme gradient.
     themed, panel = False, None
     if (theme or "").strip() and llm.image_provider_available():
@@ -1738,58 +1756,19 @@ async def _bold_split_poster(photo, variant, theme=""):
 
 async def _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme="",
                                   require_cutout=False):
-    """PREMIUM EDITORIAL composite — the REAL CUT-OUT person (transparent background) composited onto a
-    designed background: a gpt-image themed scene (person on the pitch) or a bold graphic plate. WITHOUT a
-    clean cut-out they get a bold magazine SPLIT poster — unless `require_cutout=True`, in which case it
-    returns None so the caller can try the immersive AI scene instead. The FACE is never changed. Returns
-    (path, fname, meta), or None."""
-    import numpy as np
-    from ..providers import llm
+    """The person's post as a bold magazine SPLIT poster (the design the user liked): the REAL person on one
+    side — a clean CUT-OUT (transparent, no white wall) when the cut is clean, else their photo crop — beside a
+    THEMED panel (a real football pitch etc.) carrying the oversized caption. The FACE is never changed / never
+    AI-generated. Returns (path, fname, meta), or None."""
     skin = SKINS["photo"]
-    template = int(variant) % 6          # 6 distinct designs (0-4 = bold graphic, 5 = photographic scene)
-    layout = (template % 3) + 1          # person position rotates too
-    text_left = layout != 3
-    kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)]
-    # Cut out FIRST so we only pay for a gpt-image scene when we can actually composite the person onto it.
-    hero = _cutout(photo)
-    # A valid cut-out has real transparency and a sensible opaque fraction of its TIGHT crop — judged on the
-    # cut itself, NOT the original photo's aspect ratio (a landscape studio shot yields a narrow person, which
-    # the old width>=42%-of-photo test wrongly rejected → it always fell back to the white-wall split poster).
-    cut_ok = False
-    if hero.mode == "RGBA" and hero.width >= 160 and hero.height >= 240:
-        al = np.asarray(hero.split()[-1])
-        cov = float((al > 127).mean())
-        cut_ok = int(al.min()) < 245 and 0.30 <= cov <= 0.97
-    if require_cutout and not cut_ok:
-        return None  # caller wants a real cut-out only -> let it fall through to the immersive AI scene
-    if cut_ok:
-        # With a campaign THEME set, use a photographic themed backdrop (so the scene matches the campaign);
-        # otherwise a BOLD graphic plate (instant + looks designed).
-        photo_bg = (template == 5 or bool((theme or "").strip())) and llm.image_provider_available()
-        bg = None
-        if photo_bg:
-            try:
-                data = await llm.generate_image_bytes(_scene_prompt(headline, question, variant, theme),
-                                                      size="1024x1024", quality="medium")
-                if data:
-                    bg = _cover_fit(Image.open(io.BytesIO(data)).convert("RGB"), W, H)
-            except Exception:
-                bg = None
-        if bg is None:                   # graphic poster (also the offline / provider-down path)
-            photo_bg = False
-            bg = _graphic_editorial_bg(template, text_left)
-        canvas = _editorial_scrim(bg, layout, blur=2.4 if photo_bg else 0,
-                                  strength=0.86 if photo_bg else 0.82, reach=0.55 if photo_bg else 0.40)
-        person_box = _place_editorial_person(canvas, skin, hero, layout, photo_bg=photo_bg)
-    else:  # no clean cut-out -> BOLD designed split poster (real face kept), side/colour/seam/accent rotate
-        photo_bg = False
-        canvas, person_box, layout = await _bold_split_poster(photo, variant, theme)
-        kicker = kicker or "TEAM // SPOTLIGHT"
-    canvas = _apply_grain(canvas, variant, 3.0 if not photo_bg else 4.0)
+    template = int(variant) % 6
+    kicker = _EDITORIAL_KICKERS[template % len(_EDITORIAL_KICKERS)] or "TEAM // SPOTLIGHT"
+    canvas, person_box, layout = await _bold_split_poster(photo, variant, theme)
+    canvas = _apply_grain(canvas, variant, 3.0)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL_W, H], fill=skin.accent)
     boxes = _draw_editorial_text(canvas, d, skin, name, role, headline, question, keyword, layout, person_box, kicker)
-    _ensure_clear("editorial_L%d" % layout, person_box, *boxes)
+    _ensure_clear("split_L%d" % layout, person_box, *boxes)
     return _finish_editorial(canvas, "team_editorial")
 
 
@@ -1875,16 +1854,12 @@ async def build_ai_scene(brand, photo_bytes, name="", role="", headline="", ques
     try:
         from . import faceswap
         result = None
-        # HARD RULE: NEVER AI-generate the face — always use the REAL uploaded photo's face. So the person is
-        # only ever their real cut-out photo, or (with a FACESWAP key) an AI scene with their EXACT real face
-        # swapped on. The plain gpt-image edit (`_build_ai_portrait_banner`) makes an AI face and is NOT used.
+        # HARD RULE: NEVER AI-generate the face — always the REAL uploaded photo's face. So the person is only
+        # ever their real cut-out/photo (the SPLIT poster), or — with a FACESWAP key — an AI scene with their
+        # EXACT real face swapped on. The plain gpt-image edit makes an AI face and is NOT used.
         if faceswap.faceswap_available():       # immersive AI scene + EXACT REAL face swapped on (best; opt-in key)
             result = await _build_faceswap_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None and prefer == "graphic":  # bold graphic poster with the real cut-out person
-            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
-        if result is None:                      # DEFAULT: real cut-out person composited onto the themed scene
-            result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme, require_cutout=True)
-        if result is None:                      # no clean cut-out -> clean framed/split design (still the REAL face)
+        if result is None:                      # DEFAULT: the SPLIT poster — real cut-out person + themed panel
             result = await _build_editorial_banner(brand, photo, name, role, headline, question, variant, keyword, theme)
         if result is not None:
             return result

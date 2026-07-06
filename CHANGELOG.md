@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## The split poster now cuts the person out (transparent) + drops the pasted full-scene composite (2026-07-03)
+The user liked the SPLIT design (person beside a themed panel) but (a) the person showed their white wall and
+(b) a separate "full-scene composite" path was putting the cut-out on a random indoor room and looked pasted.
+Both fixed:
+- `_bold_split_poster` now floats a **clean CUT-OUT of the person on a dark brand gradient** (no white studio
+  wall) with a soft grounding shadow when the cut is clean; falls back to the photo crop otherwise.
+- `_build_editorial_banner` now **always renders the split poster** (the liked design) and no longer does the
+  pasted-looking full-scene composite. `build_ai_scene` simplified to: FACESWAP → split poster → template.
+- The themed panel keeps the reliable real football pitch (`_panel_theme_prompt`).
+Verified with the real photo: person cut out on a brand gradient beside a real green-pitch panel — clean,
+professional, on-theme, real face. (A guaranteed cut-out on every photo still benefits from `BG_REMOVAL_API_KEY`.)
+
 ## Cut-out works when hair reaches the top of the frame (2026-07-03)
 Subjects with tall hair / head near the top of the photo were failing the cut-out (the wall estimate used the
 whole top strip, which their hair made non-uniform → the remover bailed → the raw white-wall photo shipped in
