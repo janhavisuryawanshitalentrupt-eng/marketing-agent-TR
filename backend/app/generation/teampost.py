@@ -177,6 +177,21 @@ def _key_plain_bg(img: Image.Image):
         a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(7))
              .filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MedianFilter(5))
              .filter(ImageFilter.GaussianBlur(1.2)))
+        # QUALITY GATE — only ship a cut-out that's actually CLEAN. A clean silhouette is a solid blob with a
+        # smooth edge and almost no bright-neutral WALL left inside it (measured clean cut ≈ 0.9% roughness,
+        # 0.1% leftover wall). A messy free-key (jagged edge / leftover 'cream shadow') scores far higher — bail
+        # so the caller uses the CLEAN framed/split design instead of shipping a rough cut-out.
+        a_np = np.asarray(a)
+        op = a_np > 127
+        area = int(op.sum())
+        if area < 1:
+            return None
+        peri = int(np.abs(np.diff(op.astype(np.int16), axis=0)).sum()
+                   + np.abs(np.diff(op.astype(np.int16), axis=1)).sum())
+        roughness = peri / area * 100.0
+        wall_left = float((op & ((mx - mn) < 26) & (bright > 150)).mean())
+        if roughness > 2.4 or wall_left > 0.015:
+            return None
         out = rgb.convert("RGBA")
         out.putalpha(a)
         bbox = out.getbbox()

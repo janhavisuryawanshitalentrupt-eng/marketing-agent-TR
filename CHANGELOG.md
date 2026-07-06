@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Never ship a rough cut-out — quality gate on the free keyer (2026-07-03)
+Some photos still cut out messy on the free keyer (jagged edge / leftover "cream shadow" wall), and with the
+relaxed `cut_ok` those messy cuts were being shipped. Added a **quality gate** at the end of `_key_plain_bg`:
+it measures the cut's edge roughness (perimeter/area) and leftover bright-neutral wall inside the silhouette
+(a clean cut ≈ 0.9% roughness / 0.1% wall) and **returns None if the cut is messy** (roughness > 2.4% or
+wall > 1.5%) — so the caller falls back to the CLEAN framed/split design instead of a rough cut-out. Verified
+the clean reference cut still passes. Net: "Bold & colourful" (and any cut-out path) now yields a clean
+cut-out on good photos and a clean framed design on hard ones — never a rough one. (A guaranteed clean cut-out
+on *every* photo still needs `BG_REMOVAL_API_KEY`.)
+
 ## "In the action" is now the immersive DRAMATIC scene (ChatGPT-level) (2026-07-03)
 The user compared a ChatGPT poster (person standing powerfully inside an epic floodlit stadium) to our flat
 cut-out-on-a-panel and asked why ours wasn't as professional. So the DEFAULT / "In the action" themed image is
