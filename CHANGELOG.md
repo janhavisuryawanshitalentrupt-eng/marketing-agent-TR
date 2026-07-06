@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Campaign images: themed by campaign NAME, faster, clearer wait (2026-07-03)
+Two fixes for "campaign image generation doesn't use the theme / seems not to generate":
+- **Themed by the campaign NAME, not just the brief.** The image theme is now `campaign name + brief`, so a
+  campaign called "Football Campaign" with an empty brief is still themed by its name (football). Both the
+  employee-feature path and the generic campaign-image planner use it (`_campaign_theme` in `tools.py`).
+- **Stop re-attempting a dead edit endpoint.** If this account's OpenAI plan can't do `/images/edits` (e.g.
+  only gpt-image-2, which 400s on edits), we now trip a process flag after the first proven failure and
+  **fast-fail every later attempt** instead of paying the doomed round-trip per image — the employee image
+  falls straight to the real-cutout composite (exact real face, themed). Resets on any successful edit.
+- **Clearer expectation.** The "working" status now says *"…this can take up to a minute"* so a genuine
+  ~40–60s AI render (the model's own latency — unavoidable for a themed photographic image) doesn't read as
+  broken. Employee AI edits also drop to `quality='medium'` (identity is held by `input_fidelity`, not
+  quality) to trim latency where the endpoint is available.
+
 ## Campaign work continues when you switch tabs (2026-07-02)
 Starting a generation in a campaign and then switching to another campaign/section no longer *looks* like it
 stopped — and now reliably shows the result when you come back:

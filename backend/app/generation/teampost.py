@@ -1157,6 +1157,7 @@ async def _ai_portrait_canvas(photo: Image.Image, headline: str, question: str, 
         data = await llm.generate_image_edit(
             _portrait_prompt(headline, question, variant, theme), [img_to_png_bytes(src)],
             size="1024x1024", input_fidelity="high", mime="image/png",
+            quality="medium",  # identity is held by input_fidelity, not quality — medium ~halves latency
         )
         if not data:
             return None

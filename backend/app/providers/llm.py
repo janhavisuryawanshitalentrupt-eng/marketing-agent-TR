@@ -65,6 +65,9 @@ def image_provider_available() -> bool:
 # The model that produced the most recent image — surfaced in asset meta so we can see which model
 # actually ran (the configured one, or the gpt-image-1 fallback when the configured model is rejected).
 LAST_IMAGE_MODEL: str = settings.openai_image_model
+# Trips to True once the /images/edits endpoint proves unavailable on this account (so we stop paying the
+# doomed-attempt latency on every subsequent employee image); resets on any successful edit.
+_EDITS_DISABLED: bool = False
 
 
 def _image_models() -> list[str]:
@@ -119,7 +122,12 @@ async def generate_image_edit(
         keeps the SAME person's face/features while it repose/reframes/re-lights them (the employee AI
         portrait path). input_fidelity is a gpt-image-1 param; if a model rejects it the loop falls back.
     Tries the configured model, falling back to gpt-image-1 if that model is rejected. Returns PNG bytes."""
-    global LAST_IMAGE_MODEL
+    global LAST_IMAGE_MODEL, _EDITS_DISABLED
+    # If a prior call proved this account/endpoint can't do /images/edits (e.g. only gpt-image-2 is
+    # available, which 400s on edits), stop wasting ~10-15s per image re-attempting the doomed call — fail
+    # fast so the caller falls straight back to the real-cutout composite. Resets on any later success.
+    if _EDITS_DISABLED:
+        raise RuntimeError("image-edit endpoint disabled after a prior unsupported-endpoint failure")
     url = f"{settings.openai_base_url.rstrip('/')}/images/edits"
     headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
     ext = "png" if "png" in mime else "jpg"
@@ -128,6 +136,7 @@ async def generate_image_edit(
         for i, data in enumerate(references)
     ]
     last_err: Exception | None = None
+    unsupported = False  # a 4xx that means "this endpoint/model can't edit" (vs a transient 5xx/network error)
     # /images/edits is a gpt-image-1 capability today — gpt-image-2 currently 400s on the edit endpoint —
     # so try the known edit-capable model FIRST. Otherwise (when gpt-image-2 is the configured model) every
     # edit wastes a failed call before falling back. Any other configured model stays in the list after it,
@@ -148,10 +157,17 @@ async def generate_image_edit(
                 resp.raise_for_status()
                 b64 = resp.json()["data"][0]["b64_json"]
             LAST_IMAGE_MODEL = model
+            _EDITS_DISABLED = False  # it works here — clear any earlier suspicion
             return base64.b64decode(b64)
         except Exception as e:
             last_err = e
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (400, 403, 404):  # model/endpoint not available for edits on this account
+                unsupported = True
             logging.getLogger(__name__).warning("image-edit model %s failed: %s", model, e)
+    if unsupported:  # every edit-capable model rejected the endpoint -> don't keep trying on later images
+        _EDITS_DISABLED = True
+        logging.getLogger(__name__).warning("disabling image-edit endpoint for this process (unsupported here)")
     raise last_err  # type: ignore[misc]
 
 

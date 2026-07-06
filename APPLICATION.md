@@ -108,7 +108,8 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   (`_enhance_photo`).
   **CAMPAIGN mode** (an asset generated inside a campaign) changes two things: (a) the campaign brief is passed
   as a `theme` down through `build_ai_scene` → `_portrait_prompt`/`_scene_prompt`, so the employee is staged in
-  the campaign's world (a Football brief → on a pitch in kit); and (b) the on-image name label is suppressed
+  the campaign's world (a Football brief → on a pitch in kit). The theme = **campaign name + brief**
+  (`_campaign_theme`), so a campaign named "Football Campaign" is themed even with an empty brief; and (b) the on-image name label is suppressed
   (`name=""`), per the "no names on campaign images" rule. Generic campaign scenes (`images.build_images`, via
   `exec_generate_image`) additionally get the account's real employee photos (`team_photos`): the planner flags
   each variation `has_people`, and every people-variation is rendered as a REAL employee (rotating the roster)

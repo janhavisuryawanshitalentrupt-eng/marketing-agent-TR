@@ -147,6 +147,19 @@ async def exec_generate_posts(db, state, brand, args) -> dict:
             "assets": saved}
 
 
+def _campaign_theme(state: dict) -> str:
+    """The theme that grounds campaign image generation = campaign NAME + brief. Using the name means a
+    campaign called 'Football Campaign' with no written brief is still themed by its name. '' outside a
+    campaign."""
+    if state.get("campaign_id") is None:
+        return ""
+    name = (state.get("campaign_name", "") or "").strip()
+    brief = (state.get("campaign_brief", "") or "").strip()
+    if name and brief:
+        return f"{name} — {brief}"
+    return name or brief
+
+
 async def exec_generate_image(db, state, brand, args) -> dict:
     concept = args.get("concept", "")
     # HARD GUARD (defense-in-depth): NEVER AI-generate a real team member's face. If the concept names
@@ -162,7 +175,9 @@ async def exec_generate_image(db, state, brand, args) -> dict:
         count = max(1, min(int(args.get("count", 1) or 1), 3))
     except (TypeError, ValueError):
         count = 1
-    brief = state.get("campaign_brief", "")
+    # THEME = campaign NAME + brief, so even a campaign with an empty brief (just named "Football Campaign")
+    # still grounds/themes the image. Name alone is a valid theme.
+    theme = _campaign_theme(state)
     # CAMPAIGN mode: hand the builder this account's real employee photos so any people-scene shows a REAL
     # teammate (rotating), never a random AI face. Only in a campaign (Chat/Create keep generic scenes).
     team_photos: list[bytes] = []
@@ -177,7 +192,7 @@ async def exec_generate_image(db, state, brand, args) -> dict:
             except Exception:
                 continue
     rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"),
-                                         brief=brief, team_photos=team_photos, theme=brief)
+                                         brief=theme, team_photos=team_photos, theme=theme)
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
@@ -1059,7 +1074,7 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
     # festive decor, …), and the on-image NAME label is suppressed (the user asked for no names on campaign
     # images). In plain Chat/Create the name label stays and there's no forced theme.
     in_campaign = state.get("campaign_id") is not None
-    theme = (state.get("campaign_brief", "") or "").strip() if in_campaign else ""
+    theme = _campaign_theme(state)  # campaign NAME + brief -> themed even when the brief is empty
     render_name = "" if in_campaign else match.name
     render_role = "" if in_campaign else match.role
     style_arg = (args.get("style") or "").strip().lower()
@@ -1201,10 +1216,10 @@ def tools_for(mode: str) -> tuple[dict, list]:
 STATUS_LABELS = {
     "create_campaign": "Planning the campaign strategy",
     "generate_posts": "Writing on-brand posts",
-    "generate_image": "Designing a campaign visual",
-    "generate_team_image": "Featuring the team",
-    "feature_uploaded_person": "Featuring your photo",
-    "feature_employee": "Featuring your team member",
+    "generate_image": "Designing a campaign visual — this can take up to a minute",
+    "generate_team_image": "Featuring the team — this can take up to a minute",
+    "feature_uploaded_person": "Featuring your photo — this can take up to a minute",
+    "feature_employee": "Featuring your team member — this can take up to a minute",
     "build_deck": "Designing presentation slides",
     "build_pdf": "Preparing the document",
     "search_brand_knowledge": "Reviewing past Talentrupt work",
