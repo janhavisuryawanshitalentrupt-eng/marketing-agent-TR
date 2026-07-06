@@ -175,6 +175,23 @@ def _key_plain_bg(img: Image.Image):
         wall2 = (alpha > 127) & ((mx - mn) < 26) & (bright > 150)
         if 0.0 < float(wall2.mean()) < 0.22:  # safety: never nuke a genuinely pale subject
             alpha = np.where(wall2, 0, alpha).astype(np.uint8)
+        # SOLIDIFY the interior: re-close every hole the neutral / wall2 gates punched INSIDE the body (a bright
+        # watch, a specular highlight, a light tattoo). Otherwise a bright background — e.g. a green football
+        # pitch — shows through them as coloured SPECKLES on the person (the "green dots on the hand"). Flood the
+        # true background inward from the border corners; any 0-pixel NOT reached is enclosed by the subject ->
+        # force it opaque. Fully see-through gaps that open to the frame edge (an arm-on-hip triangle) stay cut,
+        # which is correct.
+        try:
+            fill = Image.fromarray(((alpha > 127).astype(np.uint8) * 255), "L").convert("RGB")
+            farr = np.asarray(fill)
+            for cx, cy in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+                if float(farr[cy, cx].mean()) < 128:            # a genuine background corner
+                    ImageDraw.floodfill(fill, (cx, cy), (3, 5, 7), thresh=20)
+            outside = np.all(np.asarray(fill) == np.array((3, 5, 7)), axis=-1)
+            if 0.05 < float(outside.mean()) < 0.95:             # sane bg/fg split -> trust it
+                alpha = np.where(outside, 0, 255).astype(np.uint8)
+        except Exception:
+            pass
         # Despeckle harder (kills rough fringe + speckle), ERODE 1px to cut the light background halo, feather.
         a = (Image.fromarray(alpha, "L").filter(ImageFilter.MedianFilter(7))
              .filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MedianFilter(5))
@@ -259,7 +276,10 @@ def _enhance_photo(img: Image.Image) -> Image.Image:
         img = ImageEnhance.Brightness(img).enhance(1.03)
         img = ImageEnhance.Color(img).enhance(1.06)          # a little more life in the colour
         img = ImageEnhance.Contrast(img).enhance(1.05)
-        img = ImageEnhance.Sharpness(img).enhance(1.18)      # crisper without looking processed
+        img = ImageEnhance.Sharpness(img).enhance(1.10)
+        # UnsharpMask crisps EDGES (printed shirt text / logos, eyes) better than the flat sharpness enhancer,
+        # so a small brand tee logo stays legible in the composite. threshold=3 keeps smooth skin clean.
+        img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=95, threshold=3))
     except Exception:
         pass
     return img
@@ -1538,8 +1558,9 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=""):
     # body stays prominent + floor-anchored (layout 2 = a deliberate dramatic top-bleed crop).
     if half_body:
         # a torso crop: contained (narrower cap) + inset from the edge (bigger pad) so it never jams into /
-        # bleeds off the SIDE, and GROUNDED at the bottom (below) — not floating.
-        target_h, cap, right_pad = int(H * 0.80 * fit_mul), (W * 0.50 if layout == 3 else W * 0.52), 60
+        # bleeds off the SIDE, and GROUNDED at the bottom (below) — not floating. Sized a touch larger so a
+        # printed SHIRT LOGO / text reads clearly.
+        target_h, cap, right_pad = int(H * 0.84 * fit_mul), (W * 0.54 if layout == 3 else W * 0.56), 54
     elif layout == 2:
         target_h, cap, right_pad = int(H * 0.98 * fit_mul), W * 0.60, 16
     elif layout == 3:
@@ -1577,6 +1598,21 @@ def _place_editorial_person(canvas, skin, hero, layout, photo_bg=True, fit=""):
         hero.putalpha(a)
     except Exception:
         pass
+    # STAGE 1b — GREEN DESPILL: the subject has no genuine green (warm skin, navy shirt, dark hair), so any
+    # green-DOMINANT pixel is spill / fringe from a green background (a pitch) bleeding onto a soft edge. Pull
+    # the green channel down to just above max(R,B) so it never tints or green-fringes the person. Only applied
+    # over a photo background; strongly-green-only so it can't grey a legitimately navy/skin subject.
+    if photo_bg:
+        try:
+            hr = np.asarray(hero.convert("RGB")).astype(np.float32)
+            rb = np.maximum(hr[..., 0], hr[..., 2])
+            over = hr[..., 1] > rb + 18
+            hr[..., 1] = np.where(over, rb + 10, hr[..., 1])
+            despilled = Image.fromarray(np.clip(hr, 0, 255).astype("uint8"), "RGB").convert("RGBA")
+            despilled.putalpha(a)
+            hero = despilled
+        except Exception:
+            pass
     # STAGE 2 — feather + a 1px erode (kills the 'sticker' edge)
     a = a.filter(ImageFilter.GaussianBlur(0.6)).filter(ImageFilter.MinFilter(3))
     hero.putalpha(a)

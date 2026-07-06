@@ -3,6 +3,26 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: green speckles on the person + crisper shirt text (2026-07-06)
+On a green-pitch scene, coloured speckles appeared on the subject's arms/hands — the bright background showing
+through tiny holes the free keyer punched in the body (a watch, a specular highlight, a light tattoo). Fixed
+in the cut-out + compositor:
+
+- **Interior solidify** (`_key_plain_bg`): after the neutral / bright-wall gates run, the alpha is re-flooded
+  from the border and every 0-pixel NOT reached (i.e. enclosed by the subject) is forced OPAQUE — so the scene
+  can no longer show through the body as speckles. Genuine see-through gaps that open to the frame edge stay
+  cut, which is correct.
+- **Green despill** (`_place_editorial_person`): the subject has no real green (warm skin, navy shirt, dark
+  hair), so any strongly green-dominant pixel is spill/fringe from the pitch — its green channel is pulled down
+  to just above max(R,B), killing green edge-fringe on a photo background.
+- **Crisper shirt text** (`_enhance_photo`): swapped part of the flat Sharpness boost for an `UnsharpMask`
+  (radius 1.5, 95%, threshold 3) that crisps EDGES — a printed brand-tee logo stays legible — and the
+  half-body subject is sized a touch larger (0.80→0.84·H, cap 0.52→0.56·W) so the text reads.
+
+Verified on a synthetic with a bright forearm spot over a green pitch: the hole fills with the person's own
+pixels (no green dot) and the shirt logo renders clearly. NOTE: a hosted `BG_REMOVAL_API_KEY` (remove.bg)
+still gives the cleanest alpha of all — recommended for photos with busy arms/tattoos.
+
 ## Image model routing: gpt-image-2 for the main image, gpt-image-1 for small tasks (2026-07-06)
 The featured/user-facing image now always uses the best model; small auxiliary graphics use the lighter,
 cheaper one. `generate_image_bytes` gained a `model` override: the MAIN images — the featured campaign/employee
