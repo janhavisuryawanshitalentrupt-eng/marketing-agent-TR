@@ -218,8 +218,11 @@ def _key_plain_bg(img: Image.Image):
         peri = int(np.abs(np.diff(op.astype(np.int16), axis=0)).sum()
                    + np.abs(np.diff(op.astype(np.int16), axis=1)).sum())
         roughness = peri / area * 100.0
-        wall_left = float((op & ((mx - mn) < 26) & (bright > 150)).mean())
-        if roughness > 2.4 or wall_left > 0.015:
+        # Measure leftover WALL only NEAR the edge (near_bg). Deep-interior bright-neutral pixels are the
+        # printed SHIRT TEXT / logo (which we now deliberately KEEP) — counting those as "wall" wrongly failed
+        # the gate and dumped the person onto a plain split-poster background instead of the themed scene.
+        wall_left = float((op & near_bg & ((mx - mn) < 26) & (bright > 150)).mean())
+        if roughness > 2.4 or wall_left > 0.02:
             return None
         out = rgb.convert("RGBA")
         out.putalpha(a)

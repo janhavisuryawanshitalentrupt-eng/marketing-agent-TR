@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: campaign person now reliably lands on the themed SCENE (not a plain split-poster) (2026-07-07)
+Follow-up to the shirt-text fix: protecting the white shirt text (keeping it opaque) meant those bright,
+low-saturation letters were then counted as "leftover WALL" by the cut-out quality gate — so `wall_left`
+exceeded the threshold, the keyer BAILED, and the person was dumped onto a plain split-poster background
+instead of the realistic themed scene. Fixed by measuring `wall_left` **near the edge only** (`op & near_bg`,
+the same outline zone the strip gates use) so the deep-chest shirt logo no longer trips the gate; threshold
+nudged 0.015→0.02. Net: a campaign employee image now reliably places the real person on the theme's realistic
+scene — football → floodlit stadium/pitch/crowd/goal, cricket → cricket field, etc. (via the theme-aware
+`_scene_prompt`) — rather than a plain background. Verified: a plain-bg person with prominent white shirt text
+now ships a clean cut-out (→ scene composite) instead of bailing. (A genuinely BUSY photo background still
+can't be cut for free — that's where `BG_REMOVAL_API_KEY` guarantees it.)
+
 ## Fix: green/grey dots ON the shirt text (2026-07-07)
 The printed shirt logo ("emerge·evolve·establish") was speckled with coloured dots on a scene composite. Root
 cause: the free keyer's neutral/wall gates strip bright, low-saturation pixels to remove a cast shadow /
