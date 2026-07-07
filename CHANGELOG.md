@@ -3,6 +3,24 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Folders: multiple photos per employee (2026-07-07)
+Each employee can now have **several photos**, not just one — for both new and existing people.
+
+- **Add many at once**: the new-employee uploader is multi-select (first photo = cover). Every employee
+  card (including ones added before this change) now has an **"Add photos"** button to attach more later.
+- **Manage them**: the photo lightbox is now a gallery — switch between a person's shots, download one, and
+  delete extras (the cover is removed only by removing the whole employee). Cards show a **photo-count badge**.
+- **Used for variety**: when a person is featured (Chat `@mention`, or the Folders "generate" button), the
+  app now **rotates at random** across their photos, so repeated posts of the same person don't all look alike.
+- **Data**: a new `employee_photos` table holds the extra shots (the cover stays on `Employee.photo_path`, so
+  existing rows and the @mention/feature flows are unchanged). New endpoints: `POST /api/employees/{id}/photos`,
+  `DELETE /api/employees/{id}/photos/{photo_id}`; `POST /api/folders/{id}/employees` now accepts multiple
+  `files`. Deleting an employee/folder cleans up all their photo files.
+
+Verified: backend end-to-end (add 3 → add 2 more → list → delete extra → rotation helper; bogus photo id 404s)
+and browser (multi-select uploader, count badge, "Add photos", lightbox gallery with Cover label — no console
+errors).
+
 ## Chat: posts now use Talentrupt's own house design language (2026-07-07)
 Generating a post in **Chat** (with a person image or without) now reproduces Talentrupt's real post style,
 built from a folder of the brand's own reference posts. Scoped to Chat only — Campaign and Magazine are

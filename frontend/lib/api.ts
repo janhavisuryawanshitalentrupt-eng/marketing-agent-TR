@@ -494,11 +494,11 @@ export async function getAllEmployees(): Promise<Employee[]> {
   return res.json();
 }
 
-export async function addEmployee(folderId: number, name: string, role: string, file: File): Promise<Employee> {
+export async function addEmployee(folderId: number, name: string, role: string, files: File[]): Promise<Employee> {
   const fd = new FormData();
   fd.append("name", name);
   fd.append("role_title", role);
-  fd.append("file", file);
+  for (const f of files) fd.append("files", f); // one or more photos; first becomes the cover
   // No Content-Type — the browser sets the multipart boundary.
   const res = await fetch(`${API_BASE}/api/folders/${folderId}/employees`, {
     method: "POST",
@@ -506,6 +506,29 @@ export async function addEmployee(folderId: number, name: string, role: string, 
     body: fd,
   });
   if (!res.ok) throw new Error("Failed to add employee");
+  return res.json();
+}
+
+// Add one or more EXTRA photos to an existing employee (same person, different shots).
+export async function addEmployeePhotos(empId: number, files: File[]): Promise<Employee> {
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  const res = await fetch(`${API_BASE}/api/employees/${empId}/photos`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: fd,
+  });
+  if (!res.ok) throw new Error("Failed to add photos");
+  return res.json();
+}
+
+// Delete ONE extra photo (not the cover). Returns the updated employee.
+export async function deleteEmployeePhoto(empId: number, photoId: number): Promise<Employee> {
+  const res = await fetch(`${API_BASE}/api/employees/${empId}/photos/${photoId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Delete failed");
   return res.json();
 }
 

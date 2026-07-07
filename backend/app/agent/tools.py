@@ -1134,6 +1134,20 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
             + " from your uploaded photo — real face, unchanged" + note + ".", "assets": assets}
 
 
+def _employee_photo_bytes(e) -> bytes | None:
+    """Read ONE of an employee's REAL photos — the cover plus any extra shots — chosen at random so
+    repeated features of the same person rotate through their different photos for variety."""
+    paths = [p for p in ([e.photo_path] + [ep.photo_path for ep in (getattr(e, "photos", None) or [])]) if p]
+    random.shuffle(paths)
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                return f.read()
+        except Exception:
+            continue
+    return None
+
+
 async def exec_feature_employee(db, state, brand, args) -> dict:
     """Feature a Talentrupt EMPLOYEE from the Folders photo library by NAME: looks up the employee for
     THIS account, composites their REAL stored photo into the brand template. NEVER AI-generates the
@@ -1152,10 +1166,8 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
         avail = ", ".join(e.name for e in rows[:8]) if rows else "no employees yet"
         return {"summary": f'I couldn\'t find "{name_q}" in your Folders. Add them in the Folders section '
                 f"first (upload their photo). You have: {avail}.", "assets": []}
-    try:
-        with open(match.photo_path, "rb") as f:
-            raw = f.read()
-    except Exception:
+    raw = _employee_photo_bytes(match)  # rotate across the person's photos (cover + extras) for variety
+    if raw is None:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}
     raw_msg = (args.get("message") or "").strip()

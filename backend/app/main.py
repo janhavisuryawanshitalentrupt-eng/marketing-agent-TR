@@ -57,6 +57,7 @@ from .models import (
     CampaignProspect,
     Conversation,
     Employee,
+    EmployeePhoto,
     Folder,
     Message,
     Opportunity,
@@ -488,11 +489,42 @@ class FolderGenerate(BaseModel):
 
 
 def _serialize_employee(e: Employee) -> dict:
+    # photos[0] is the COVER (Employee.photo_path, id=None so it isn't individually deletable — remove the
+    # whole employee for that); the rest are extra EmployeePhoto shots (deletable by their id).
+    photos = [{"id": None, "file_url": e.file_url, "primary": True}]
+    photos += [{"id": p.id, "file_url": p.file_url, "primary": False} for p in (e.photos or [])]
     return {
         "id": e.id, "folder_id": e.folder_id, "name": e.name, "role": e.role,
-        "file_url": e.file_url,
+        "file_url": e.file_url, "photos": photos, "photo_count": len(photos),
         "created_at": e.created_at.isoformat() if e.created_at else None,
     }
+
+
+_PHOTO_EXTS = ("jpg", "jpeg", "png", "webp", "heic", "heif")
+
+
+async def _read_upload(file: UploadFile, limit: int = 25 * 1024 * 1024) -> bytes:
+    """Read an uploaded file in chunks with a hard size cap (raises 413)."""
+    total, parts = 0, []
+    while chunk := await file.read(1 << 20):
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(status_code=413, detail="Photo too large (max 25 MB).")
+        parts.append(chunk)
+    return b"".join(parts)
+
+
+def _save_employee_photo(data: bytes, filename: str) -> tuple[str, str]:
+    """Persist one employee photo to the 'employees' store; return (on_disk_path, served_url)."""
+    ext = (filename or "photo.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in _PHOTO_EXTS:
+        ext = "jpg"
+    fname = unique_name("emp", ext)
+    sub = storage_subdir("employees")
+    sub.mkdir(parents=True, exist_ok=True)
+    with open(sub / fname, "wb") as fh:
+        fh.write(data)
+    return str(sub / fname), public_url("employees", fname)
 
 
 def _serialize_folder(db: Session, f: Folder) -> dict:
@@ -524,11 +556,12 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db), role: str = Dep
     if not f or f.owner != role:
         raise HTTPException(status_code=404, detail="Folder not found")
     for e in db.query(Employee).filter(Employee.folder_id == folder_id).all():
-        try:
-            if e.photo_path:
-                os.remove(e.photo_path)
-        except OSError:
-            pass
+        for pth in [e.photo_path, *[p.photo_path for p in (e.photos or [])]]:
+            try:
+                if pth:
+                    os.remove(pth)
+            except OSError:
+                pass
     db.delete(f)
     db.commit()
     return {"ok": True}
@@ -548,40 +581,85 @@ async def add_employee(
     folder_id: int,
     name: str = Form(...),
     role_title: str = Form(""),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     role: str = Depends(require_auth),
 ):
+    """Add ONE employee with ONE OR MORE photos. The first photo becomes the cover; the rest are stored
+    as extra shots (used to rotate the featured post for variety)."""
     f = db.get(Folder, folder_id)
     if not f or f.owner != role:
         raise HTTPException(status_code=404, detail="Folder not found")
-    limit = 25 * 1024 * 1024
-    total = 0
-    parts: list[bytes] = []
-    while chunk := await file.read(1 << 20):
-        total += len(chunk)
-        if total > limit:
-            raise HTTPException(status_code=413, detail="Photo too large (max 25 MB).")
-        parts.append(chunk)
-    data = b"".join(parts)
-    if not data:
-        raise HTTPException(status_code=400, detail="The photo is empty.")
-    ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
-    if ext not in ("jpg", "jpeg", "png", "webp", "heic", "heif"):
-        ext = "jpg"
-    fname = unique_name("emp", ext)
-    sub = storage_subdir("employees")
-    sub.mkdir(parents=True, exist_ok=True)  # the 'employees' storage dir may not exist yet
-    path = sub / fname
-    with open(path, "wb") as fh:
-        fh.write(data)
+    saved: list[tuple[str, str]] = []
+    for uf in files:
+        if uf is None:
+            continue
+        data = await _read_upload(uf)
+        if data:
+            saved.append(_save_employee_photo(data, uf.filename or "photo.jpg"))
+    if not saved:
+        raise HTTPException(status_code=400, detail="Add at least one photo.")
+    cover_path, cover_url = saved[0]
     e = Employee(
         owner=role, folder_id=folder_id,
         name=(name or "").strip()[:200] or "Employee",
         role=(role_title or "").strip()[:200],
-        photo_path=str(path), file_url=public_url("employees", fname),
+        photo_path=cover_path, file_url=cover_url,
     )
     db.add(e)
+    db.flush()  # assign e.id before attaching extra photos
+    for p, u in saved[1:]:
+        db.add(EmployeePhoto(owner=role, employee_id=e.id, photo_path=p, file_url=u))
+    db.commit()
+    db.refresh(e)
+    return _serialize_employee(e)
+
+
+@app.post("/api/employees/{emp_id}/photos")
+async def add_employee_photos(
+    emp_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    role: str = Depends(require_auth),
+):
+    """Add one or more EXTRA photos to an existing employee (same person, different shots)."""
+    e = db.get(Employee, emp_id)
+    if not e or e.owner != role:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    added = 0
+    for uf in files:
+        if uf is None:
+            continue
+        data = await _read_upload(uf)
+        if not data:
+            continue
+        p, u = _save_employee_photo(data, uf.filename or "photo.jpg")
+        db.add(EmployeePhoto(owner=role, employee_id=e.id, photo_path=p, file_url=u))
+        added += 1
+    if not added:
+        raise HTTPException(status_code=400, detail="No valid photos to add.")
+    db.commit()
+    db.refresh(e)
+    return _serialize_employee(e)
+
+
+@app.delete("/api/employees/{emp_id}/photos/{photo_id}")
+def delete_employee_photo(
+    emp_id: int, photo_id: int, db: Session = Depends(get_db), role: str = Depends(require_auth)
+):
+    """Delete ONE extra photo (not the cover — remove the whole employee for that)."""
+    e = db.get(Employee, emp_id)
+    if not e or e.owner != role:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    p = db.get(EmployeePhoto, photo_id)
+    if not p or p.employee_id != e.id or p.owner != role:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    try:
+        if p.photo_path:
+            os.remove(p.photo_path)
+    except OSError:
+        pass
+    db.delete(p)
     db.commit()
     db.refresh(e)
     return _serialize_employee(e)
@@ -599,11 +677,12 @@ def delete_employee(emp_id: int, db: Session = Depends(get_db), role: str = Depe
     e = db.get(Employee, emp_id)
     if not e or e.owner != role:
         raise HTTPException(status_code=404, detail="Employee not found")
-    try:
-        if e.photo_path:
-            os.remove(e.photo_path)
-    except OSError:
-        pass
+    for pth in [e.photo_path, *[p.photo_path for p in (e.photos or [])]]:
+        try:
+            if pth:
+                os.remove(pth)
+        except OSError:
+            pass
     db.delete(e)
     db.commit()
     return {"ok": True}
@@ -618,10 +697,18 @@ async def generate_employee_post(
     e = db.get(Employee, emp_id)
     if not e or e.owner != role:
         raise HTTPException(status_code=404, detail="Employee not found")
-    try:
-        with open(e.photo_path, "rb") as fh:
-            raw = fh.read()
-    except OSError:
+    # rotate across the person's photos (cover + extras) for variety
+    paths = [p for p in ([e.photo_path] + [ph.photo_path for ph in (e.photos or [])]) if p]
+    random.shuffle(paths)
+    raw = None
+    for p in paths:
+        try:
+            with open(p, "rb") as fh:
+                raw = fh.read()
+            break
+        except OSError:
+            continue
+    if raw is None:
         raise HTTPException(status_code=400, detail="Couldn't read the employee photo.")
     brand = db.query(Brand).first()
     topic = (req.topic or "").strip()

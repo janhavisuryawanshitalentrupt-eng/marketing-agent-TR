@@ -19,12 +19,20 @@ export interface Folder {
   created_at?: string | null;
 }
 
+export interface EmployeePhotoRef {
+  id: number | null; // null = the cover photo (delete the whole employee to remove it)
+  file_url?: string | null;
+  primary?: boolean;
+}
+
 export interface Employee {
   id: number;
   folder_id: number;
   name: string;
   role: string;
   file_url?: string | null;
+  photos?: EmployeePhotoRef[];
+  photo_count?: number;
   created_at?: string | null;
 }
 
