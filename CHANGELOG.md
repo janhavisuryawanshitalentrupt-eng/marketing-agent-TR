@@ -3,6 +3,21 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: person-post headlines no longer print the instruction words (2026-07-07)
+"Create a on mission post for @Pooja Kumari" was rendering the banner headline as the leftover instruction
+text **"mission post for"** instead of a real title.
+
+- `_clean_headline` (agent/tools.py): the instruction stripper no longer eats a bare preposition after "a"
+  (so "create a **on mission** post" keeps "on mission"); embedded artefact words (post/banner/image/
+  poster/graphic…) and dangling trailing prepositions are removed; a leftover leading preposition is only
+  stripped when real content remains. It also drops `@mention` markers and every token of the featured
+  person's name, so the name never becomes the headline.
+- `_polish_headline`: when the copywriter LLM is unavailable/rate-limited it now returns the cleaned phrase
+  **Title-Cased** ("on mission" → "On Mission") instead of the raw lowercase leftovers.
+
+Result: "create a on mission post for @Pooja Kumari" → headline "On Mission" (or a creative "On a Mission!"
+when the LLM is up) — never "mission post for". Verified across create/welcome/@mention inputs.
+
 ## Fix: Chat person posts — no grey background box, person fully in frame (2026-07-07)
 On production there's no background-removal key, so the free keyer can't cut a person off a shadowed studio
 wall — the `hero` template was pasting the raw rectangular photo (its grey background + cast shadow) onto the

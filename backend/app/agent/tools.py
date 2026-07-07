@@ -879,9 +879,17 @@ _INSTRUCTION_RE = re.compile(
     r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|i\s+(?:want|need|would\s+like)(?:\s+you)?(?:\s+to)?\s+|let'?s\s+|kindly\s+)*"
     r"(?:create|make|generate|build|design|draft|produce|render|do|give\s+me|show\s+me|prepare|put\s+together)\s+"
     r"(?:me\s+)?(?:an?\s+|the\s+|some\s+|a\s+few\s+)?"
-    r"(?:image|images|post|posts|visual|visuals|graphic|graphics|picture|photo|creative|design|banner|poster)?s?\s*"
-    r"(?:of|for|about|featuring|showing|with|on|that\s+says|saying|to)?\s*",
+    # A deliverable word (post/image/banner…) and any preposition that FOLLOWS it are one unit, so a bare
+    # preposition after "a" is NOT eaten — "create a on mission post" keeps "on mission" (the 'on' survives).
+    r"(?:(?:image|images|post|posts|visual|visuals|graphic|graphics|picture|photo|creative|design|banner|poster)s?"
+    r"(?:\s+(?:of|for|about|featuring|showing|with|on|that\s+says|saying|to))?\s+)?",
     re.I,
+)
+
+# Deliverable / meta words that describe the ARTEFACT, not the topic — never belong in a headline.
+_META_WORDS_RE = re.compile(
+    r"\b(?:posters?|posts?|banners?|graphics?|images?|visuals?|creatives?|designs?|flyers?|pictures?|"
+    r"photos?|reels?|stories|story)\b", re.I,
 )
 
 
@@ -896,17 +904,32 @@ def _clean_headline(message: str, name: str = "") -> str:
     """Turn a raw user request into a clean post headline: drop the person's name and any leading
     'create an image of / make a post about …' instruction phrasing, so the literal prompt is never
     printed as the headline. Returns '' if nothing meaningful remains (caller uses a default headline)."""
-    m = (message or "").strip()
+    m = (message or "").strip().replace("@", " ")  # drop @mention markers (the name itself is removed next)
     if name:
         m = re.sub(r"\b" + re.escape(name) + r"\b", " ", m, flags=re.I)
+        for tok in name.split():  # also drop a first-name-only mention ("@Ankit" of "Ankit Chaudhary")
+            if len(tok) >= 3:
+                m = re.sub(r"\b" + re.escape(tok) + r"\b", " ", m, flags=re.I)
     prev = None
     while prev != m:  # peel repeated leading instruction phrases ("create an image of …")
         prev = m
         m = _INSTRUCTION_RE.sub("", m, count=1).strip()
-    m = re.sub(r"^(?:of|for|about|featuring|with|on|the)\s+", "", m, flags=re.I)  # leftover preposition
+    m = _META_WORDS_RE.sub(" ", m)  # drop any EMBEDDED artefact word ("… mission post for" -> "… mission for")
+    m = re.sub(r"\s+", " ", m).strip(" -,:;.")
+    m = re.sub(r"\s+(?:of|for|about|with|to|on|in|and|the|a|an)$", "", m, flags=re.I).strip()  # dangling tail word
+    mm = re.sub(r"^(?:of|for|about|featuring|with|on|the)\s+", "", m, flags=re.I)  # leftover leading preposition…
+    if len(mm.split()) >= 2:  # …only strip it when real content still remains (keeps short "on mission")
+        m = mm
     m = re.sub(r"\s+", " ", m).strip(" -,:;.")
     words = re.findall(r"[a-z']+", m.lower())
     return "" if (words and all(w in _FILLER_WORDS for w in words)) else m  # filler-only => no real headline
+
+
+def _title_headline(s: str) -> str:
+    """Title-case a cleaned instruction phrase for a headline (e.g. 'on mission' -> 'On Mission'), but
+    leave copy the user actually wrote (already has capitals) untouched."""
+    s = (s or "").strip()
+    return s.title() if (s and s == s.lower()) else s
 
 
 async def _polish_headline(message: str, name: str = "", use_name: bool = True) -> str:
@@ -917,7 +940,7 @@ async def _polish_headline(message: str, name: str = "", use_name: bool = True) 
     any error or when no AI provider is configured."""
     msg = (message or "").strip()
     if not msg or not llm.provider_available():
-        return msg
+        return _title_headline(msg)  # no LLM -> present the cleaned phrase cleanly (Title Case)
     first = (name or "").strip().split()[0] if (name or "").strip() else ""
     if use_name and first:
         who = (f" This post FEATURES {name} (first name: {first}) — weave in their first name where it reads "
@@ -940,9 +963,9 @@ async def _polish_headline(message: str, name: str = "", use_name: bool = True) 
             for tok in name.split():
                 head = re.sub(r"\b" + re.escape(tok) + r"\b", "", head, flags=re.I)
             head = re.sub(r"\s{2,}", " ", head).strip(" -,:;")
-        return head[:70] if head else msg
+        return head[:70] if head else _title_headline(msg)
     except Exception:
-        return msg
+        return _title_headline(msg)
 
 
 _MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august",
