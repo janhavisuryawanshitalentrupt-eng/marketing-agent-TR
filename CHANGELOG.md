@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Photo pick: "Man on a Mission" now uses a confident, arms-crossed pose (2026-07-08)
+A Man-on-a-Mission (or any bold/leader/driven) request now strongly prefers the person's **confident,
+arms-crossed / standing** shot over a soft smiling snapshot — the hero pose the template is designed for.
+
+- Vision tagging now reads the **pose** into the caption (arms crossed / hands folded / standing / seated)
+  and tags an arms-crossed / assertive stance as **confident**.
+- Selection scoring gives a "mission/bold" request a big boost for a confident + arms-crossed pose and a
+  small penalty for a smiling one, so the assertive shot wins decisively when the person has varied photos.
+  (A festive request still prefers a smiling casual shot; a formal request a formal one.)
+
+If you'd rather use a specific shot, hit **Try a different look** to cycle to another of that person's photos.
+
 ## Chat: a real "Man on a Mission" spotlight template (2026-07-08)
 Asking for a "Man on a Mission" post now reproduces Talentrupt's own reference spotlight design — not a
 generic hero. New `mission` template in `chatpost.py`:

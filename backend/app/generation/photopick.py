@@ -20,10 +20,12 @@ _ANALYSIS_PROMPT = (
     "You are tagging a REAL photo of ONE person for a marketing photo library. Describe ONLY what is "
     "visibly true — do NOT identify, name, or guess who the person is. Reply ONLY as JSON with these keys:\n"
     '{"attire": one of "formal","business_casual","casual","branded_tshirt","traditional","other";\n'
-    ' "expression": one of "smiling","neutral","serious","confident";\n'
+    ' "expression": one of "smiling","neutral","serious","confident" (ARMS CROSSED or an assertive, '
+    'direct-to-camera stance = "confident");\n'
     ' "setting": one of "studio","office","outdoor","event","home","other";\n'
     ' "framing": one of "headshot","half_body","full_body";\n'
-    ' "caption": a short factual description (<= 16 words) of clothing / pose / mood, NO name}'
+    ' "caption": a short factual description (<= 18 words) of clothing, POSE (e.g. arms crossed, hands '
+    'folded, standing, seated, hand in pocket) and mood — NO name}'
 )
 
 _ATTIRE = {"formal", "business_casual", "casual", "branded_tshirt", "traditional", "other"}
@@ -98,6 +100,12 @@ _INTENTS = [
 ]
 
 
+# A "Man on a Mission" / bold post wants an ASSERTIVE, confident pose (arms crossed, standing tall).
+_MISSION_KWS = ("mission", "confident", "bold", "driven", "leader", "leadership", "champion", "strong",
+                "hustle", "unstoppable", "power", "achiever")
+_ASSERTIVE_POSE = ("cross", "arms", "folded", "standing", "stand", "assertive", "confident")
+
+
 def _score(analysis: dict, req_tokens: set, req_lower: str) -> float:
     a = analysis or {}
     doc = " ".join(str(a.get(k, "")) for k in ("caption", "attire", "expression", "setting", "framing")).lower()
@@ -109,6 +117,15 @@ def _score(analysis: dict, req_tokens: set, req_lower: str) -> float:
                 score += 3.0
             if exprs and a.get("expression") in exprs:
                 score += 2.0
+    # mission / bold intent -> strongly favour a confident, arms-crossed / standing pose (the "hero" shot),
+    # so it isn't a soft smiling snapshot.
+    if any(k in req_lower for k in _MISSION_KWS):
+        if a.get("expression") == "confident":
+            score += 4.0
+        if any(p in doc for p in _ASSERTIVE_POSE):
+            score += 3.0
+        if a.get("expression") == "smiling":
+            score -= 1.0
     return score
 
 
