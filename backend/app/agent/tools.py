@@ -9,6 +9,8 @@ fallback path can call them.
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -20,9 +22,11 @@ from ..business import analyze as bd_analyze
 from ..business import discover as bd_discover
 from ..business import outreach as bd_outreach
 from ..business.store import save_opportunity, serialize_opportunity
-from ..generation import chatpost, decks, images, pdf, posts, refine as gen_refine, strategy, teampost
+from ..generation import chatpost, decks, images, pdf, photopick, posts, refine as gen_refine, strategy, teampost
 from ..knowledge import retrieve
-from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Employee, Opportunity
+from ..models import (
+    Asset, Brand, CalendarTask, Campaign, CampaignProspect, Employee, EmployeePhoto, Opportunity,
+)
 from ..providers import llm
 
 
@@ -1158,13 +1162,76 @@ async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
 
 
 def _employee_photo_bytes(e) -> bytes | None:
-    """Read ONE of an employee's REAL photos — the cover plus any extra shots — chosen at random so
-    repeated features of the same person rotate through their different photos for variety."""
+    """Read ONE of an employee's REAL photos — the cover plus any extra shots — chosen at random. Used as
+    the fallback when smart selection can't decide (no tags / no request)."""
     paths = [p for p in ([e.photo_path] + [ep.photo_path for ep in (getattr(e, "photos", None) or [])]) if p]
     random.shuffle(paths)
     for p in paths:
         try:
             with open(p, "rb") as f:
+                return f.read()
+        except Exception:
+            continue
+    return None
+
+
+def _persist_photo_tags(updates: list[tuple[str, int, dict]]) -> None:
+    """Persist vision tags on a SHORT-LIVED session so the caller's (shared, streaming) session is never
+    committed/expired mid-tool. `updates` = [(kind 'cover'|'extra', row_id, analysis)]. Best-effort."""
+    from ..db import SessionLocal
+    s = SessionLocal()
+    try:
+        for kind, rid, an in updates:
+            row = s.get(Employee, rid) if kind == "cover" else s.get(EmployeePhoto, rid)
+            if row is not None:
+                if kind == "cover":
+                    row.photo_analysis = an
+                else:
+                    row.analysis = an
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
+async def _select_employee_photo(e, request_text: str = "") -> bytes | None:
+    """Choose the employee photo that best FITS the request (attire / mood / setting), vision-tagging any
+    un-tagged photos once (cached). Falls back to a random real photo on any issue. The face is never
+    altered — this only decides WHICH real photo to feature. Never mutates the caller's DB session."""
+    # (kind, row_id, path, analysis) for the cover + each extra, keeping only readable files
+    holders = [("cover", e.id, e.photo_path, e.photo_analysis or {})]
+    for ep in (getattr(e, "photos", None) or []):
+        holders.append(("extra", ep.id, ep.photo_path, ep.analysis or {}))
+    holders = [(k, rid, p, a) for (k, rid, p, a) in holders if p and os.path.exists(p)]
+    if not holders:
+        return _employee_photo_bytes(e)
+
+    async def _tag(i):
+        _k, _rid, p, _a = holders[i]
+        try:
+            with open(p, "rb") as f:
+                data = f.read()
+        except Exception:
+            return None
+        return (i, await photopick.analyze_photo_bytes(data))
+
+    todo = [i for i, (_k, _rid, _p, a) in enumerate(holders) if not a]
+    if todo and (request_text or "").strip():   # only spend vision calls when the choice actually matters
+        updates: list[tuple[str, int, dict]] = []
+        for r in await asyncio.gather(*[_tag(i) for i in todo], return_exceptions=True):
+            if isinstance(r, tuple) and r[1]:
+                i, an = r
+                k, rid, p, _a = holders[i]
+                holders[i] = (k, rid, p, an)     # update in-memory so THIS pick uses the fresh tags
+                updates.append((k, rid, an))
+        if updates:
+            _persist_photo_tags(updates)          # cache for next time, on its own session
+
+    idx = photopick.pick_index([a for (_k, _rid, _p, a) in holders], request_text)
+    for j in [idx] + [x for x in range(len(holders)) if x != idx]:   # chosen first, then any readable
+        try:
+            with open(holders[j][2], "rb") as f:
                 return f.read()
         except Exception:
             continue
@@ -1189,7 +1256,8 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
         avail = ", ".join(e.name for e in rows[:8]) if rows else "no employees yet"
         return {"summary": f'I couldn\'t find "{name_q}" in your Folders. Add them in the Folders section '
                 f"first (upload their photo). You have: {avail}.", "assets": []}
-    raw = _employee_photo_bytes(match)  # rotate across the person's photos (cover + extras) for variety
+    # Pick the photo that best FITS what the user asked (attire/mood/setting), tagging photos once + caching.
+    raw = await _select_employee_photo(match, (args.get("message") or "").strip())
     if raw is None:
         return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
                 "assets": []}

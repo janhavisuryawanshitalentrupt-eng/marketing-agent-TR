@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Folders: feature the photo that FITS the request (not a random one) (2026-07-07)
+When a person has several photos, the app now picks the one that suits what you asked for — a formal shot for
+a formal/announcement post, a casual or festive shot for a celebration, a confident pose for an "on a mission"
+post — instead of choosing at random.
+
+- **How** (`generation/photopick.py`): each photo is vision-tagged ONCE (attire / expression / setting /
+  framing / a short caption) and cached on the row (`Employee.photo_analysis`, `EmployeePhoto.analysis`);
+  selection (`_select_employee_photo`) is then a deterministic keyword + intent score, so generation needs no
+  extra LLM call. Tagging is lazy (on first feature) and best-effort — if the vision model is unavailable it
+  falls back to a random real photo, never a crash.
+- The **face is never altered** — this only decides WHICH real photo to feature. Wired into both the Chat
+  `@mention` feature and the Folders "generate" button.
+
+Verified: selection scoring (formal→formal, festive→casual, "on a mission"→confident), the vision-JSON parser,
+end-to-end pick with cached tags, idempotent migration, and graceful fallback on a rate-limited vision call.
+
 ## Fix: person-post headlines no longer print the instruction words (2026-07-07)
 "Create a on mission post for @Pooja Kumari" was rendering the banner headline as the leftover instruction
 text **"mission post for"** instead of a real title.

@@ -144,10 +144,13 @@ class Employee(Base):
     role: Mapped[str] = mapped_column(String(200), default="")
     photo_path: Mapped[str] = mapped_column(String(600))  # on-disk path to the real COVER photo
     file_url: Mapped[str | None] = mapped_column(String(600), nullable=True)  # served URL for the thumbnail
+    # Vision tags of the COVER photo (attire/expression/setting/framing/caption) so a feature can pick the
+    # shot that best FITS the request. Filled lazily on first feature; the face is never altered.
+    photo_analysis: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     # Additional real photos of the SAME person (the cover above is photo #1). Multiple shots let a
-    # feature rotate through different photos for variety; deleting the employee removes them all.
+    # feature pick the one that best fits the request; deleting the employee removes them all.
     photos: Mapped[list["EmployeePhoto"]] = relationship(
         cascade="all, delete-orphan", order_by="EmployeePhoto.id"
     )
@@ -163,6 +166,7 @@ class EmployeePhoto(Base):
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
     photo_path: Mapped[str] = mapped_column(String(600))
     file_url: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    analysis: Mapped[dict] = mapped_column(JSON, default=dict)  # vision tags (see Employee.photo_analysis)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 

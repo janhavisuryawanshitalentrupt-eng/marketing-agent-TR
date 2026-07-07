@@ -697,17 +697,9 @@ async def generate_employee_post(
     e = db.get(Employee, emp_id)
     if not e or e.owner != role:
         raise HTTPException(status_code=404, detail="Employee not found")
-    # rotate across the person's photos (cover + extras) for variety
-    paths = [p for p in ([e.photo_path] + [ph.photo_path for ph in (e.photos or [])]) if p]
-    random.shuffle(paths)
-    raw = None
-    for p in paths:
-        try:
-            with open(p, "rb") as fh:
-                raw = fh.read()
-            break
-        except OSError:
-            continue
+    # pick the photo that best fits the requested topic (attire/mood), tagging photos once + caching
+    from .agent.tools import _select_employee_photo
+    raw = await _select_employee_photo(e, (req.topic or "").strip())
     if raw is None:
         raise HTTPException(status_code=400, detail="Couldn't read the employee photo.")
     brand = db.query(Brand).first()

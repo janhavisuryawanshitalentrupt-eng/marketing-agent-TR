@@ -75,3 +75,10 @@ def _migrate_sqlite() -> None:
         sf_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(source_files)"))}
         if "owner" not in sf_cols:
             conn.execute(text("ALTER TABLE source_files ADD COLUMN owner VARCHAR"))
+        # Per-photo vision tags (attire/expression/…) so a feature picks the shot that fits the request.
+        emp_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(employees)"))}
+        if emp_cols and "photo_analysis" not in emp_cols:
+            conn.execute(text("ALTER TABLE employees ADD COLUMN photo_analysis JSON"))
+        ep_info = list(conn.execute(text("PRAGMA table_info(employee_photos)")))
+        if ep_info and "analysis" not in {row[1] for row in ep_info}:
+            conn.execute(text("ALTER TABLE employee_photos ADD COLUMN analysis JSON"))
