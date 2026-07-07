@@ -2090,23 +2090,49 @@ async def generate_magazine_from_data(
     if len(raw) > 5_000_000:
         raise HTTPException(status_code=400, detail="File too large — please keep it under 5 MB.")
     try:
-        rows = gen_roster.parse_roster(file.filename or "", raw)
+        fc = int(str(feature_count).strip()) if str(feature_count).strip() else 0
+    except ValueError:
+        fc = 0
+
+    # Read the whole workbook (every sheet). If it looks like a curated AWARD REPORT (an awards
+    # leaderboard tab + a raw deal sheet), use the award builder; otherwise fall back to the simple
+    # one-row-per-person roster builder.
+    try:
+        sheets = gen_roster.parse_workbook(file.filename or "", raw)
     except ImportError:  # openpyxl not installed on the server -> a server fault, not a bad file
         raise HTTPException(status_code=500,
                             detail="Excel support isn't available on the server right now — please upload a CSV.")
     except Exception as e:
-        log.warning("roster parse failed: %s", e)  # real cause stays server-side; user gets a friendly hint
+        log.warning("workbook parse failed: %s", e)  # real cause stays server-side; user gets a friendly hint
         raise HTTPException(status_code=400,
                             detail="Couldn't read that file — upload a CSV or .xlsx with a header row.")
+
+    fmt = "flat"
+    awards_summary: list[dict] = []
+    columns: dict = {"name": None, "office": None, "metrics": []}
+    issue = None
+    featured: list[str] = []
     try:
-        fc = int(str(feature_count).strip()) if str(feature_count).strip() else 0
-    except ValueError:
-        fc = 0
-    try:
-        issue, featured, columns = gen_roster.build_issue(
-            rows, theme=theme, title=title, edition=edition, editorial=editorial,
-            feature_count=fc, rank_by=rank_by,
-        )
+        if gen_roster.is_award_format(sheets):
+            try:
+                issue, featured, ameta = gen_roster.build_award_issue(
+                    sheets, theme=theme, title=title, edition=edition, editorial=editorial, feature_count=fc,
+                )
+                fmt = "award"
+                awards_summary = ameta.get("awards", [])
+                columns = {"name": "Recruiter" if ameta.get("deal_sheet") else None, "office": None,
+                           "metrics": [a["title"] for a in awards_summary]}
+            except ValueError as e:
+                if str(e) != "no_awards":
+                    raise
+                issue = None  # award words present but no real podiums -> treat it as a flat roster
+        if issue is None:
+            rows = gen_roster.grid_to_rows(gen_roster.best_flat_grid(sheets))
+            issue, featured, columns = gen_roster.build_issue(
+                rows, theme=theme, title=title, edition=edition, editorial=editorial,
+                feature_count=fc, rank_by=rank_by,
+            )
+            fmt = "flat"
     except ValueError as e:
         detail = {
             "no_name_column": "Couldn't find a Name column — add a header like 'Name' (and metric columns).",
@@ -2117,26 +2143,46 @@ async def generate_magazine_from_data(
         log.warning("roster analyse failed: %s", e)
         raise HTTPException(status_code=400, detail="Couldn't analyse the roster data.")
 
-    # Match each featured name to the caller's OWN Folders photo (fuzzy, owner-scoped).
+    # Match each featured name to the caller's OWN Folders photo (fuzzy, owner-scoped). A per-name
+    # cache means a person appearing in several awards is looked up (and read from disk) only once.
     matched: list[str] = []
     unmatched: list[str] = []
+    _photo_cache: dict[str, tuple[bytes | None, str]] = {}
+    _reported: set[str] = set()
 
-    def _attach(entry: dict) -> None:
-        nm = (entry.get("name") or "").strip()
-        emp = _find_employee(db, owner, nm)
+    def _resolve(name: str) -> tuple[bytes | None, str]:
+        key = gen_roster._norm(name)  # identity model matches the builders' _norm() dedup, not bare lower()
+        if key in _photo_cache:
+            return _photo_cache[key]
+        emp = _find_employee(db, owner, name)
+        data: tuple[bytes | None, str] = (None, "")
         if emp and emp.photo_path:
             try:
                 with open(emp.photo_path, "rb") as fh:
-                    entry["photo"] = fh.read()
-                if not entry.get("role"):
-                    entry["role"] = emp.role or ""
-                matched.append(nm)
-                return
+                    data = (fh.read(), emp.role or "")
             except Exception:
-                pass
-        unmatched.append(nm)
+                data = (None, emp.role or "")
+        _photo_cache[key] = data
+        return data
+
+    def _attach(entry: dict) -> None:
+        nm = (entry.get("name") or "").strip()
+        if not nm:
+            return
+        photo, role = _resolve(nm)
+        if photo:
+            entry["photo"] = photo
+            if not entry.get("role"):
+                entry["role"] = role
+        key = gen_roster._norm(nm)
+        if key not in _reported:
+            _reported.add(key)
+            (matched if photo else unmatched).append(nm)
 
     _attach(issue["cover"])
+    for aw in issue.get("awards", []):
+        for w in (aw.get("winners") or [])[:3]:
+            _attach(w)
     for sp in issue["spotlights"]:
         _attach(sp)
 
@@ -2149,14 +2195,17 @@ async def generate_magazine_from_data(
     a = _save_asset(
         db, None, "magazine", (issue["title"] or "Magazine")[:380],
         body={"kind": "magazine", "edition": issue["edition"], "theme": issue["theme"],
-              "pages": meta.get("pages"), "person": issue["cover"]["name"], "source": "data"},
+              "pages": meta.get("pages"), "person": issue["cover"]["name"], "source": "data",
+              "format": fmt},
         file_path=path, file_url=meta["url"], meta=meta, owner=owner,
     )
     return {
         "asset": serialize_asset(a),
+        "format": fmt,
         "featured": featured,
         "matched": matched,
         "unmatched": unmatched,
+        "awards": awards_summary,
         "columns": columns,
     }
 

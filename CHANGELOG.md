@@ -3,6 +3,30 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine: reads a real AWARD-REPORT workbook (award podiums + stat pages) (2026-07-07)
+The "From data file" mode now understands a real HR **award report** — not just a simple one-row-per-person
+table. Upload the multi-sheet quarterly workbook (e.g. `FNL Report - Q2`) and the app reads your *own* curated
+leaderboard verbatim and builds a full magazine around it.
+
+- **Format auto-detect** (`generation/roster.py`): `parse_workbook` reads **every sheet**; `is_award_format`
+  routes an award workbook to the new `build_award_issue`, and anything else falls back to the existing
+  one-row-per-person `build_issue`. No new UI decision — it just works from the file.
+- **Award tab parser** (`parse_award_sheet`): reads the block-layout leaderboard (side-by-side **Margin
+  Champions / Placements Powerhouse / Efficiency Star / Category Champions** with LI·Non-Tech·Tech
+  sub-blocks), keyed off the block titles so column shifts don't break it. Podiums are read **verbatim** —
+  no re-ranking, no invented numbers (validated: reproduces the source tab exactly).
+- **Deal aggregation** (`aggregate_deals`): groups the raw "Deal sheet" by **Recruiter** →
+  placements (count), total margin (sum of Spread), avg/placement — used to enrich the cover champion and
+  each person's stat page with their real, correct numbers.
+- **New pages** (`generation/magazine.py`): a full **award-podium page per headline award** (gold/silver/bronze
+  medallions + real photos), one combined **3-column Category Champions page**, then per-person **stat pages**.
+- **Endpoint** (`POST /api/magazine/from-data`): a per-name **photo cache** looks each person up once even when
+  they win several awards; response now includes `format` and the detected `awards` (title → winners). The
+  frontend shows an "Award report detected" badge, the award podiums, and who's missing a Folders photo.
+
+Verified: parser reproduces the real Q2 file's podiums exactly, all 12 winners resolve to deal stats, a 10-page
+PDF renders cleanly (podium/category/cover/spotlight pages inspected), frontend typechecks, adversarial review.
+
 ## Magazine: generate straight from a CSV/Excel roster (2026-07-07)
 The Magazine section now has a **"From data file"** mode (the default, next to "Manual"): upload a roster
 spreadsheet and the app builds the whole issue automatically.

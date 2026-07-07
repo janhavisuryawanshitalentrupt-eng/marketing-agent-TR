@@ -15,6 +15,7 @@ import hashlib
 import io
 import math
 import re
+from collections import defaultdict
 
 _NAME_EXACT = {"name", "employeename", "fullname", "employee", "person", "teammember", "candidate"}
 _OFFICE_HINTS = ("office", "location", "branch", "city", "base", "region", "site")
@@ -63,7 +64,12 @@ def _fmt(v) -> str:
     s = str(v).strip()
     if n is None or not math.isfinite(n):   # non-numeric / inf / nan -> show the raw text (never int(inf))
         return s[:12]
-    whole = str(int(n)) if n == int(n) else f"{n:g}"
+    # Thousands-separated, up to 2 decimals — NEVER f"{n:g}" (that is 6 significant digits: it drops
+    # cents, invents round figures, and turns big sums into scientific notation e.g. 1234567.89->'1.23457e+06').
+    if n == int(n):
+        whole = f"{int(n):,}"
+    else:
+        whole = f"{round(n, 2):,.2f}"
     return whole + "%" if "%" in s else whole
 
 
@@ -258,3 +264,286 @@ def build_issue(rows: list[dict], *, theme: str = "", title: str = "Talentrupt T
     featured = [cname] + [s["name"] for s in issue["spotlights"]]
     columns = {"name": name_col, "office": office_col, "metrics": metric_cols}
     return issue, featured, columns
+
+
+# =================================================================================================
+# AWARD-REPORT format  (a real HR "FNL report" workbook: an awards leaderboard tab laid out in
+# side-by-side blocks — Margin Champions / Placements Powerhouse / Efficiency Star / Category
+# Champions — PLUS a raw "Deal sheet" of one row per placement. We read the curated podiums AS-IS
+# and enrich each featured person with stats aggregated from the raw deals.)
+# =================================================================================================
+
+# Award-block titles we recognise: (normalised-substring, display, unit).
+_AWARD_BLOCKS = [
+    ("marginchampion", "Margin Champions", "margin"),
+    ("placementspowerhouse", "Placements Powerhouse", "placements"),
+    ("placementpowerhouse", "Placements Powerhouse", "placements"),
+    ("efficiencystar", "Efficiency Star", "efficiency"),
+]
+_CATEGORY_KEY = "categorychampion"
+_SUBCATS = {"li": "LI", "nontech": "Non-Tech", "tech": "Tech"}
+_PODIUM = 5          # winners parsed per block (renderer shows the top 3)
+_MAX_AWARDS = 12     # hard cap on award blocks (defensive)
+_DEFAULT_SPOTLIGHTS = 6
+_SCAN = 16           # rows scanned for block titles / the deal header (tolerates banner/spacer rows)
+
+
+def _value_display(unit: str, raw: str, n) -> str:
+    """A clean big-number string for a podium winner ('$18.55', '92.85', '20')."""
+    if n is None:
+        return (raw or "").strip()[:12] or "—"
+    return ("$" + _fmt(n)) if unit == "efficiency" else _fmt(n)
+
+
+def _rank1_at(grid: list[list[str]], r: int, c: int) -> bool:
+    """True if cell (r, c) holds the rank number 1 — the structural signature of a real award block's
+    first data row directly under its title. Guards against stray award words in ordinary data cells."""
+    return r < len(grid) and c < len(grid[r]) and _num(grid[r][c]) == 1
+
+
+def parse_workbook(filename: str, data: bytes) -> dict[str, list[list[str]]]:
+    """Return {sheet_name: grid_of_str_cells}. .xlsx -> every sheet; CSV/TSV -> one 'Sheet1' grid."""
+    name = (filename or "").lower()
+    if name.endswith((".xlsx", ".xlsm")):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        try:
+            out: dict[str, list[list[str]]] = {}
+            for sn in wb.sheetnames:
+                ws = wb[sn]
+                out[str(sn)] = [
+                    [("" if c is None else str(c).strip()) for c in row]
+                    for row in ws.iter_rows(values_only=True)
+                ]
+            return out
+        finally:
+            wb.close()
+    # CSV / TSV -> a single grid (reuse the sniffing/decoding from _parse_csv)
+    text = None
+    for enc in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            text = data.decode(enc)
+            break
+        except Exception:
+            continue
+    if text is None:
+        text = data.decode("utf-8", "replace")
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+    except Exception:
+        dialect = csv.excel
+    reader = csv.reader(io.StringIO(text), dialect)
+    grid = [[(c or "").strip() for c in r] for r in reader]
+    return {"Sheet1": grid}
+
+
+def grid_to_rows(grid: list[list[str]]) -> list[dict]:
+    """Turn a raw grid (header row + data rows) into row-dicts for the flat-table `build_issue`."""
+    if not grid:
+        return []
+    return _rows_to_dicts(grid[0], grid[1:])
+
+
+def best_flat_grid(sheets: dict[str, list[list[str]]]) -> list[list[str]]:
+    """Pick the sheet most likely to be the data table — the one with the most non-blank rows — so a
+    multi-sheet workbook whose first tab is a cover/blank sheet still finds the real roster."""
+    best: list[list[str]] = []
+    best_n = -1
+    for grid in sheets.values():
+        n = sum(1 for r in grid if any((c or "").strip() for c in r))
+        if n > best_n:
+            best, best_n = grid, n
+    return best
+
+
+def is_award_format(sheets: dict[str, list[list[str]]]) -> bool:
+    """True only when a sheet parses into >=2 STRUCTURAL award blocks (a title with rank-1 data below).
+    A plain roster that merely mentions an award word in a data cell parses 0 blocks -> False, so it
+    correctly falls through to the flat-table builder instead of being garbled by the award builder."""
+    grid = _find_award_grid(sheets)
+    return bool(grid) and len(parse_award_sheet(grid)) >= 2
+
+
+def _find_award_grid(sheets: dict[str, list[list[str]]]) -> list[list[str]] | None:
+    best, best_hits = None, 0
+    for grid in sheets.values():
+        hits = 0
+        for row in grid[:_SCAN]:
+            for cell in row:
+                nc = _norm(cell)
+                if any(k in nc for k, _d, _u in _AWARD_BLOCKS) or _CATEGORY_KEY in nc:
+                    hits += 1
+        if hits > best_hits:
+            best, best_hits = grid, hits
+    return best
+
+
+def _find_deal_sheet(sheets: dict[str, list[list[str]]]):
+    """Return (grid, header_row_index) for the raw placements sheet, or None."""
+    for grid in sheets.values():
+        for ri, row in enumerate(grid[:_SCAN]):
+            nn = [_norm(c) for c in row]
+            if "recruiter" in nn and "spread" in nn:
+                return grid, ri
+    return None
+
+
+def _read_triples(grid: list[list[str]], r0: int, c: int, unit: str, take: int = _PODIUM) -> list[dict]:
+    """Read [rank, name, value] rows downward from (r0, c). Stops at the first blank name."""
+    out: list[dict] = []
+    r = r0
+    while r < len(grid) and len(out) < take:
+        row = grid[r]
+        name = row[c + 1].strip() if c + 1 < len(row) else ""
+        raw = row[c + 2].strip() if c + 2 < len(row) else ""
+        if not name:
+            break
+        out.append({"rank": len(out) + 1, "name": name,
+                    "value": _value_display(unit, raw, _num(raw)), "num": _num(raw), "photo": None})
+        r += 1
+    return out
+
+
+def parse_award_sheet(grid: list[list[str]]) -> list[dict]:
+    """Parse the block-layout awards tab into [{title, unit, winners:[{rank,name,value,...}]}].
+
+    A block is only accepted when the cell directly below its title holds rank 1 (`_rank1_at`) — so a
+    stray 'Efficiency Star' in some data cell can't masquerade as a block. Category sub-headers are read
+    only in columns at/after the 'Category champions' title, so a real winner surnamed 'Li'/'Tech' in a
+    left-hand block can't be mistaken for a category sub-header.
+    """
+    awards: list[dict] = []
+    for ri, row in enumerate(grid[:_SCAN]):
+        for ci, cell in enumerate(row):
+            nc = _norm(cell)
+            for key, disp, unit in _AWARD_BLOCKS:
+                if key in nc and _rank1_at(grid, ri + 1, ci):
+                    winners = _read_triples(grid, ri + 1, ci, unit)
+                    if winners and not any(a["title"] == disp for a in awards):
+                        awards.append({"title": disp, "unit": unit, "winners": winners})
+            if _CATEGORY_KEY in nc and ri + 1 < len(grid):
+                for cj in range(ci, len(grid[ri + 1])):
+                    label = _SUBCATS.get(_norm(grid[ri + 1][cj]))
+                    if label and _rank1_at(grid, ri + 2, cj):
+                        winners = _read_triples(grid, ri + 2, cj, "category")
+                        title = f"Category Champion — {label}"
+                        if winners and not any(a["title"] == title for a in awards):
+                            awards.append({"title": title, "unit": "category", "winners": winners})
+            if len(awards) >= _MAX_AWARDS:
+                return awards
+    return awards
+
+
+def aggregate_deals(grid: list[list[str]], header_row: int) -> dict[str, dict]:
+    """Group the raw deal rows by Recruiter -> {norm_name: {name, placements, margin, efficiency}}."""
+    header = [_norm(c) for c in grid[header_row]]
+    R = header.index("recruiter") if "recruiter" in header else None
+    S = header.index("spread") if "spread" in header else None
+    if R is None:
+        return {}
+    placements: dict[str, int] = defaultdict(int)
+    margin: dict[str, float] = defaultdict(float)
+    display: dict[str, str] = {}
+    for row in grid[header_row + 1:]:
+        if R >= len(row):
+            continue
+        raw = row[R].strip()
+        if not raw or raw.lower() == "na":
+            continue
+        key = _norm(raw)
+        if not key:
+            continue
+        display.setdefault(key, raw)
+        placements[key] += 1
+        v = _num(row[S]) if (S is not None and S < len(row)) else None
+        if v is not None:
+            margin[key] += v
+    out: dict[str, dict] = {}
+    for key, p in placements.items():
+        m = round(margin[key], 2)
+        out[key] = {"name": display[key], "placements": p, "margin": m,
+                    "efficiency": round(m / p, 2) if p else 0.0}
+    return out
+
+
+def build_award_issue(sheets: dict[str, list[list[str]]], *, theme: str = "",
+                      title: str = "Talentrupt Times", edition: str = "", editorial: str = "",
+                      feature_count: int = 0):
+    """Build a magazine `issue` from an award-report workbook.
+
+    Returns (issue, featured_names, meta). `issue` carries an extra `awards` list of podium blocks
+    (each winner gets a `photo` slot the endpoint fills) plus per-person `spotlights` (stat pages).
+    Raises ValueError('no_awards') if the awards tab can't be read.
+    """
+    award_grid = _find_award_grid(sheets)
+    awards = parse_award_sheet(award_grid) if award_grid else []
+    if not awards:
+        raise ValueError("no_awards")
+
+    deal = _find_deal_sheet(sheets)
+    agg = aggregate_deals(*deal) if deal else {}
+
+    def stats_for(name: str) -> list[dict]:
+        a = agg.get(_norm(name))
+        if not a:
+            return []
+        return [
+            {"label": "Placements", "value": _fmt(a["placements"])},
+            {"label": "Total Margin", "value": _fmt(a["margin"])},
+            {"label": "Avg / Placement", "value": "$" + _fmt(a["efficiency"])},
+        ]
+
+    # Cover champion = the Margin Champions #1 (or the first award's #1 if margin is absent).
+    lead = next((a for a in awards if a["unit"] == "margin"), awards[0])
+    champ = lead["winners"][0]
+    cname = champ["name"]
+    cfirst = cname.split()[0] if cname else "Our champion"
+    cstats = stats_for(cname) or [{"label": lead["title"], "value": champ["value"]}]
+    headline, tagline = _champion_copy(cfirst, cstats)
+
+    issue: dict = {
+        "title": (title or "Talentrupt Times").strip(),
+        "edition": edition.strip(),
+        "theme": theme.strip(),
+        "editorial": editorial.strip(),
+        "cover": {"name": cname, "role": "", "headline": headline, "tagline": tagline, "stats": cstats},
+        "awards": awards,
+        "spotlights": [],
+    }
+
+    # Per-person STAT PAGES: distinct winners (excluding the cover champion), richest first.
+    seen = {_norm(cname)}
+    distinct: list[str] = []
+    for a in awards:
+        for w in a["winners"]:
+            k = _norm(w["name"])
+            if k and k not in seen:
+                seen.add(k)
+                distinct.append(w["name"])
+    distinct.sort(key=lambda n: agg.get(_norm(n), {}).get("margin", 0.0), reverse=True)
+    cap = feature_count if (feature_count and feature_count > 0) else _DEFAULT_SPOTLIGHTS
+    for nm in distinct[:min(cap, _FEATURE_CAP)]:
+        issue["spotlights"].append({
+            "name": nm, "role": "", "office": "",
+            "blurb": _spotlight_blurb(nm.split()[0] if nm else "", stats_for(nm)),
+            "stats": stats_for(nm),
+        })
+
+    # Every podium winner (union) — the endpoint needs to attach a photo to each.
+    all_featured: list[str] = []
+    seen2: set[str] = set()
+    for a in awards:
+        for w in a["winners"][:3]:
+            k = _norm(w["name"])
+            if k and k not in seen2:
+                seen2.add(k)
+                all_featured.append(w["name"])
+    featured = [cname] + [s["name"] for s in issue["spotlights"]]
+    meta = {
+        "format": "award",
+        "awards": [{"title": a["title"], "winners": [w["name"] for w in a["winners"][:3]]} for a in awards],
+        "sheets": list(sheets.keys()),
+        "deal_sheet": bool(deal),
+        "all_featured": all_featured,
+    }
+    return issue, featured, meta

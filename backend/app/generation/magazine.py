@@ -51,6 +51,9 @@ SUBINK = (0x55, 0x63, 0x74)  # muted grey
 GOLD = (0xF5, 0xC0, 0x42)
 ORANGE = (0xFF, 0x7A, 0x52)
 GREEN = (0x1E, 0x7A, 0x46)
+SILVER = (0xB4, 0xBC, 0xC6)
+BRONZE = (0xCD, 0x7F, 0x32)
+MEDALS = [GOLD, SILVER, BRONZE]     # 1st / 2nd / 3rd place accent colours
 
 # Festive accent palettes keyed by occasion word in the theme; brand palette is the default.
 _FESTIVE = {
@@ -389,6 +392,140 @@ def _render_spotlights(issue: dict, entries: list[dict]) -> list[Image.Image]:
     return pages
 
 
+def _medal_circle(canvas: Image.Image, cx: int, cy: int, r: int, rank: int) -> None:
+    """A coloured rank medallion (gold/silver/bronze) with the place number centred inside."""
+    d = ImageDraw.Draw(canvas)
+    col = MEDALS[(rank - 1) % len(MEDALS)]
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*col, 255), outline=(*WHITE, 255), width=max(3, r // 14))
+    f = heading_font(int(r * 1.15))
+    num = str(rank)
+    tw = d.textlength(num, font=f)
+    d.text((cx - tw / 2, cy - r * 0.72), num, font=f, fill=NAVY)
+
+
+def _photo_or_initials(canvas: Image.Image, cx: int, cy: int, size: int, entry: dict) -> None:
+    """Centre a circular real photo at (cx, cy); fall back to initials on a cream disc."""
+    d = ImageDraw.Draw(canvas)
+    photo = entry.get("photo")
+    av = _circle_photo(photo, size) if photo else None
+    x0, y0 = int(cx - size / 2), int(cy - size / 2)
+    if av is not None:
+        canvas.alpha_composite(av, (x0, y0))
+        return
+    d.ellipse([x0, y0, x0 + size, y0 + size], fill=(*CREAM, 255), outline=(*NAVY, 60), width=3)
+    initials = "".join(w[0] for w in (entry.get("name") or "T R").split()[:2]).upper()
+    f = heading_font(int(size * 0.42))
+    iw = d.textlength(initials, font=f)
+    d.text((cx - iw / 2, cy - size * 0.26), initials, font=f, fill=NAVY)
+
+
+_UNIT_CAPTION = {"margin": "Total margin", "placements": "Placements",
+                 "efficiency": "Per placement", "category": "Margin"}
+
+
+def _render_award_podium(issue: dict, award: dict) -> Image.Image:
+    """A full page for one headline award: kicker + title + a 3-place leaderboard of real people."""
+    palette = _festive_palette(issue.get("theme", ""))
+    canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    _festoon(d, 92, palette)
+    d.text((60, 150), "AWARD OF THE MONTH", font=heading_font(28), fill=RED)
+    title = (award.get("title") or "Champions").strip()
+    ty = 194
+    for ln in _wrap(d, title, heading_font(62), MW - 130)[:2]:
+        d.text((60, ty), ln, font=heading_font(62), fill=NAVY)
+        ty += 70
+    d.line([(60, ty + 6), (330, ty + 6)], fill=(*RED, 255), width=5)
+    caption = _UNIT_CAPTION.get(award.get("unit", ""), "")
+
+    winners = [w for w in (award.get("winners") or []) if (w or {}).get("name")][:3]
+    y0 = max(ty + 44, 372)
+    card_h, gap = 336, 22
+    for w in winners:
+        rank = int(w.get("rank") or 1)
+        d = ImageDraw.Draw(canvas)
+        # card + soft shadow
+        sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        ImageDraw.Draw(sh).rounded_rectangle([48, y0 + 8, MW - 40, y0 + card_h + 8], radius=32,
+                                             fill=(11, 34, 58, 55))
+        canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(9)))
+        d = ImageDraw.Draw(canvas)
+        d.rounded_rectangle([44, y0, MW - 44, y0 + card_h], radius=32, fill=(*WHITE, 255))
+        # left medal accent bar
+        d.rounded_rectangle([44, y0, 74, y0 + card_h], radius=32, fill=(*MEDALS[(rank - 1) % 3], 255))
+        d.rectangle([60, y0, 74, y0 + card_h], fill=(*MEDALS[(rank - 1) % 3], 255))
+        cy = y0 + card_h // 2
+        _medal_circle(canvas, 150, y0 + 74, 52, rank)
+        _photo_or_initials(canvas, 300, cy, 208, w)
+        # name + value on the right
+        d = ImageDraw.Draw(canvas)
+        tx, tw = 452, (MW - 90) - 452
+        d.text((tx, y0 + 68), _ellipsize(d, w.get("name") or "Teammate", heading_font(52), tw),
+               font=heading_font(52), fill=NAVY)
+        vf = heading_font(96)
+        d.text((tx, y0 + 132), _ellipsize(d, str(w.get("value") or ""), vf, tw), font=vf,
+               fill=(*NAVY, 255))
+        if caption:
+            d.text((tx, y0 + 250), caption.upper(), font=body_font(28), fill=RED)
+        y0 += card_h + gap
+    try:
+        paste_wordmark(canvas, 60, MH - 60, 200, 36, dark_bg=False, align="left")
+    except Exception:
+        pass
+    return canvas.convert("RGB")
+
+
+def _render_category_champions(issue: dict, cat_awards: list[dict]) -> Image.Image:
+    """A single page with three columns (LI / Non-Tech / Tech), each a compact top-3 leaderboard."""
+    palette = _festive_palette(issue.get("theme", ""))
+    canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    _festoon(d, 92, palette)
+    d.text((60, 150), "CATEGORY CHAMPIONS", font=heading_font(28), fill=RED)
+    d.text((60, 194), "Top of Their Field", font=heading_font(62), fill=NAVY)
+    d.line([(60, 268), (330, 268)], fill=(*RED, 255), width=5)
+
+    cols = cat_awards[:3]
+    left, right = 44, MW - 44
+    gap = 20
+    colw = (right - left - gap * (len(cols) - 1)) // max(1, len(cols))
+    y0, col_h = 322, 700
+    for i, aw in enumerate(cols):
+        x = left + i * (colw + gap)
+        d = ImageDraw.Draw(canvas)
+        d.rounded_rectangle([x, y0, x + colw, y0 + col_h], radius=26, fill=(*WHITE, 255))
+        # header band
+        label = (aw.get("title") or "").split("—")[-1].strip() or "Category"
+        d.rounded_rectangle([x, y0, x + colw, y0 + 72], radius=26, fill=(*NAVY, 255))
+        d.rectangle([x, y0 + 40, x + colw, y0 + 72], fill=(*NAVY, 255))
+        lf = heading_font(38)
+        lw = d.textlength(label, font=lf)
+        d.text((x + (colw - lw) / 2, y0 + 16), label, font=lf, fill=WHITE)
+        winners = [w for w in (aw.get("winners") or []) if (w or {}).get("name")][:3]
+        # #1 gets a photo
+        cy = y0 + 190
+        if winners:
+            _photo_or_initials(canvas, x + colw // 2, cy, 150, winners[0])
+        d = ImageDraw.Draw(canvas)
+        ry = y0 + 296
+        for w in winners:
+            rank = int(w.get("rank") or 1)
+            _medal_circle(canvas, x + 42, ry + 30, 26, rank)
+            d = ImageDraw.Draw(canvas)
+            nm = _ellipsize(d, w.get("name") or "", heading_font(30), colw - 96)
+            d.text((x + 82, ry + 8), nm, font=heading_font(30), fill=NAVY)
+            d.text((x + 82, ry + 46), str(w.get("value") or ""), font=heading_font(38),
+                   fill=(*MEDALS[(rank - 1) % 3], 255))
+            ry += 118
+    try:
+        paste_wordmark(canvas, 60, MH - 60, 200, 36, dark_bg=False, align="left")
+    except Exception:
+        pass
+    return canvas.convert("RGB")
+
+
 def _render_closing(issue: dict) -> Image.Image:
     palette = _festive_palette(issue.get("theme", ""))
     canvas = Image.new("RGBA", (MW, MH), (*NAVY, 255))
@@ -466,6 +603,15 @@ async def build_magazine(brand, issue: dict) -> tuple[str, str, dict]:
     pages: list[Image.Image] = []
     pages.append(_render_cover(issue))
     pages.append(_render_editorial(issue, editorial))
+    # Award podium pages (award-report format only): a full page per headline award, then a single
+    # combined page for the per-category champions.
+    awards = [a for a in (issue.get("awards") or []) if (a or {}).get("winners")]
+    for aw in awards:
+        if aw.get("unit") != "category":
+            pages.append(_render_award_podium(issue, aw))
+    cat_awards = [a for a in awards if a.get("unit") == "category"]
+    if cat_awards:
+        pages.append(_render_category_champions(issue, cat_awards))
     spotlights = [s for s in (issue.get("spotlights") or []) if (s or {}).get("name")]
     if spotlights:
         pages.extend(_render_spotlights(issue, spotlights))

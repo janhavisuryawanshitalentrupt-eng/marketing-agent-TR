@@ -382,8 +382,9 @@ export function MagazineView() {
               )}
               <p className="mt-2 text-[11px] text-muted">
                 Upload a CSV or Excel roster (a Name column + metric columns like Submissions, Interviews,
-                Offers, Starts…). We rank the team, feature the top performers, and pull each person&apos;s
-                photo from Folders by name.
+                Offers, Starts…), or a full <span className="font-medium text-foreground">award report</span>{" "}
+                workbook (an awards leaderboard tab + a raw deal sheet). We rank the team, feature the top
+                performers, and pull each person&apos;s photo from Folders by name.
               </p>
             </div>
 
@@ -469,21 +470,38 @@ export function MagazineView() {
 
             {dataResult && (
               <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3.5 text-sm">
+                {dataResult.format === "award" && (
+                  <span className="mb-2 inline-flex items-center rounded-full bg-[var(--brand-navy)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cream">
+                    Award report detected
+                  </span>
+                )}
                 <p className="text-foreground">
                   Featured {dataResult.featured.length} {dataResult.featured.length === 1 ? "person" : "people"}
                   {dataResult.featured.length > 0 ? `: ${dataResult.featured.join(", ")}` : ""}.
                 </p>
+                {dataResult.awards && dataResult.awards.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {dataResult.awards.map((a) => (
+                      <p key={a.title} className="text-[12px] text-foreground">
+                        <span className="font-medium">{a.title}:</span>{" "}
+                        <span className="text-muted">{a.winners.join(" · ")}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {dataResult.unmatched.length > 0 && (
                   <p className="mt-1.5 text-amber-600">
                     No Folders photo for: {dataResult.unmatched.join(", ")} — add their photo in{" "}
                     <a href="/folders" className="font-medium underline">Folders</a> so they appear with a picture.
                   </p>
                 )}
-                <p className="mt-1.5 text-[11px] text-muted">
-                  Detected columns — Name: {dataResult.columns.name}
-                  {dataResult.columns.office ? ` · Office: ${dataResult.columns.office}` : ""}
-                  {dataResult.columns.metrics.length ? ` · Metrics: ${dataResult.columns.metrics.join(", ")}` : ""}
-                </p>
+                {dataResult.format !== "award" && (
+                  <p className="mt-1.5 text-[11px] text-muted">
+                    Detected columns — Name: {dataResult.columns.name ?? "—"}
+                    {dataResult.columns.office ? ` · Office: ${dataResult.columns.office}` : ""}
+                    {dataResult.columns.metrics.length ? ` · Metrics: ${dataResult.columns.metrics.join(", ")}` : ""}
+                  </p>
+                )}
               </div>
             )}
           </div>

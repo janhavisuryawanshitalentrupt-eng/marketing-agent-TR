@@ -262,10 +262,17 @@ export interface MagazineSpec {
   spotlights: MagSpotlight[];
 }
 
+export interface MagAwardSummary {
+  title: string;
+  winners: string[];
+}
+
 export interface MagazineDataResult {
   asset: Asset;
+  format?: "award" | "flat";
   featured: string[];
   matched: string[];
   unmatched: string[];
-  columns: { name: string; office: string | null; metrics: string[] };
+  awards?: MagAwardSummary[];
+  columns: { name: string | null; office: string | null; metrics: string[] };
 }
