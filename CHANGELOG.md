@@ -3,6 +3,21 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Chat: a real "Man on a Mission" spotlight template (2026-07-08)
+Asking for a "Man on a Mission" post now reproduces Talentrupt's own reference spotlight design — not a
+generic hero. New `mission` template in `chatpost.py`:
+
+- Faceted navy backdrop; the three-part headline **"Man"** (red) / *on a* (script) / **Mission!** (white on a
+  red box); a reflective question; **"Featuring &lt;Name&gt;"** in script; a white **role pill** with a briefcase
+  icon (the person's Folders role); a dashed curved arrow sweeping to the person; and the real person seated
+  large bottom-right on the brand.
+- Triggered when a person feature mentions "mission" (Chat `@mention` or the Folders button). The lead word
+  follows the request ("woman on a mission" → **Woman**). The featured person's real photo is used, face
+  untouched; a regenerate keeps this template and varies the shot.
+
+Verified by rendering the template against the reference — headline, script name, role pill, dashed arrow,
+seated person all match.
+
 ## Fix: Chat person posts — prominent person + working "regenerate" (2026-07-08)
 Two problems on the Chat person-hero posts, both fixed.
 

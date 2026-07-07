@@ -172,7 +172,8 @@ async def regenerate_asset(
         if is_chat_hero:
             from . import chatpost
             hp = await chatpost.build_chat_post(brand, concept=(head or name), count=1, person_photo=raw,
-                                                person_name=name, headline=(head or name), subtext=sub)
+                                                person_name=name, headline=(head or name), subtext=sub,
+                                                person_role=role)
             if not hp:
                 return None
             path, _fn, m = hp[0]

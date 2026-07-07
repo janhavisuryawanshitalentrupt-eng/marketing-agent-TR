@@ -1309,7 +1309,8 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
         try:
             posts = await chatpost.build_chat_post(brand, concept=(message or head), count=1,
                                                    person_photo=raw, person_name=match.name,
-                                                   headline=(head or message or match.name), subtext=sub)
+                                                   headline=(head or message or match.name), subtext=sub,
+                                                   person_role=match.role or "")
         except Exception:
             posts = []
         if posts:

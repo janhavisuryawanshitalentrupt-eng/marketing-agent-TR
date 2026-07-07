@@ -230,19 +230,13 @@ HERO_TEXT_W = 420
 _PERSON_MAX_W = W - (PAD + HERO_TEXT_W) - 32   # keep the person clear of the headline column
 
 
-def _float_cutout(canvas: Image.Image, cut: Image.Image, bg: str) -> None:
-    """A cleanly cut-out person, sized PROMINENTLY and bottom-right anchored on a soft brand backdrop — so a
-    seated / upper-body / standing shot all read as a strong hero (never a tiny figure in an empty disc)."""
-    # soft brand backdrop curving in from the right (a gentle arc, not a dominant bullseye)
-    acc = RED if bg != "cream" else NAVY
-    ImageDraw.Draw(canvas, "RGBA").ellipse([520, 11, 1686, 1177], fill=(*acc, 240))
-
+def _place_person_cutout(canvas: Image.Image, cut: Image.Image) -> int:
+    """Size the cut-out person aspect-aware + bottom-right anchor (no backdrop). Returns the person's LEFT x
+    so the caller can keep text clear. A seated/upper-body/standing shot all read as a prominent hero."""
     bbox = cut.getbbox()          # tighten to the real subject (defensive)
     if bbox:
         cut = cut.crop(bbox)
     ar = cut.height / max(1, cut.width)
-    # aspect-aware height: a seated / upper-body shot fills LESS height but is still large & bottom-anchored,
-    # a tall standing portrait fills most of the frame. Either way the person is prominent.
     target_h = int(H * (0.94 if ar >= 1.7 else 0.86 if ar >= 1.15 else 0.72))
     scale = target_h / cut.height
     pw, ph = max(1, int(cut.width * scale)), target_h
@@ -258,6 +252,14 @@ def _float_cutout(canvas: Image.Image, cut: Image.Image, bg: str) -> None:
     ImageDraw.Draw(sh).ellipse([x + int(pw * 0.16), H - 40, x + int(pw * 0.84), H - 8], fill=(0, 0, 0, 95))
     canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(13)))
     canvas.alpha_composite(p, (x, y))
+    return x
+
+
+def _float_cutout(canvas: Image.Image, cut: Image.Image, bg: str) -> None:
+    """A cleanly cut-out person, prominent + bottom-right anchored on a soft brand backdrop (arc)."""
+    acc = RED if bg != "cream" else NAVY
+    ImageDraw.Draw(canvas, "RGBA").ellipse([520, 11, 1686, 1177], fill=(*acc, 240))
+    _place_person_cutout(canvas, cut)
 
 
 def _photo_panel(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
@@ -294,6 +296,96 @@ def _hero_person(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
             _photo_panel(canvas, person_rgb, bg)
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------------------------------
+# "MAN ON A MISSION" spotlight template (reproduces Talentrupt's own reference post)
+# --------------------------------------------------------------------------------------------------
+_MISSION_Q = "What does success look like when you're building for the long term?"
+
+
+def _faceted_navy(canvas: Image.Image) -> None:
+    """Subtle angular navy panels over the navy base — the 'Man on a Mission' faceted backdrop."""
+    d = ImageDraw.Draw(canvas, "RGBA")
+    shades = [(0x10, 0x40, 0x68), (0x0A, 0x2E, 0x50), (0x13, 0x49, 0x74), (0x0C, 0x38, 0x5E)]
+    polys = [
+        [(0.52, 0.0), (1.0, 0.0), (1.0, 0.34), (0.66, 0.16)],
+        [(0.60, 0.02), (0.98, 0.0), (0.86, 0.40), (0.66, 0.30)],
+        [(0.48, 0.10), (0.72, 0.0), (0.70, 0.30), (0.50, 0.26)],
+        [(0.74, 0.30), (1.0, 0.20), (1.0, 0.62), (0.80, 0.52)],
+    ]
+    for i, poly in enumerate(polys):
+        d.polygon([(int(px * W), int(py * H)) for px, py in poly], fill=(*shades[i % len(shades)], 80))
+
+
+def _dashed_arc(canvas: Image.Image, color: tuple) -> None:
+    """A decorative dashed curve sweeping from the top-right down toward the person, with an arrowhead."""
+    d = ImageDraw.Draw(canvas, "RGBA")
+    cx, cy, r = int(W * 0.64), int(H * -0.02), int(W * 0.32)
+    pts = [(cx + int(r * math.cos(math.radians(deg))), cy + int(r * math.sin(math.radians(deg))))
+           for deg in range(30, 128, 4)]
+    for i in range(0, len(pts) - 1, 2):        # dashed
+        d.line([pts[i], pts[i + 1]], fill=(*color, 225), width=4)
+    if len(pts) >= 3:                          # small arrowhead at the end (pointing toward the person)
+        (ex, ey), (bx, by) = pts[-1], pts[-3]
+        ang = math.atan2(ey - by, ex - bx)
+        for da in (math.radians(150), math.radians(-150)):
+            d.line([(ex, ey), (ex + int(20 * math.cos(ang + da)), ey + int(20 * math.sin(ang + da)))],
+                   fill=(*color, 225), width=4)
+
+
+def _briefcase(d: ImageDraw.ImageDraw, x: int, y: int, color: tuple) -> None:
+    d.rounded_rectangle([x, y + 6, x + 26, y + 26], radius=3, outline=color, width=3)
+    d.rectangle([x + 8, y, x + 18, y + 8], outline=color, width=3)     # handle
+    d.line([(x, y + 15), (x + 26, y + 15)], fill=color, width=3)
+
+
+def _render_mission(plan: dict, person_rgb: Image.Image) -> Image.Image:
+    """Talentrupt's 'Man on a Mission' spotlight: three-part headline (LEAD / on a / Mission!), a reflective
+    question, 'Featuring <Name>' in script, a role pill, dashed-arc accents — and the real person seated
+    prominently bottom-right on a faceted navy backdrop."""
+    canvas = Image.new("RGBA", (W, H), (*NAVY, 255))
+    _faceted_navy(canvas)
+    _dashed_arc(canvas, WHITE)
+    try:                                       # the real person, under the left-hand text
+        cut, ok = _clean_cutout(person_rgb)
+        if ok and cut is not None:
+            _place_person_cutout(canvas, cut)
+        else:
+            _photo_panel(canvas, person_rgb, "navy")
+    except Exception as e:
+        log.warning("mission person failed: %s", e)
+    _wordmark(canvas, dark_bg=True)
+    d = ImageDraw.Draw(canvas)
+    TW, x = 400, PAD
+    # three-part headline
+    d.text((x, 146), plan.get("lead", "Man"), font=heading_font(122), fill=RED)
+    d.text((x + 8, 288), "on a", font=script_font(78), fill=WHITE)
+    kw = plan.get("mission_word", "Mission!")
+    kf = heading_font(100)
+    kww = d.textlength(kw, font=kf)
+    d.rectangle([x - 6, 394, int(x + kww + 30), 502], fill=(*RED, 255))
+    d.text((x + 12, 384), kw, font=kf, fill=WHITE)
+    # reflective question
+    y = 532
+    for ln in _wrap(d, (plan.get("subtext") or _MISSION_Q), body_font(30), TW)[:4]:
+        d.text((x, y), ln, font=body_font(30), fill=CREAM)
+        y += 40
+    y += 24
+    d.text((x, y), "Featuring", font=script_font(38), fill=CREAM)
+    y += 50
+    d.text((x, y), (plan.get("person_name") or "").strip(), font=script_font(64), fill=(0x9E, 0xC6, 0xEC))
+    y += 84
+    role = (plan.get("person_role") or "").strip()
+    if role:
+        rf = heading_font(28)
+        rt = role.upper()[:24]
+        rw = d.textlength(rt, font=rf)
+        d.rounded_rectangle([x, y, int(x + rw + 96), y + 58], radius=29, fill=(*WHITE, 255))
+        _briefcase(d, x + 24, y + 15, RED)
+        d.text((x + 64, y + 15), rt, font=rf, fill=NAVY)
+    d.line([(PAD, H - 66), (PAD + 210, H - 66)], fill=(*WHITE, 255), width=3)
+    return canvas.convert("RGB")
 
 
 # --------------------------------------------------------------------------------------------------
@@ -471,6 +563,9 @@ def _render(plan: dict, bg_img: Image.Image | None, person: Image.Image | None) 
     dark = plan["bg"] != "cream"
     base = WHITE if dark else NAVY
 
+    if tmpl == "mission" and person is not None:
+        return _render_mission(plan, person)
+
     if tmpl == "hero" and person is not None:
         HW = HERO_TEXT_W                                   # left text column width — clears the person
         canvas = _solid(plan["bg"]).convert("RGBA")
@@ -540,17 +635,24 @@ def _save(canvas: Image.Image, plan: dict) -> tuple[str, str, dict]:
 # --------------------------------------------------------------------------------------------------
 async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, style: str | None = None,
                           person_photo: bytes | None = None, person_name: str = "",
-                          headline: str = "", subtext: str = "") -> list[tuple[str, str, dict]]:
+                          headline: str = "", subtext: str = "", person_role: str = ""
+                          ) -> list[tuple[str, str, dict]]:
     """Render `count` Talentrupt-brand Chat posts for `concept`. If `person_photo` is given, the real
-    person is composited AS-IS into a hero layout. When `headline` is supplied (a person feature with
-    user-given copy), that copy is used verbatim instead of LLM planning. Returns [(path, file_name, meta)]."""
+    person is composited AS-IS. A person request mentioning 'mission' uses the 'Man on a Mission' spotlight
+    template; otherwise a hero. When `headline` is supplied the copy is used verbatim (no LLM planning)."""
     count = max(1, min(count, 3))
     person = _prep_person(person_photo) if person_photo else None
     tagline = (brand.tagline if brand and brand.tagline else "RPO Done Right")
-    if headline.strip():   # explicit copy (person feature) -> one hero, no LLM planning
-        kicker = (person_name.strip().upper()[:26] if person_name else "")
-        plans = [_coerce({"template": "hero", "headline": headline, "subtext": subtext, "kicker": kicker,
-                          "bg": random.choice(["navy", "cream"])}, headline, tagline, has_person=person is not None)]
+    if headline.strip():   # explicit copy (person feature) -> one post, no LLM planning
+        cl = (headline + " " + (concept or "")).lower()
+        if person is not None and "mission" in cl:
+            lead = "Woman" if re.search(r"\bwom[ae]n\b", cl) else "Man"
+            plans = [{"template": "mission", "lead": lead, "mission_word": "Mission!", "bg": "navy",
+                      "person_name": person_name, "person_role": person_role, "subtext": (subtext or "").strip()}]
+        else:
+            kicker = (person_name.strip().upper()[:26] if person_name else "")
+            plans = [_coerce({"template": "hero", "headline": headline, "subtext": subtext, "kicker": kicker,
+                              "bg": random.choice(["navy", "cream"])}, headline, tagline, has_person=person is not None)]
     else:
         plans = await _plan(brand, concept, count, has_person=person is not None)
     out: list[tuple[str, str, dict]] = []
