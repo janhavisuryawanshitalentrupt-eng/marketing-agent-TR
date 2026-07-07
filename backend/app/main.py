@@ -40,6 +40,7 @@ from .config import settings
 from .db import SessionLocal, get_db, init_db
 from .generation import decks as gen_decks
 from .generation import images as gen_images
+from .generation import magazine as gen_magazine
 from .generation import pdf as gen_pdf
 from .generation import posts as gen_posts
 from .generation import refine as gen_refine
@@ -69,6 +70,7 @@ from .schemas import (
     ForgotResponse,
     LoginRequest,
     LoginResponse,
+    MagazineRequest,
     MessageOut,
     ResetRequest,
 )
@@ -1989,6 +1991,91 @@ def preview_deck(file_name: str, db: Session = Depends(get_db), role: str = Depe
     except Exception as e:
         log.warning("deck preview failed for %s: %s", file_name, e)  # detail stays server-side
         raise HTTPException(status_code=500, detail="Preview unavailable for this file.")
+
+
+# --- Magazine (multi-page PDF) --------------------------------------------
+def _magazine_employee(db: Session, owner: str, employee_id: int | None) -> Employee | None:
+    """Resolve an employee id to the caller's OWN Folders employee (owner-scoped), or None."""
+    if not employee_id:
+        return None
+    e = db.get(Employee, int(employee_id))
+    return e if (e and e.owner == owner) else None
+
+
+def _magazine_photo(e: Employee | None) -> bytes | None:
+    if not e or not e.photo_path:
+        return None
+    try:
+        with open(e.photo_path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
+
+@app.post("/api/magazine/generate")
+async def generate_magazine(
+    req: MagazineRequest, db: Session = Depends(get_db), role: str = Depends(require_auth)
+):
+    """Build a multi-page magazine PDF from the caller's real team photos + provided stats, save it as a
+    'magazine' Asset, and return it. Faces are the REAL photos (never AI-generated)."""
+    owner = role
+    brand = db.query(Brand).first()
+    cover_emp = _magazine_employee(db, owner, req.cover.employee_id)
+    if cover_emp is None:
+        raise HTTPException(status_code=400, detail="Pick a cover person from your Folders first.")
+    issue: dict = {
+        "title": (req.title or "Talentrupt Times").strip(),
+        "edition": req.edition.strip(),
+        "theme": req.theme.strip(),
+        "editorial": req.editorial.strip(),
+        "cover": {
+            "name": cover_emp.name,
+            "role": cover_emp.role or "",
+            "photo": _magazine_photo(cover_emp),
+            "headline": req.cover.headline.strip(),
+            "tagline": req.cover.tagline.strip(),
+            "stats": [{"label": s.label.strip(), "value": s.value.strip()} for s in req.cover.stats
+                      if s.label.strip()],
+        },
+        "spotlights": [],
+    }
+    for sp in req.spotlights:
+        emp = _magazine_employee(db, owner, sp.employee_id)
+        if emp is None:
+            continue
+        issue["spotlights"].append({
+            "name": emp.name,
+            "role": emp.role or "",
+            "office": sp.office.strip(),
+            "blurb": sp.blurb.strip(),
+            "photo": _magazine_photo(emp),
+            "stats": [{"label": s.label.strip(), "value": s.value.strip()} for s in sp.stats
+                      if s.label.strip()],
+        })
+    try:
+        path, _fname, meta = await gen_magazine.build_magazine(brand, issue)
+    except Exception as e:
+        log.warning("magazine build failed: %s", e)
+        raise HTTPException(status_code=500, detail="Couldn't build the magazine — please try again.")
+    a = _save_asset(
+        db, None, "magazine", (issue["title"] or "Magazine")[:380],
+        body={"kind": "magazine", "edition": issue["edition"], "theme": issue["theme"],
+              "pages": meta.get("pages"), "person": cover_emp.name},
+        file_path=path, file_url=meta["url"], meta=meta, owner=owner,
+    )
+    return serialize_asset(a)
+
+
+@app.get("/api/magazine/issues")
+def list_magazine_issues(db: Session = Depends(get_db), role: str = Depends(require_auth)):
+    """The caller's past magazine issues, newest first."""
+    rows = (
+        db.query(Asset)
+        .filter(Asset.owner == role, Asset.type == "magazine")
+        .order_by(Asset.id.desc())
+        .all()
+    )
+    return [serialize_asset(a) for a in rows]
 
 
 @app.get("/api/files/{kind}/{file_name}")

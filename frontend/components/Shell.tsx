@@ -8,6 +8,7 @@ import { Avatar } from "./Avatar";
 import { MyraMark } from "./MyraLogo";
 import { ChatPanel } from "./ChatPanel";
 import { CampaignsView } from "./CampaignsView";
+import { MagazineView } from "./MagazineView";
 import { BusinessView } from "./BusinessView";
 import { FoldersView } from "./FoldersView";
 import { TasksView } from "./TasksView";
@@ -19,6 +20,7 @@ type NavItem = { href: string; label: string; icon: string; adminOnly?: boolean 
 const NAV: NavItem[] = [
   { href: "/", label: "Chat", icon: "M4 4h16v12H7l-3 3V4z" },
   { href: "/campaigns", label: "Campaigns", icon: "M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" },
+  { href: "/magazine", label: "Magazine", icon: "M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" },
   { href: "/business", label: "Business Dev", icon: "M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" },
   { href: "/folders", label: "Folders", icon: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" },
   { href: "/tasks", label: "Tasks", icon: "M9 11l3 3L20 6M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7", adminOnly: true },
@@ -77,6 +79,7 @@ export function Shell() {
   const views = [
     { key: "/", active: pathname === "/" || pathname.startsWith("/create"), node: <ChatPanel /> },
     { key: "/campaigns", active: pathname.startsWith("/campaigns"), node: <CampaignsView /> },
+    { key: "/magazine", active: pathname.startsWith("/magazine"), node: <MagazineView /> },
     { key: "/business", active: pathname.startsWith("/business"), node: <BusinessView /> },
     { key: "/folders", active: pathname.startsWith("/folders"), node: <FoldersView /> },
     // Tasks & Analytics are mounted only for admins; a member who deep-links here sees the fallback.

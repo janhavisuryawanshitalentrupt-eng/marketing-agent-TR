@@ -15,6 +15,7 @@ import type {
   Folder,
   Health,
   KnowledgeStatus,
+  MagazineSpec,
   Opportunity,
 } from "./types";
 
@@ -733,6 +734,23 @@ export async function getKnowledgeStatus(): Promise<KnowledgeStatus> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error("Failed to load knowledge status");
+  return res.json();
+}
+
+// --- Magazine ---------------------------------------------------------------
+export async function generateMagazine(spec: MagazineSpec): Promise<Asset> {
+  const res = await fetch(`${API_BASE}/api/magazine/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(spec),
+  });
+  if (!res.ok) throw new Error("Failed to generate the magazine");
+  return res.json();
+}
+
+export async function getMagazines(): Promise<Asset[]> {
+  const res = await fetchRetry(`${API_BASE}/api/magazine/issues`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load past issues");
   return res.json();
 }
 

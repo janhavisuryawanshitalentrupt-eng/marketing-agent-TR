@@ -1,6 +1,6 @@
 export type Role = "user" | "assistant";
 
-export type AssetType = "post" | "image" | "deck" | "pdf" | "campaign" | "video";
+export type AssetType = "post" | "image" | "deck" | "pdf" | "campaign" | "video" | "magazine";
 
 export interface Asset {
   id: number;
@@ -233,4 +233,31 @@ export interface KnowledgeStatus {
   by_folder: Record<string, number>;
   vision_enabled: boolean;
   zip_present: boolean;
+}
+
+// --- Magazine ---------------------------------------------------------------
+export interface MagStat {
+  label: string;
+  value: string;
+}
+
+export interface MagSpotlight {
+  employee_id: number | null;
+  office: string;
+  blurb: string;
+  stats: MagStat[];
+}
+
+export interface MagazineSpec {
+  title: string;
+  edition: string;
+  theme: string;
+  editorial: string;
+  cover: {
+    employee_id: number | null;
+    headline: string;
+    tagline: string;
+    stats: MagStat[];
+  };
+  spotlights: MagSpotlight[];
 }

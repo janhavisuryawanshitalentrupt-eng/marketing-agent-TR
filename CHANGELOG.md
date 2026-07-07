@@ -3,6 +3,33 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## NEW: Magazine section — generate a multi-page branded magazine (2026-07-07)
+A dedicated **"Magazine"** section (a new top-nav tab, right after Campaigns) whose only job is to generate a
+branded, festive, multi-page magazine PDF (à la "Talentrupt Times") from the team's REAL photos + stats.
+
+- **Frontend** (`components/MagazineView.tsx`, nav + `/magazine` route in `Shell.tsx`, `lib/api.ts`
+  `generateMagazine`/`getMagazines`): an issue form (title / edition / theme / optional editorial), a COVER
+  champion (pick a Folders employee + headline + tagline + up to 6 stat callouts), and a dynamic list of
+  SPOTLIGHTS (employee + office + blurb + stats). Generate → preview/download the PDF; past issues listed.
+- **Backend** (`generation/magazine.py` + `POST /api/magazine/generate`, `GET /api/magazine/issues`): renders
+  each page as a full-page PIL image (portrait 1080×1528) with the same brand fonts/colours + REAL cut-out
+  photos, then assembles them into ONE PDF via Pillow `save_all`. Pages: COVER (framed real-photo portrait +
+  script name + stat pills + headline band), EDITORIAL (a warm note the LLM writes from the theme, with a
+  graceful default), SPOTLIGHTS (2/page — circular photo + office + stat chips + blurb), CLOSING. Saved as a
+  `magazine` Asset, owner-scoped; the endpoint resolves employee ids → the caller's OWN photos only.
+- **How it was built:** mapped the reuse surface with a 6-agent workflow, built backend + frontend (frontend
+  by a delegated agent against a frozen contract), tested the render + HTTP endpoint + browser E2E, then ran a
+  12-agent adversarial review and fixed every confirmed finding: capped request sizes (schema `max_length` on
+  spotlights/stats/strings — no OOM/CPU DoS), made `_wrap` break over-long words (no name runs off the page),
+  ellipsized long spotlight names, laid stat chips out by measured width (no card overflow), switched the cover
+  to a reliable framed PORTRAIT (a headshot won't cut out cleanly on the free keyer — a bad cut showed as an
+  empty blob), and made the festive-confetti seed deterministic (`hashlib`, not the per-process `hash()`).
+
+Verified end-to-end in the browser (nav after Campaigns → form → generate → served PDF) and by rendering with
+a real face + long-name/many-stat stress inputs. NOTE: names/themes render in the brand Latin fonts, so
+non-Latin scripts (e.g. Devanagari) show as blanks — same limitation as the rest of the image engine; English
+names render perfectly.
+
 ## Fix: campaign person now reliably lands on the themed SCENE (not a plain split-poster) (2026-07-07)
 Follow-up to the shirt-text fix: protecting the white shirt text (keeping it opaque) meant those bright,
 low-saturation letters were then counted as "leftover WALL" by the cut-out quality gate — so `wall_left`

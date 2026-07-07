@@ -300,15 +300,31 @@ def _enhance_photo(img: Image.Image) -> Image.Image:
 
 
 def _wrap(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
-    words, lines, cur = str(text or "").split(), [], ""
-    for w in words:
-        t = (cur + " " + w).strip()
-        if d.textlength(t, font=font) <= max_w:
-            cur = t
-        else:
-            if cur:
+    def _hard(word: str) -> list[str]:
+        # A single word wider than the box is character-split so no returned line ever overflows (a long
+        # concatenated name / URL used to run off the edge and over the photo).
+        if d.textlength(word, font=font) <= max_w:
+            return [word]
+        out, cur = [], ""
+        for ch in word:
+            if not cur or d.textlength(cur + ch, font=font) <= max_w:
+                cur += ch
+            else:
+                out.append(cur)
+                cur = ch
+        if cur:
+            out.append(cur)
+        return out
+
+    lines, cur = [], ""
+    for w in str(text or "").split():
+        for piece in _hard(w):
+            t = (cur + " " + piece).strip()
+            if not cur or d.textlength(t, font=font) <= max_w:
+                cur = t
+            else:
                 lines.append(cur)
-            cur = w
+                cur = piece
     if cur:
         lines.append(cur)
     return lines or [""]
