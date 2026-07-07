@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: Chat person posts — prominent person + working "regenerate" (2026-07-08)
+Two problems on the Chat person-hero posts, both fixed.
+
+- **Person was tiny / lost in the frame** unless the photo was a tall standing portrait. `_float_cutout` now
+  sizes the person **aspect-aware and bottom-right anchored**: a standing portrait fills ~0.94 of the height,
+  a seated/upper-body shot fills ~0.72 and sits large at the base; a too-wide shot is **cropped around the
+  person's centre (face kept), not shrunk**. The person is always prominent on a soft brand backdrop — no
+  more small figure floating in an empty disc.
+- **"Regenerate … a completely different look" errored.** A `chat_hero` asset was being regenerated through
+  the old editorial renderer (a gpt-image call that 429-errored and produced an off-style result). It now
+  regenerates **through chatpost** (consistent house style, no gpt-image call) and pulls a **different real
+  photo** of the same person (cover + extras) so a "new pose / different look" actually varies — face never
+  altered.
+
+Verified: rendered standing / upper-body / half-body / wide-seated heroes (person prominent + framed in all);
+chat-hero regenerate returns a fresh chatpost render for both "different look" and "more formal" with no error.
+
 ## Folders: feature the photo that FITS the request (not a random one) (2026-07-07)
 When a person has several photos, the app now picks the one that suits what you asked for — a formal shot for
 a formal/announcement post, a casual or festive shot for a celebration, a confident pose for an "on a mission"

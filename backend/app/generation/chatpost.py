@@ -215,29 +215,48 @@ def _clean_cutout(person_rgb: Image.Image):
     return cut, ok
 
 
-def _hero_disc(canvas: Image.Image, bg: str) -> None:
-    """The bold brand shape behind a cleanly cut-out person (navy field -> coral disc; cream -> navy)."""
-    pcx = int(W * 0.86)
-    d = ImageDraw.Draw(canvas, "RGBA")
-    if bg == "cream":
-        d.ellipse([pcx - 330, 90, pcx + 420, 1140], fill=(*NAVY, 255))
-    else:
-        d.ellipse([pcx - 320, 120, pcx + 430, 1150], fill=(*RED, 245))
+def _alpha_center_x(cut: Image.Image) -> int:
+    """Horizontal centre-of-mass of the subject's alpha — so a width crop keeps the person (face), not a desk."""
+    import numpy as np
+    cols = (np.asarray(cut.split()[-1]) > 64).sum(axis=0)
+    tot = int(cols.sum())
+    if tot <= 0:
+        return cut.width // 2
+    return int((cols * np.arange(cut.width)).sum() / tot)
+
+
+# Person occupies the right side; the left column (PAD..PAD+HERO_TEXT_W) is reserved for the headline.
+HERO_TEXT_W = 420
+_PERSON_MAX_W = W - (PAD + HERO_TEXT_W) - 32   # keep the person clear of the headline column
 
 
 def _float_cutout(canvas: Image.Image, cut: Image.Image, bg: str) -> None:
-    """A cleanly cut-out person floating on the brand disc — sized so the WHOLE body stays in frame."""
-    _hero_disc(canvas, bg)
-    region_left = int(W * 0.50)
-    max_w, max_h = W - region_left - 24, int(H * 0.82)
-    scale = min(max_h / cut.height, max_w / cut.width)          # fit BOTH axes -> never clipped / half-off
-    pw, ph = max(1, int(cut.width * scale)), max(1, int(cut.height * scale))
+    """A cleanly cut-out person, sized PROMINENTLY and bottom-right anchored on a soft brand backdrop — so a
+    seated / upper-body / standing shot all read as a strong hero (never a tiny figure in an empty disc)."""
+    # soft brand backdrop curving in from the right (a gentle arc, not a dominant bullseye)
+    acc = RED if bg != "cream" else NAVY
+    ImageDraw.Draw(canvas, "RGBA").ellipse([520, 11, 1686, 1177], fill=(*acc, 240))
+
+    bbox = cut.getbbox()          # tighten to the real subject (defensive)
+    if bbox:
+        cut = cut.crop(bbox)
+    ar = cut.height / max(1, cut.width)
+    # aspect-aware height: a seated / upper-body shot fills LESS height but is still large & bottom-anchored,
+    # a tall standing portrait fills most of the frame. Either way the person is prominent.
+    target_h = int(H * (0.94 if ar >= 1.7 else 0.86 if ar >= 1.15 else 0.72))
+    scale = target_h / cut.height
+    pw, ph = max(1, int(cut.width * scale)), target_h
+    if pw > _PERSON_MAX_W:        # too wide -> CROP around the person's centre (keep the face), don't shrink
+        crop_w = max(1, int(_PERSON_MAX_W / scale))
+        cx = _alpha_center_x(cut)
+        x0 = max(0, min(cut.width - crop_w, cx - crop_w // 2))
+        cut = cut.crop((x0, 0, x0 + crop_w, cut.height))
+        pw = _PERSON_MAX_W
     p = cut.resize((pw, ph), Image.LANCZOS)
-    x = region_left + (max_w - pw) // 2 + 12
-    y = H - ph
+    x, y = W - pw - 24, H - ph    # right + bottom anchored (feet / desk crop at the base edge)
     sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(sh).ellipse([x + int(pw * 0.14), H - 38, x + int(pw * 0.86), H - 8], fill=(0, 0, 0, 80))
-    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(11)))
+    ImageDraw.Draw(sh).ellipse([x + int(pw * 0.16), H - 40, x + int(pw * 0.84), H - 8], fill=(0, 0, 0, 95))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(13)))
     canvas.alpha_composite(p, (x, y))
 
 
@@ -453,7 +472,7 @@ def _render(plan: dict, bg_img: Image.Image | None, person: Image.Image | None) 
     base = WHITE if dark else NAVY
 
     if tmpl == "hero" and person is not None:
-        HW = 420                                           # left text column width — clears the person panel
+        HW = HERO_TEXT_W                                   # left text column width — clears the person
         canvas = _solid(plan["bg"]).convert("RGBA")
         _hero_person(canvas, person, plan["bg"])
         _wordmark(canvas, dark_bg=dark)

@@ -109,8 +109,17 @@ async def regenerate_asset(
             try:
                 emp = db.get(Employee, int(emp_id))
                 if emp and emp.photo_path:
-                    with open(emp.photo_path, "rb") as f:
-                        raw = f.read()
+                    # regenerate -> pick a RANDOM real photo (cover + extras) so a "different look / new
+                    # pose" actually varies (a different real shot of the SAME person, face untouched).
+                    paths = [p for p in ([emp.photo_path] + [ep.photo_path for ep in (emp.photos or [])]) if p]
+                    random.shuffle(paths)
+                    for p in paths:
+                        try:
+                            with open(p, "rb") as f:
+                                raw = f.read()
+                            break
+                        except Exception:
+                            continue
                     name, role = emp.name or name, emp.role or role
             except Exception:
                 raw = None
@@ -156,19 +165,34 @@ async def regenerate_asset(
         if (edit.get("eyebrow") or "").strip():             # optional standalone label change
             eyebrow = edit["eyebrow"].strip()
             note = note or f'Changed the label to “{eyebrow}”.'
-        path, _fn, m = await teampost.build_ai_scene(
-            brand, raw, name=("" if in_campaign else name), role=("" if in_campaign else role),
-            headline=head, question=sub, variant=variant, theme=theme, eyebrow=eyebrow, fit=fit)
-        file_path, file_url, new_meta = path, m["url"], dict(m)
+        # A Chat house-style hero regenerates through chatpost (consistent look; a fresh photo/bg/template) —
+        # NOT the old editorial scene renderer. This also avoids a gpt-image call, so it can't 429-error.
+        is_chat_hero = (body.get("style") == "chat_hero" or meta_in.get("renderer") == "chat_talentrupt") \
+            and not in_campaign
+        if is_chat_hero:
+            from . import chatpost
+            hp = await chatpost.build_chat_post(brand, concept=(head or name), count=1, person_photo=raw,
+                                                person_name=name, headline=(head or name), subtext=sub)
+            if not hp:
+                return None
+            path, _fn, m = hp[0]
+            file_path, file_url, new_meta = path, m["url"], dict(m)
+            new_body = {"person": name, "role": role, "headline": head, "subline": sub, "kind": "team",
+                        "style": "chat_hero", "employee_id": emp_id, "template": m.get("template")}
+        else:
+            path, _fn, m = await teampost.build_ai_scene(
+                brand, raw, name=("" if in_campaign else name), role=("" if in_campaign else role),
+                headline=head, question=sub, variant=variant, theme=theme, eyebrow=eyebrow, fit=fit)
+            file_path, file_url, new_meta = path, m["url"], dict(m)
+            new_body = {"person": name, "role": role, "headline": head, "subline": sub, "kind": "team",
+                        "style": m.get("style", "ai"), "employee_id": emp_id,
+                        "variant": m.get("variant", variant), "eyebrow": eyebrow}
         if team_label:
             new_meta["team_photo"] = team_label
         if emp_id:
             new_meta["employee_id"] = emp_id
         if note:
             new_meta["refine_note"] = note
-        new_body = {"person": name, "role": role, "headline": head, "subline": sub, "kind": "team",
-                    "style": m.get("style", "ai"), "employee_id": emp_id,
-                    "variant": m.get("variant", variant), "eyebrow": eyebrow}
         title = name + (f" — {role}" if role else "")
     elif a.type == "image":
         concept = _augment(body.get("concept") or a.title, instruction)
