@@ -15,6 +15,7 @@ import type {
   Folder,
   Health,
   KnowledgeStatus,
+  MagazineDataResult,
   MagazineSpec,
   Opportunity,
 } from "./types";
@@ -751,6 +752,33 @@ export async function generateMagazine(spec: MagazineSpec): Promise<Asset> {
 export async function getMagazines(): Promise<Asset[]> {
   const res = await fetchRetry(`${API_BASE}/api/magazine/issues`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load past issues");
+  return res.json();
+}
+
+/** Upload a roster CSV/XLSX — the backend ranks employees, picks a champion + spotlights, matches each
+ * name to a Folders photo, and returns the generated magazine PDF asset. */
+export async function generateMagazineFromData(
+  file: File,
+  opts: { theme: string; title: string; edition: string; feature_count: string; editorial: string; rank_by: string },
+): Promise<MagazineDataResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("theme", opts.theme);
+  fd.append("title", opts.title);
+  fd.append("edition", opts.edition);
+  fd.append("feature_count", opts.feature_count);
+  fd.append("editorial", opts.editorial);
+  fd.append("rank_by", opts.rank_by);
+  // No Content-Type — the browser sets the multipart boundary.
+  const res = await fetch(`${API_BASE}/api/magazine/from-data`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: fd,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail ?? "Failed to generate the magazine");
+  }
   return res.json();
 }
 

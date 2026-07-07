@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { downloadFile, fileUrl, generateMagazine, getAllEmployees, getMagazines } from "@/lib/api";
-import type { Asset, Employee, MagSpotlight, MagStat, MagazineSpec } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import {
+  downloadFile,
+  fileUrl,
+  generateMagazine,
+  generateMagazineFromData,
+  getAllEmployees,
+  getMagazines,
+} from "@/lib/api";
+import type { Asset, Employee, MagSpotlight, MagStat, MagazineDataResult, MagazineSpec } from "@/lib/types";
 
 const MAX_COVER_STATS = 6;
 const MAX_SPOTLIGHT_STATS = 4;
@@ -207,6 +214,8 @@ function IssueCard({ asset }: { asset: Asset }) {
 }
 
 export function MagazineView() {
+  const [mode, setMode] = useState<"data" | "manual">("data");
+
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeesError, setEmployeesError] = useState(false);
   const [issues, setIssues] = useState<Asset[]>([]);
@@ -221,6 +230,19 @@ export function MagazineView() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // --- Data-file mode ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dataFile, setDataFile] = useState<File | null>(null);
+  const [dataTitle, setDataTitle] = useState("Talentrupt Times");
+  const [dataEdition, setDataEdition] = useState("");
+  const [dataTheme, setDataTheme] = useState("");
+  const [dataEditorial, setDataEditorial] = useState("");
+  const [dataFeatureCount, setDataFeatureCount] = useState("");
+  const [dataRankBy, setDataRankBy] = useState("");
+  const [dataBusy, setDataBusy] = useState(false);
+  const [dataError, setDataError] = useState("");
+  const [dataResult, setDataResult] = useState<MagazineDataResult | null>(null);
 
   useEffect(() => {
     getAllEmployees()
@@ -278,15 +300,63 @@ export function MagazineView() {
     }
   }
 
+  function onDataFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setDataFile(e.target.files && e.target.files[0] ? e.target.files[0] : null);
+  }
+
+  async function onGenerateFromData() {
+    if (dataBusy || !dataFile || !dataTheme.trim()) return;
+    setDataBusy(true);
+    setDataError("");
+    try {
+      const result = await generateMagazineFromData(dataFile, {
+        theme: dataTheme.trim(),
+        title: dataTitle.trim() || "Talentrupt Times",
+        edition: dataEdition.trim(),
+        feature_count: dataFeatureCount.trim(),
+        editorial: dataEditorial.trim(),
+        rank_by: dataRankBy.trim(),
+      });
+      setIssues((prev) => [result.asset, ...prev]);
+      setDataResult(result);
+      setDataFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setDataError((e as Error)?.message || "Couldn't generate the magazine — please try again.");
+    } finally {
+      setDataBusy(false);
+    }
+  }
+
   const noEmployees = !employeesError && employees.length === 0;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
       <div className="mx-auto max-w-3xl">
-        <h2 className="font-heading text-xl font-semibold">Magazine</h2>
-        <p className="mt-1 text-sm text-muted">
-          Generate a branded multi-page magazine from your team&apos;s real photos and stats.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-xl font-semibold">Magazine</h2>
+            <p className="mt-1 text-sm text-muted">
+              Generate a branded multi-page magazine from your team&apos;s real photos and stats.
+            </p>
+          </div>
+          <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+            <button
+              onClick={() => setMode("data")}
+              type="button"
+              className={`rounded-md px-3 py-1.5 transition ${mode === "data" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+            >
+              From data file
+            </button>
+            <button
+              onClick={() => setMode("manual")}
+              type="button"
+              className={`rounded-md px-3 py-1.5 transition ${mode === "manual" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+            >
+              Manual
+            </button>
+          </div>
+        </div>
 
         {noEmployees && (
           <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm text-muted">
@@ -296,6 +366,131 @@ export function MagazineView() {
           </div>
         )}
 
+        {mode === "data" && (
+          <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Roster file</div>
+            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx"
+                onChange={onDataFileChange}
+                className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--brand-navy)] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-cream hover:file:opacity-90"
+              />
+              {dataFile && (
+                <p className="mt-2 truncate text-xs text-foreground">Selected: {dataFile.name}</p>
+              )}
+              <p className="mt-2 text-[11px] text-muted">
+                Upload a CSV or Excel roster (a Name column + metric columns like Submissions, Interviews,
+                Offers, Starts…). We rank the team, feature the top performers, and pull each person&apos;s
+                photo from Folders by name.
+              </p>
+            </div>
+
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Theme</label>
+                <input
+                  value={dataTheme}
+                  onChange={(e) => setDataTheme(e.target.value)}
+                  placeholder="Diwali / Christmas / Cricket…"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Title</label>
+                <input
+                  value={dataTitle}
+                  onChange={(e) => setDataTitle(e.target.value)}
+                  placeholder="Talentrupt Times"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Edition</label>
+                <input
+                  value={dataEdition}
+                  onChange={(e) => setDataEdition(e.target.value)}
+                  placeholder="Vol 1 · September 2025"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Feature count</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={dataFeatureCount}
+                  onChange={(e) => setDataFeatureCount(e.target.value)}
+                  placeholder="All"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Rank by (column, optional)</label>
+                <input
+                  value={dataRankBy}
+                  onChange={(e) => setDataRankBy(e.target.value)}
+                  placeholder="e.g. Offers"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-2.5">
+              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Editorial message</label>
+              <textarea
+                value={dataEditorial}
+                onChange={(e) => setDataEditorial(e.target.value)}
+                rows={3}
+                placeholder="A short note from leadership…"
+                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+              />
+              <p className="mt-1 text-[11px] text-muted">Leave blank and Myra writes it.</p>
+            </div>
+
+            <div className="mt-4">
+              <button
+                onClick={onGenerateFromData}
+                disabled={dataBusy || !dataFile || !dataTheme.trim()}
+                className="btn-primary w-full"
+                title={!dataFile ? "Choose a roster file first" : !dataTheme.trim() ? "Enter a theme first" : undefined}
+              >
+                {dataBusy ? "Generating…" : "Generate magazine"}
+              </button>
+              {dataBusy && (
+                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+                  Analyzing your roster and generating the magazine… this can take up to a minute.
+                </div>
+              )}
+              {dataError && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{dataError}</p>}
+            </div>
+
+            {dataResult && (
+              <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3.5 text-sm">
+                <p className="text-foreground">
+                  Featured {dataResult.featured.length} {dataResult.featured.length === 1 ? "person" : "people"}
+                  {dataResult.featured.length > 0 ? `: ${dataResult.featured.join(", ")}` : ""}.
+                </p>
+                {dataResult.unmatched.length > 0 && (
+                  <p className="mt-1.5 text-amber-600">
+                    No Folders photo for: {dataResult.unmatched.join(", ")} — add their photo in{" "}
+                    <a href="/folders" className="font-medium underline">Folders</a> so they appear with a picture.
+                  </p>
+                )}
+                <p className="mt-1.5 text-[11px] text-muted">
+                  Detected columns — Name: {dataResult.columns.name}
+                  {dataResult.columns.office ? ` · Office: ${dataResult.columns.office}` : ""}
+                  {dataResult.columns.metrics.length ? ` · Metrics: ${dataResult.columns.metrics.join(", ")}` : ""}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {mode === "manual" && (
+        <>
         {/* Issue basics */}
         <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
           <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Issue basics</div>
@@ -430,6 +625,8 @@ export function MagazineView() {
           )}
           {error && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{error}</p>}
         </div>
+        </>
+        )}
 
         {/* Past issues */}
         <div className="mt-8">

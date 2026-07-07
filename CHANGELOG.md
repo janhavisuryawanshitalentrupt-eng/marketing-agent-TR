@@ -3,6 +3,27 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine: generate straight from a CSV/Excel roster (2026-07-07)
+The Magazine section now has a **"From data file"** mode (the default, next to "Manual"): upload a roster
+spreadsheet and the app builds the whole issue automatically.
+
+- **Analyzer** (`generation/roster.py`): parses **CSV and `.xlsx`** (`openpyxl` added to requirements; CSV needs
+  no dependency), fuzzy-detects the **Name / Office / numeric-metric** columns, ranks everyone by a chosen
+  column (`rank_by`) or a weighted composite that favours outcomes (starts×5, offers×4, interviews×1.5,
+  productivity×2, submissions×0.3), features the top performer as the **cover champion** and the next up to 24
+  as **spotlights**, pulls each row's stats, and auto-writes the champion headline/tagline + spotlight blurbs.
+- **Endpoint** (`POST /api/magazine/from-data`, multipart): parses → analyses → matches each featured name to
+  the caller's **own Folders photo** (owner-scoped, fuzzy) → builds the themed PDF. Returns `{asset, featured,
+  matched, unmatched, columns}` so the UI shows who got a photo and who to add. 5 MB cap; graceful 400s for a
+  missing Name column / empty file.
+- **Frontend**: a mode toggle + a data panel (roster upload + theme/title/edition/feature-count + optional
+  editorial/rank-by) and a result summary listing featured names, unmatched names (with a Folders nudge), and
+  the detected columns. A name with no Folders photo still appears — as clean **initials** — never a crash.
+
+Verified end-to-end: unit (CSV + `.xlsx` parse/rank), HTTP endpoint (200 + photo-match + serve; 400 empty/no-name;
+401 no-auth), and **browser upload → generate → result summary + download**. NOTE: the manual form still works
+for hand-built issues.
+
 ## NEW: Magazine section — generate a multi-page branded magazine (2026-07-07)
 A dedicated **"Magazine"** section (a new top-nav tab, right after Campaigns) whose only job is to generate a
 branded, festive, multi-page magazine PDF (à la "Talentrupt Times") from the team's REAL photos + stats.

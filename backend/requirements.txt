@@ -10,6 +10,7 @@ Pillow==11.1.0
 python-pptx==1.0.2
 reportlab==4.2.5
 pypdf==5.1.0
+openpyxl==3.1.5  # parse an uploaded .xlsx roster for the Magazine generator (CSV works without it)
 # Team-photo cut-out extras (HEIC decode + offline background removal) are OPTIONAL and live in
 # requirements-optional.txt — they pin heavy versions that conflict with Pillow on some platforms, and
 # the composer falls back to a no-cutout cover-fit without them. Install them only if you want that.

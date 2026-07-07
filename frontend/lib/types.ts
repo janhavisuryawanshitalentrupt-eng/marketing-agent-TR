@@ -261,3 +261,11 @@ export interface MagazineSpec {
   };
   spotlights: MagSpotlight[];
 }
+
+export interface MagazineDataResult {
+  asset: Asset;
+  featured: string[];
+  matched: string[];
+  unmatched: string[];
+  columns: { name: string; office: string | null; metrics: string[] };
+}

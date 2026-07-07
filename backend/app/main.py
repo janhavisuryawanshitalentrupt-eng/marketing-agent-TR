@@ -2066,6 +2066,101 @@ async def generate_magazine(
     return serialize_asset(a)
 
 
+@app.post("/api/magazine/from-data")
+async def generate_magazine_from_data(
+    file: UploadFile = File(...),
+    theme: str = Form(""),
+    title: str = Form("Talentrupt Times"),
+    edition: str = Form(""),
+    feature_count: str = Form(""),
+    editorial: str = Form(""),
+    rank_by: str = Form(""),
+    db: Session = Depends(get_db),
+    role: str = Depends(require_auth),
+):
+    """Upload a roster (CSV/.xlsx) of employees + stats → analyse it (rank, pick champion + spotlights), match
+    each featured name to the caller's OWN Folders photo, and build the themed magazine PDF."""
+    owner = role
+    from .agent.tools import _find_employee
+    from .generation import roster as gen_roster
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    if len(raw) > 5_000_000:
+        raise HTTPException(status_code=400, detail="File too large — please keep it under 5 MB.")
+    try:
+        rows = gen_roster.parse_roster(file.filename or "", raw)
+    except ImportError:  # openpyxl not installed on the server -> a server fault, not a bad file
+        raise HTTPException(status_code=500,
+                            detail="Excel support isn't available on the server right now — please upload a CSV.")
+    except Exception as e:
+        log.warning("roster parse failed: %s", e)  # real cause stays server-side; user gets a friendly hint
+        raise HTTPException(status_code=400,
+                            detail="Couldn't read that file — upload a CSV or .xlsx with a header row.")
+    try:
+        fc = int(str(feature_count).strip()) if str(feature_count).strip() else 0
+    except ValueError:
+        fc = 0
+    try:
+        issue, featured, columns = gen_roster.build_issue(
+            rows, theme=theme, title=title, edition=edition, editorial=editorial,
+            feature_count=fc, rank_by=rank_by,
+        )
+    except ValueError as e:
+        detail = {
+            "no_name_column": "Couldn't find a Name column — add a header like 'Name' (and metric columns).",
+            "no_rows": "The file has a header but no employee rows.",
+        }.get(str(e), "Couldn't read the roster — check it has a header row and a Name column.")
+        raise HTTPException(status_code=400, detail=detail)
+    except Exception as e:
+        log.warning("roster analyse failed: %s", e)
+        raise HTTPException(status_code=400, detail="Couldn't analyse the roster data.")
+
+    # Match each featured name to the caller's OWN Folders photo (fuzzy, owner-scoped).
+    matched: list[str] = []
+    unmatched: list[str] = []
+
+    def _attach(entry: dict) -> None:
+        nm = (entry.get("name") or "").strip()
+        emp = _find_employee(db, owner, nm)
+        if emp and emp.photo_path:
+            try:
+                with open(emp.photo_path, "rb") as fh:
+                    entry["photo"] = fh.read()
+                if not entry.get("role"):
+                    entry["role"] = emp.role or ""
+                matched.append(nm)
+                return
+            except Exception:
+                pass
+        unmatched.append(nm)
+
+    _attach(issue["cover"])
+    for sp in issue["spotlights"]:
+        _attach(sp)
+
+    brand = db.query(Brand).first()
+    try:
+        path, _fname, meta = await gen_magazine.build_magazine(brand, issue)
+    except Exception as e:
+        log.warning("magazine (from data) build failed: %s", e)
+        raise HTTPException(status_code=500, detail="Couldn't build the magazine — please try again.")
+    a = _save_asset(
+        db, None, "magazine", (issue["title"] or "Magazine")[:380],
+        body={"kind": "magazine", "edition": issue["edition"], "theme": issue["theme"],
+              "pages": meta.get("pages"), "person": issue["cover"]["name"], "source": "data"},
+        file_path=path, file_url=meta["url"], meta=meta, owner=owner,
+    )
+    return {
+        "asset": serialize_asset(a),
+        "featured": featured,
+        "matched": matched,
+        "unmatched": unmatched,
+        "columns": columns,
+    }
+
+
 @app.get("/api/magazine/issues")
 def list_magazine_issues(db: Session = Depends(get_db), role: str = Depends(require_auth)):
     """The caller's past magazine issues, newest first."""
