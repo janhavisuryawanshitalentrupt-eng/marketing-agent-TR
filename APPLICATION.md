@@ -146,7 +146,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   the real `_cutout`) and **never fabricates a statistic** (a stat card is kept only when the LLM supplied both
   value+label; observance posts carry none). Wired at `exec_generate_image` (no-person Chat) and
   `exec_feature_employee` (the DEFAULT individual feature; an explicit style/skin/scene request or a special
-  occasion series still uses `build_ai_scene`). CAMPAIGN and MAGAZINE renderers are untouched.
+  occasion series still uses `build_ai_scene`). The **`mission`** template ("Man on a Mission" spotlight) has
+  **6 backdrop palettes** (`_MISSION_BGS`: navy / warm espresso / bright azure / deep maroon / teal / indigo —
+  all dark so the fixed light text stays legible); the default is navy and a conversational edit swaps it (see
+  refine, below) while keeping the person, layout, and text. CAMPAIGN and MAGAZINE renderers are untouched.
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as
@@ -160,7 +163,13 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
   team image, `refine._parse_image_edit` (LLM) maps the instruction to `{op: text|background|fit|design}` and
   reuses the ORIGINAL design `variant`+`eyebrow` so ONLY the requested thing changes (text→new headline;
   background→new themed scene, person kept as-is; fit→scale/reposition via `build_ai_scene(fit=…)`;
-  design→fresh variant). A brand-new request ("create a new image") is NOT treated as an edit. If the model
+  design→fresh variant). For a **Chat house-style post** (`style=chat_hero`), an edit instead keeps the same
+  person + layout + text and **rotates the Mission backdrop palette** (`chatpost.mission_variant`): "warmer" →
+  warm, "brighter" → azure, a named colour → that palette, generic "different background" → the next one; the
+  variant is persisted (`bg_variant` in body/meta) so successive edits keep changing, and the reply says what
+  actually changed ("Warmed up the background…"). A **text**-only edit leaves the backdrop alone. This works
+  even when the LLM is rate-limited (regex fallback flags both "different background" and "warmer/brighter" as
+  background edits). A brand-new request ("create a new image") is NOT treated as an edit. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over

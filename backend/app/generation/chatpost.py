@@ -304,10 +304,51 @@ def _hero_person(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
 _MISSION_Q = "What does success look like when you're building for the long term?"
 
 
-def _faceted_navy(canvas: Image.Image) -> None:
-    """Subtle angular navy panels over the navy base — the 'Man on a Mission' faceted backdrop."""
+# 'Man on a Mission' backdrop palettes. All are DARK so the fixed light text (red lead, white/cream
+# copy, light-blue script name, white role pill) stays legible on every one. Index 0 is the original
+# navy. A conversational edit ("different background", "warmer", "brighter") swaps to another index —
+# same person, same layout, visibly different backdrop. See `mission_variant`.
+_MISSION_BGS = [
+    # 0 — navy (original)
+    {"base": (0x0B, 0x35, 0x59), "facets": [(0x10, 0x40, 0x68), (0x0A, 0x2E, 0x50), (0x13, 0x49, 0x74), (0x0C, 0x38, 0x5E)]},
+    # 1 — warm espresso / plum ("warmer")
+    {"base": (0x3A, 0x24, 0x2E), "facets": [(0x4E, 0x30, 0x3A), (0x30, 0x1E, 0x28), (0x5A, 0x39, 0x3F), (0x42, 0x2A, 0x33)]},
+    # 2 — bright royal azure ("brighter")
+    {"base": (0x12, 0x4E, 0x86), "facets": [(0x1B, 0x5E, 0x9E), (0x0F, 0x45, 0x78), (0x24, 0x6C, 0xB0), (0x17, 0x57, 0x92)]},
+    # 3 — deep maroon
+    {"base": (0x4C, 0x18, 0x22), "facets": [(0x60, 0x22, 0x2E), (0x3C, 0x12, 0x1B), (0x70, 0x2C, 0x38), (0x54, 0x1D, 0x27)]},
+    # 4 — deep teal
+    {"base": (0x0C, 0x3A, 0x38), "facets": [(0x12, 0x4A, 0x47), (0x0A, 0x30, 0x2F), (0x18, 0x56, 0x52), (0x0E, 0x40, 0x3D)]},
+    # 5 — indigo
+    {"base": (0x24, 0x1E, 0x4A), "facets": [(0x2E, 0x27, 0x5E), (0x1C, 0x18, 0x3C), (0x38, 0x30, 0x70), (0x28, 0x22, 0x52)]},
+]
+MISSION_BG_COUNT = len(_MISSION_BGS)
+
+
+def mission_variant(instruction: str, prev: int = 0) -> int:
+    """Pick a Mission backdrop index from a conversational edit. Colour/tone words map to a matching
+    palette; a generic 'different background' rotates to the next one so it always visibly changes."""
+    t = (instruction or "").lower()
+    warm = any(w in t for w in ("warm", "cozy", "cosy"))
+    bright = any(w in t for w in ("bright", "light", "vivid", "vibrant", "lighter"))
+    if bright:                       # 'warmer and brighter' -> bright wins (a clearer visible change)
+        return 2
+    if warm:
+        return 1
+    if any(w in t for w in ("maroon", "crimson", "burgundy")) or "red bg" in t or "red background" in t:
+        return 3
+    if any(w in t for w in ("teal", "green", "emerald")):
+        return 4
+    if any(w in t for w in ("purple", "indigo", "violet")):
+        return 5
+    if "navy" in t or "blue" in t:
+        return 0 if prev != 0 else 2
+    return (prev + 1) % MISSION_BG_COUNT     # generic 'change the background' -> next in rotation
+
+
+def _faceted_bg(canvas: Image.Image, facets: list) -> None:
+    """Subtle angular panels over the base — the 'Man on a Mission' faceted backdrop (palette-driven)."""
     d = ImageDraw.Draw(canvas, "RGBA")
-    shades = [(0x10, 0x40, 0x68), (0x0A, 0x2E, 0x50), (0x13, 0x49, 0x74), (0x0C, 0x38, 0x5E)]
     polys = [
         [(0.52, 0.0), (1.0, 0.0), (1.0, 0.34), (0.66, 0.16)],
         [(0.60, 0.02), (0.98, 0.0), (0.86, 0.40), (0.66, 0.30)],
@@ -315,7 +356,7 @@ def _faceted_navy(canvas: Image.Image) -> None:
         [(0.74, 0.30), (1.0, 0.20), (1.0, 0.62), (0.80, 0.52)],
     ]
     for i, poly in enumerate(polys):
-        d.polygon([(int(px * W), int(py * H)) for px, py in poly], fill=(*shades[i % len(shades)], 80))
+        d.polygon([(int(px * W), int(py * H)) for px, py in poly], fill=(*facets[i % len(facets)], 80))
 
 
 def _dashed_arc(canvas: Image.Image, color: tuple) -> None:
@@ -344,8 +385,9 @@ def _render_mission(plan: dict, person_rgb: Image.Image) -> Image.Image:
     """Talentrupt's 'Man on a Mission' spotlight: three-part headline (LEAD / on a / Mission!), a reflective
     question, 'Featuring <Name>' in script, a role pill, dashed-arc accents — and the real person seated
     prominently bottom-right on a faceted navy backdrop."""
-    canvas = Image.new("RGBA", (W, H), (*NAVY, 255))
-    _faceted_navy(canvas)
+    bg = _MISSION_BGS[int(plan.get("bg_variant", 0)) % MISSION_BG_COUNT]
+    canvas = Image.new("RGBA", (W, H), (*bg["base"], 255))
+    _faceted_bg(canvas, bg["facets"])
     _dashed_arc(canvas, WHITE)
     try:                                       # the real person, under the left-hand text
         cut, ok = _clean_cutout(person_rgb)
@@ -627,6 +669,7 @@ def _save(canvas: Image.Image, plan: dict) -> tuple[str, str, dict]:
     return str(path), fname, {
         "url": public_url("images", fname), "renderer": "chat_talentrupt",
         "template": plan["template"], "size": f"{W}x{H}",
+        "bg_variant": int(plan.get("bg_variant", 0)),
     }
 
 
@@ -635,7 +678,8 @@ def _save(canvas: Image.Image, plan: dict) -> tuple[str, str, dict]:
 # --------------------------------------------------------------------------------------------------
 async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, style: str | None = None,
                           person_photo: bytes | None = None, person_name: str = "",
-                          headline: str = "", subtext: str = "", person_role: str = ""
+                          headline: str = "", subtext: str = "", person_role: str = "",
+                          bg_variant: int | None = None
                           ) -> list[tuple[str, str, dict]]:
     """Render `count` Talentrupt-brand Chat posts for `concept`. If `person_photo` is given, the real
     person is composited AS-IS. A person request mentioning 'mission' uses the 'Man on a Mission' spotlight
@@ -648,11 +692,16 @@ async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, sty
         if person is not None and "mission" in cl:
             lead = "Woman" if re.search(r"\bwom[ae]n\b", cl) else "Man"
             plans = [{"template": "mission", "lead": lead, "mission_word": "Mission!", "bg": "navy",
+                      "bg_variant": int(bg_variant or 0) % MISSION_BG_COUNT,
                       "person_name": person_name, "person_role": person_role, "subtext": (subtext or "").strip()}]
         else:
             kicker = (person_name.strip().upper()[:26] if person_name else "")
+            # Edit path passes a variant -> alternate navy/cream deterministically so 'change the
+            # background' visibly flips; first generation (variant None) stays random for variety.
+            hero_bg = (["navy", "cream"][int(bg_variant) % 2] if bg_variant is not None
+                       else random.choice(["navy", "cream"]))
             plans = [_coerce({"template": "hero", "headline": headline, "subtext": subtext, "kicker": kicker,
-                              "bg": random.choice(["navy", "cream"])}, headline, tagline, has_person=person is not None)]
+                              "bg": hero_bg}, headline, tagline, has_person=person is not None)]
     else:
         plans = await _plan(brand, concept, count, has_person=person is not None)
     out: list[tuple[str, str, dict]] = []

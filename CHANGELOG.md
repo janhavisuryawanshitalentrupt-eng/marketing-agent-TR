@@ -3,6 +3,26 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: "change the background / warmer / brighter" on a Chat post now actually changes it (2026-07-08)
+Editing a Man-on-a-Mission (or hero) Chat post with "keep the same person but use a different background and
+scene" or "make it warmer and brighter" was replying *"Refreshed the design."* but handing back an
+**identical image** — the edit was ignored. Root cause: the Chat house-style refine branch re-rendered with
+the same inputs and the Mission template had a **single fixed navy backdrop** with no variation.
+
+- The Mission template now has **6 backdrop palettes** (navy, warm espresso, bright azure, deep maroon, teal,
+  indigo) — all dark so the fixed light text (red lead, white/cream copy, script name, role pill) stays fully
+  legible. The **person, layout, and text are untouched**; only the backdrop changes.
+- A conversational edit is mapped to a palette: "warmer" → warm, "brighter"/"lighter" → azure, a named colour
+  → that palette, and a generic "different background" **rotates to the next one** (so it always visibly
+  changes). The chosen variant is persisted, so each successive edit keeps moving to a new backdrop.
+- The reply is now honest: *"Warmed up the background — same person, same layout."* /
+  *"Brightened the background…"* / *"Switched to a fresh background…"* instead of "Refreshed the design."
+- A **text**-only edit ("change the headline to…") leaves the backdrop alone and changes just the words.
+- Works even when the LLM is rate-limited: the regex fallback classifies both "different background and scene"
+  and "warmer and brighter" as background edits.
+- Verified end-to-end: initial navy → edit 1 (warm) → edit 2 (bright), each a distinct, legible render with
+  the real photo and the Mission layout intact.
+
 ## Regenerate button in the composer (Chat + Campaign) (2026-07-08)
 Added a **regenerate** control (circular-arrow icon) in the message box, next to Send, in both **Chat** and
 **Campaign**. It re-runs the **last request from scratch** — drops the most recent turn (the user prompt + its

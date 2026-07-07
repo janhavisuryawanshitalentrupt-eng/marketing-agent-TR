@@ -171,15 +171,37 @@ async def regenerate_asset(
             and not in_campaign
         if is_chat_hero:
             from . import chatpost
+            # A conversational edit on a Chat house-style post keeps the SAME person + layout + text and
+            # changes the BACKDROP (this branch used to ignore the edit and re-render an identical image).
+            # Rotate to a different backdrop variant unless the edit only touched the text.
+            try:
+                prev_variant = int(body.get("bg_variant") or meta_in.get("bg_variant") or 0)
+            except (TypeError, ValueError):
+                prev_variant = 0
+            change_bg = op in ("background", "design", "other")
+            new_variant = prev_variant
+            if change_bg:
+                new_variant = chatpost.mission_variant(instruction, prev_variant)
+                if new_variant == prev_variant:          # keyword landed on the current one -> force a change
+                    new_variant = (prev_variant + 1) % chatpost.MISSION_BG_COUNT
+                lo = (instruction or "").lower()
+                if any(w in lo for w in ("warm", "cozy", "cosy")):
+                    note = "Warmed up the background — same person, same layout."
+                elif any(w in lo for w in ("bright", "light", "vivid", "vibrant", "lighter")):
+                    note = "Brightened the background — same person, same layout."
+                else:
+                    note = "Switched to a fresh background — same person, same layout."
             hp = await chatpost.build_chat_post(brand, concept=(head or name), count=1, person_photo=raw,
                                                 person_name=name, headline=(head or name), subtext=sub,
-                                                person_role=role)
+                                                person_role=role, bg_variant=new_variant)
             if not hp:
                 return None
             path, _fn, m = hp[0]
             file_path, file_url, new_meta = path, m["url"], dict(m)
+            new_meta["bg_variant"] = new_variant
             new_body = {"person": name, "role": role, "headline": head, "subline": sub, "kind": "team",
-                        "style": "chat_hero", "employee_id": emp_id, "template": m.get("template")}
+                        "style": "chat_hero", "employee_id": emp_id, "template": m.get("template"),
+                        "bg_variant": new_variant}
         else:
             path, _fn, m = await teampost.build_ai_scene(
                 brand, raw, name=("" if in_campaign else name), role=("" if in_campaign else role),
