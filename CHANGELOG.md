@@ -3,6 +3,29 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Chat: posts now use Talentrupt's own house design language (2026-07-07)
+Generating a post in **Chat** (with a person image or without) now reproduces Talentrupt's real post style,
+built from a folder of the brand's own reference posts. Scoped to Chat only — Campaign and Magazine are
+untouched.
+
+- **New engine** (`generation/chatpost.py`): the APP draws every brand element crisply with Pillow — the
+  **TALENTRUPT wordmark**, a bold headline with exactly **one coral-red keyword**, a red **kicker pill**,
+  navy/red **stat cards**, a red-circle **website footer**, and sparse corner accents (a diagonal-hatch
+  circle, a dotted grid) — over a brand base (navy/cream) or a **gpt-image-2** themed scene for
+  holiday/observance posts. Four templates: `statement`, `stat`, `hero` (a real person composited **AS-IS** on
+  the right), `observance`. An LLM planner picks the template + copy; a keyword fallback keeps it clean when
+  the LLM is rate-limited.
+- **Reliability by design**: text is app-drawn, so it's always crisp and correctly spelled (no AI text
+  garbling — the recurring "dots/blurry text" problem is gone for Chat). It **never invents a face** (the
+  scene prompt forbids people; a featured person is the real cut-out) and **never fabricates a statistic**.
+- **Wiring** (`agent/tools.py`, Chat-only via `campaign_id is None`): `exec_generate_image` routes no-person
+  Chat posts here; `exec_feature_employee` routes the default individual feature here (an explicit
+  style/scene request still uses the existing `build_ai_scene`). Campaign keeps its own compositor.
+
+Verified: all four templates render on-brand (wordmark, red-keyword headline, stat cards, person-hero, footer,
+accents) at 1080×1080; the wired `exec_generate_image` Chat path returns a `chat_talentrupt` asset; the
+fallback correctly classifies Diwali/Yoga as observance and trims long prompts; adversarial review.
+
 ## Magazine: reads a real AWARD-REPORT workbook (award podiums + stat pages) (2026-07-07)
 The "From data file" mode now understands a real HR **award report** — not just a simple one-row-per-person
 table. Upload the multi-sheet quarterly workbook (e.g. `FNL Report - Q2`) and the app reads your *own* curated

@@ -20,7 +20,7 @@ from ..business import analyze as bd_analyze
 from ..business import discover as bd_discover
 from ..business import outreach as bd_outreach
 from ..business.store import save_opportunity, serialize_opportunity
-from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy, teampost
+from ..generation import chatpost, decks, images, pdf, posts, refine as gen_refine, strategy, teampost
 from ..knowledge import retrieve
 from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Employee, Opportunity
 from ..providers import llm
@@ -178,10 +178,20 @@ async def exec_generate_image(db, state, brand, args) -> dict:
     # THEME = campaign NAME + brief, so even a campaign with an empty brief (just named "Football Campaign")
     # still grounds/themes the image. Name alone is a valid theme.
     theme = _campaign_theme(state)
-    # CAMPAIGN mode: hand the builder this account's real employee photos so any people-scene shows a REAL
-    # teammate (rotating), never a random AI face. Only in a campaign (Chat/Create keep generic scenes).
-    team_photos: list[bytes] = []
-    if state.get("campaign_id") is not None:
+    if state.get("campaign_id") is None:
+        # CHAT (no campaign): the Talentrupt-brand post engine — the app draws crisp brand chrome
+        # (wordmark, red-keyword headline, kicker, stat cards, footer, accents) over brand/AI imagery,
+        # reproducing Talentrupt's own post design language. Never invents a face. Chat-only; campaign
+        # keeps its existing generic/themed compositor below. Guard the call so a build hiccup degrades to
+        # the "nothing generated" reply below (line ~211) rather than 500-ing the chat turn.
+        try:
+            rendered = await chatpost.build_chat_post(brand, concept, count=count, style=args.get("style"))
+        except Exception:
+            rendered = []   # degrade to the "nothing generated" reply below, never 500 the chat turn
+    else:
+        # CAMPAIGN mode: hand the builder this account's real employee photos so any people-scene shows a
+        # REAL teammate (rotating), never a random AI face.
+        team_photos: list[bytes] = []
         owner = state.get("owner", "admin")
         for e in db.query(Employee).filter(Employee.owner == owner).all():
             if not e.photo_path:
@@ -191,8 +201,8 @@ async def exec_generate_image(db, state, brand, args) -> dict:
                     team_photos.append(f.read())
             except Exception:
                 continue
-    rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"),
-                                         brief=theme, team_photos=team_photos, theme=theme)
+        rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"),
+                                             brief=theme, team_photos=team_photos, theme=theme)
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
@@ -1189,6 +1199,30 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
         # OCCASION series (welcome / anniversary / grid) when the message clearly calls for one.
         series = teampost.detect_series(raw_msg)  # spotlight_series | welcome | anniversary | grid
         style = "ai" if series == "spotlight_series" else series
+    # CHAT default individual feature -> the Talentrupt-brand HERO post (app draws crisp chrome over a
+    # brand backdrop; the REAL face is composited AS-IS). Chat-only, and only the DEFAULT look — an
+    # explicit style/skin/scene request or a special occasion series still uses the existing renderers.
+    if not in_campaign and not style_arg and not skin_arg and style == "ai":
+        try:
+            posts = await chatpost.build_chat_post(brand, concept=(message or head), count=1,
+                                                   person_photo=raw, person_name=match.name,
+                                                   headline=(head or message or match.name), subtext=sub)
+        except Exception:
+            posts = []
+        if posts:
+            path, fname, meta = posts[0]
+            a = _save_asset(db, state.get("campaign_id"), "image",
+                            (match.name + (f" — {match.role}" if match.role else ""))[:380],
+                            body={"person": match.name, "role": match.role, "headline": head, "subline": sub,
+                                  "kind": "team", "style": "chat_hero", "employee_id": match.id,
+                                  "template": meta.get("template")},
+                            file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
+                            owner=owner)
+            return {"summary": f"Created a post featuring {match.name}"
+                    + (f" ({match.role})" if match.role else "")
+                    + " in Talentrupt's post style — their real photo, unchanged.",
+                    "assets": [serialize_asset(a)]}
+        # chatpost unavailable -> fall through to the existing renderer
     try:
         if style == "grid":  # 'One Year Strong' grid — needs several employees for this account
             people = [e for e in db.query(Employee).filter(Employee.owner == owner).all() if e.photo_path]
