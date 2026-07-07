@@ -136,7 +136,12 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   and sparse corner accents (a diagonal-hatch circle, a dotted grid) — over a brand base (navy/cream) or, for
   `observance`/holiday posts, a gpt-image-2 themed scene. A real person is composited AS-IS on the right
   (`hero` template). An LLM planner (`_plan`) picks one of four templates (`statement`/`stat`/`hero`/
-  `observance`) and the copy; a keyword fallback (`_fallback_plan` + `_HOLIDAY_RE`) covers a rate-limited/absent
+  `observance`) and the copy; the `hero` person is placed cut-out-aware (`_hero_person`): only when the
+  background is genuinely removed (`_clean_cutout` — alpha has real transparency, coverage ≤ 0.9) does the
+  person float on the brand disc, sized to fit BOTH axes so the whole body stays in frame; otherwise (prod
+  default — no bg-removal key, shadowed studio walls) they go into a clean rounded **framed photo panel**
+  (background clipped to the shape, accent + white keyline + drop shadow) — never a jagged grey rectangle or a
+  half-clipped body. A keyword fallback (`_fallback_plan` + `_HOLIDAY_RE`) covers a rate-limited/absent
   LLM without dumping the raw prompt. It **never invents a face** (the scene prompt forbids people; the person is
   the real `_cutout`) and **never fabricates a statistic** (a stat card is kept only when the LLM supplied both
   value+label; observance posts carry none). Wired at `exec_generate_image` (no-person Chat) and

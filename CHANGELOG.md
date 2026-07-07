@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: Chat person posts — no grey background box, person fully in frame (2026-07-07)
+On production there's no background-removal key, so the free keyer can't cut a person off a shadowed studio
+wall — the `hero` template was pasting the raw rectangular photo (its grey background + cast shadow) onto the
+brand disc, and oversized so the body ran off the right edge (half-clipped).
+
+- `chatpost._hero_person` is now cut-out-aware: `_clean_cutout` accepts a cut-out ONLY when the background is
+  genuinely removed (real alpha transparency, subject coverage ≤ 0.9). When it is, the person floats on the
+  brand disc, scaled to fit BOTH width and height so the whole body stays in frame.
+- Otherwise (the prod default) the person goes into a clean rounded **framed photo panel** — their photo
+  cover-fit into a rounded card with a brand accent disc, white keyline and soft shadow. The background is
+  clipped to the shape, so it reads as intentional design (like Talentrupt's own photo-card posts), never a
+  jagged grey box, and the person is always fully framed.
+
+Verified by rendering both paths (clean cut-out → float; unremovable background → framed panel) — person fully
+in frame, no stray background, in both.
+
 ## Folders: multiple photos per employee (2026-07-07)
 Each employee can now have **several photos**, not just one — for both new and existing people.
 

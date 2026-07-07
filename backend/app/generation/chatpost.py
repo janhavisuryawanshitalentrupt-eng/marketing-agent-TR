@@ -172,51 +172,109 @@ async def _ai_scene(scene: str) -> Image.Image | None:
         return None
 
 
-def _person_base(bg: str, seed: int) -> Image.Image:
-    """A brand poster base with a bold shape on the RIGHT (person side): navy field + coral disc, or cream
-    field + navy disc — echoing Talentrupt's person-hero posts. The disc hugs the right so it never sits
-    under the left-hand headline."""
-    pcx = int(W * 0.86)
-    if bg == "cream":
-        c = Image.new("RGB", (W, H), CREAM)
-        ImageDraw.Draw(c, "RGBA").ellipse([pcx - 330, 90, pcx + 420, 1140], fill=(*NAVY, 255))
-        return c
-    c = Image.new("RGB", (W, H), NAVY)
-    ImageDraw.Draw(c, "RGBA").ellipse([pcx - 320, 120, pcx + 430, 1150], fill=(*RED, 245))
-    return c
-
-
 # --------------------------------------------------------------------------------------------------
-# Person compositing (real photo, AS-IS)
+# Person compositing (real photo, AS-IS — face + clothes never altered)
 # --------------------------------------------------------------------------------------------------
 def _prep_person(photo_bytes: bytes) -> Image.Image | None:
+    """Enhanced RGB of the person's REAL photo (identity untouched). The cut-out itself is attempted
+    later, at compose time, so we can fall back cleanly when a background can't be removed."""
     try:
         from PIL import ImageOps
         src = ImageOps.exif_transpose(Image.open(io.BytesIO(photo_bytes)).convert("RGB"))
         src.thumbnail((1800, 1800), Image.LANCZOS)
-        return _cutout(_enhance_photo(src))
+        return _enhance_photo(src)
     except Exception as e:
         log.warning("chatpost person prep failed: %s", e)
         return None
 
 
-def _place_person(canvas: Image.Image, person: Image.Image) -> None:
-    """Composite the cut-out person bottom-right, filling ~74% of the height, feet at the base."""
+def _rounded(img: Image.Image, radius: int) -> Image.Image:
+    img = img.convert("RGBA")
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, img.width - 1, img.height - 1], radius=radius, fill=255)
+    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    out.paste(img, (0, 0), mask)
+    return out
+
+
+def _clean_cutout(person_rgb: Image.Image):
+    """Try to cut the person out. Returns (rgba, ok) — ok is True ONLY when the background was really
+    removed (the alpha has genuine transparency and a sane subject coverage). On prod with no
+    bg-removal key + a shadowed studio wall the free keyer bails, so ok is False and we frame instead."""
+    import numpy as np
     try:
-        target_h = int(H * 0.74)
-        scale = target_h / person.height
-        pw, ph = max(1, int(person.width * scale)), target_h
-        p = person.resize((pw, ph), Image.LANCZOS)
-        x = int(W * 0.80 - pw / 2)
-        x = max(int(W * 0.55), min(x, W - pw + 30))       # keep the body on the RIGHT, clear of the left text
-        y = H - ph
-        # soft contact shadow
-        sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        ImageDraw.Draw(sh).ellipse([x + int(pw * 0.12), H - 46, x + int(pw * 0.88), H - 8], fill=(0, 0, 0, 90))
-        canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(12)))
-        canvas.alpha_composite(person.resize((pw, ph), Image.LANCZOS) if p.mode == "RGBA" else p.convert("RGBA"), (x, y))
+        cut = _cutout(person_rgb)
+    except Exception:
+        return None, False
+    ok = False
+    if cut.mode == "RGBA" and cut.width >= 120 and cut.height >= 180:
+        al = np.asarray(cut.split()[-1])
+        # a REAL cut-out has genuine transparency AND a person-sized subject; a near-opaque/messy key
+        # (coverage > ~0.9) is treated as "not cut out" so it falls back to the clean framed panel.
+        ok = int(al.min()) < 245 and 0.20 <= float((al > 127).mean()) <= 0.90
+    return cut, ok
+
+
+def _hero_disc(canvas: Image.Image, bg: str) -> None:
+    """The bold brand shape behind a cleanly cut-out person (navy field -> coral disc; cream -> navy)."""
+    pcx = int(W * 0.86)
+    d = ImageDraw.Draw(canvas, "RGBA")
+    if bg == "cream":
+        d.ellipse([pcx - 330, 90, pcx + 420, 1140], fill=(*NAVY, 255))
+    else:
+        d.ellipse([pcx - 320, 120, pcx + 430, 1150], fill=(*RED, 245))
+
+
+def _float_cutout(canvas: Image.Image, cut: Image.Image, bg: str) -> None:
+    """A cleanly cut-out person floating on the brand disc — sized so the WHOLE body stays in frame."""
+    _hero_disc(canvas, bg)
+    region_left = int(W * 0.50)
+    max_w, max_h = W - region_left - 24, int(H * 0.82)
+    scale = min(max_h / cut.height, max_w / cut.width)          # fit BOTH axes -> never clipped / half-off
+    pw, ph = max(1, int(cut.width * scale)), max(1, int(cut.height * scale))
+    p = cut.resize((pw, ph), Image.LANCZOS)
+    x = region_left + (max_w - pw) // 2 + 12
+    y = H - ph
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).ellipse([x + int(pw * 0.14), H - 38, x + int(pw * 0.86), H - 8], fill=(0, 0, 0, 80))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(11)))
+    canvas.alpha_composite(p, (x, y))
+
+
+def _photo_panel(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
+    """No clean cut-out possible (prod default) -> a clean rounded PHOTO PANEL on the right: the person's
+    real photo cover-fit into a rounded card (their own background clipped to the shape), a brand accent
+    disc behind it, a soft drop shadow and a white keyline. Reads as intentional design, never a broken
+    cut-out — and the person is fully framed, never half-off."""
+    pw, ph = int(W * 0.44), int(H * 0.80)
+    px, py = W - pw - 34, (H - ph) // 2
+    d = ImageDraw.Draw(canvas, "RGBA")
+    acc = RED if bg != "cream" else NAVY
+    d.ellipse([px - 46, py - 26, px + pw + 34, py + ph + 26], fill=(*acc, 235))        # accent behind
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle([px + 6, py + 12, px + pw + 6, py + ph + 12], radius=40,
+                                         fill=(11, 34, 58, 95))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(16)))
+    canvas.alpha_composite(_rounded(_cover_fit(person_rgb, pw, ph), 40), (px, py))
+    ImageDraw.Draw(canvas).rounded_rectangle([px - 4, py - 4, px + pw + 4, py + ph + 4], radius=44,
+                                             outline=(*WHITE, 255), width=6)
+
+
+def _hero_person(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
+    """Place the featured person on the right: a floating cut-out (when the background can be removed),
+    else a clean framed photo panel. Either way the real face + clothes are untouched and fully in frame."""
+    try:
+        cut, ok = _clean_cutout(person_rgb)
+        if ok and cut is not None:
+            _float_cutout(canvas, cut, bg)
+        else:
+            _photo_panel(canvas, person_rgb, bg)
     except Exception as e:
-        log.warning("chatpost place person failed: %s", e)
+        log.warning("chatpost hero person failed: %s", e)
+        try:
+            _photo_panel(canvas, person_rgb, bg)
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------------------------------
@@ -395,9 +453,9 @@ def _render(plan: dict, bg_img: Image.Image | None, person: Image.Image | None) 
     base = WHITE if dark else NAVY
 
     if tmpl == "hero" and person is not None:
-        HW = 468                                           # left text column width — clears the person
-        canvas = _person_base(plan["bg"], hash(plan["headline"]) & 7).convert("RGBA")
-        _place_person(canvas, person)
+        HW = 420                                           # left text column width — clears the person panel
+        canvas = _solid(plan["bg"]).convert("RGBA")
+        _hero_person(canvas, person, plan["bg"])
         _wordmark(canvas, dark_bg=dark)
         y = 210
         y = _kicker(canvas, PAD, y, plan["kicker"])
