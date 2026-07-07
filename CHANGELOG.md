@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: editing a Chat post no longer errors ("hit an error and couldn't finish") (2026-07-08)
+Following up on a generated Chat post with an edit ("keep the same person but use a different background",
+"make it more formal", "change the text to…") was hitting a generic error. The ChatGPT-style refine shortcut
+was enabled only in Campaign/Create, so in **Chat** the edit fell through to the LLM tool loop (an extra LLM
+call that could fail) instead of the deterministic refine path.
+
+- The conversational-edit shortcut (`_is_refinement` → `_refine_and_emit` → `regenerate_asset`) now runs in
+  **Chat** too. It targets the post the user is looking at, re-renders through the same house-style engine,
+  and on any failure returns a friendly hint — never the raw error.
+- Verified: `regenerate_asset` on a Man-on-a-Mission post returns cleanly for "different background",
+  "change the background to a beach", and "make it more formal"; `_is_refinement` correctly flags those and
+  ignores plain questions / "create a new image".
+
+Note: person posts use Talentrupt's branded backdrop by design, so "different background" re-renders the
+house style (and may pick a different photo) rather than inventing a new scene.
+
 ## Photo pick: "Man on a Mission" now uses a confident, arms-crossed pose (2026-07-08)
 A Man-on-a-Mission (or any bold/leader/driven) request now strongly prefers the person's **confident,
 arms-crossed / standing** shot over a soft smiling snapshot — the hero pose the template is designed for.

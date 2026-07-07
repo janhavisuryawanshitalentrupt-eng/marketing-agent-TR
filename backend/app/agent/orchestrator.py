@@ -361,8 +361,10 @@ async def run(
             return
         # CONVERSATIONAL EDIT (ChatGPT-style): a follow-up that edits the CURRENT asset ("change the
         # background", "change the text to X", "the person doesn't fit") refines it in place — instead of the
-        # brief-intake below re-asking for a style or starting a new asset. Only when a refinable asset exists.
-        if mode in ("campaign", "create") and _is_refinement(user_text):
+        # brief-intake below re-asking for a style OR the LLM tool loop (which needs an LLM call and can
+        # fail). Enabled in CHAT too so a Chat person-post edit is handled deterministically. Only when a
+        # refinable asset exists.
+        if mode in ("campaign", "create", "chat") and _is_refinement(user_text):
             last = _last_refinable_asset(db, owner, state.get("campaign_id"), conversation_id)
             if last is not None:
                 async for ev in _refine_and_emit(db, state, brand, last, user_text):
