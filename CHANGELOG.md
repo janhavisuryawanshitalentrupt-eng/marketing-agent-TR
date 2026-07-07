@@ -3,6 +3,13 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Regenerate button in the composer (Chat + Campaign) (2026-07-08)
+Added a **regenerate** control (circular-arrow icon) in the message box, next to Send, in both **Chat** and
+**Campaign**. It re-runs the **last request from scratch** — drops the most recent turn (the user prompt + its
+response) and re-sends that prompt for a fresh result (like ChatGPT's "regenerate"). It only appears once
+there's a prior request to redo, and is hidden while a turn is generating. `ChatProvider` gains a shared
+`regenerate()`; `CampaignsView` gets the equivalent for its own chat.
+
 ## Fix: editing a Chat post no longer errors ("hit an error and couldn't finish") (2026-07-08)
 Following up on a generated Chat post with an edit ("keep the same person but use a different background",
 "make it more formal", "change the text to…") was hitting a generic error. The ChatGPT-style refine shortcut

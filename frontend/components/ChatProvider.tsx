@@ -31,6 +31,7 @@ export interface ChatState {
   attach: (file: File) => Promise<void>;
   removeAttachment: (id: number) => void;
   editMessage: (index: number, text: string) => void;
+  regenerate: () => void;
   newChat: () => void;
   openConversation: (id: number) => void;
   deleteConversation: (id: number) => void;
@@ -219,6 +220,18 @@ export function makeChatStore(endpoint: string, kind: string) {
       [messages, busy, attaching, conversationId, send],
     );
 
+    // Regenerate the LAST request from scratch: drop the most recent user turn + its response, then
+    // re-run that same prompt for a fresh result (like ChatGPT's "regenerate").
+    const regenerate = useCallback(async () => {
+      if (busy || attaching) return;
+      let idx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user" && (messages[i].content || "").trim()) { idx = i; break; }
+      }
+      if (idx < 0) return;
+      await editMessage(idx, messages[idx].content);
+    }, [messages, busy, attaching, editMessage]);
+
     const attach = useCallback(async (file: File) => {
       setInFlight((n) => n + 1);
       setStatus("");
@@ -297,8 +310,8 @@ export function makeChatStore(endpoint: string, kind: string) {
       <Ctx.Provider
         value={{
           messages, status, busy, conversationId, conversations,
-          attachments, attaching, send, stop, attach, removeAttachment, editMessage, newChat, openConversation,
-          deleteConversation,
+          attachments, attaching, send, stop, attach, removeAttachment, editMessage, regenerate, newChat,
+          openConversation, deleteConversation,
         }}
       >
         {children}

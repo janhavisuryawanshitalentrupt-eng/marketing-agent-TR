@@ -45,6 +45,7 @@ export function ChatPanel() {
     attach,
     removeAttachment,
     editMessage,
+    regenerate,
     newChat,
     openConversation,
     deleteConversation,
@@ -340,6 +341,20 @@ export function ChatPanel() {
                   placeholder="Ask anything, or describe what to create…  (type / to create, @ for teammates)"
                   className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
                 />
+                {!busy && messages.some((m) => m.role === "user") && (
+                  <button
+                    onClick={regenerate}
+                    disabled={attaching}
+                    className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-[var(--brand-red)] disabled:opacity-50"
+                    aria-label="Regenerate last request"
+                    title="Regenerate the last request from scratch"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M23 4v6h-6M1 20v-6h6" />
+                      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                    </svg>
+                  </button>
+                )}
                 {busy ? (
                   <button
                     onClick={stop}
