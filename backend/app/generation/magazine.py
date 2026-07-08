@@ -22,8 +22,10 @@ import logging
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
+from . import designs
 from .common import (
     body_font,
+    font,
     heading_font,
     paste_wordmark,
     public_url,
@@ -77,6 +79,32 @@ def _festive_palette(theme: str) -> list[tuple]:
 def _seed(text: str) -> int:
     # stable across process runs (builtin hash() is salted per-process) so the festive layout is deterministic
     return int(hashlib.md5((text or "tr").encode("utf-8")).hexdigest()[:8], 16)
+
+
+# ---- design PROFILE skin -------------------------------------------------------------------------
+# A magazine picks a DesignProfile (auto-rotated per owner, never repeats the last) so consecutive issues
+# look designed, not stamped. The profile only restyles the CHROME — page fill, spine, decorative accent
+# colour, masthead/title TYPE, cover photo side. All DATA (award ranks, medal colours, stat values, real
+# photos, the festive garland palette on holiday themes) is untouched.
+def _mprof(issue: dict):
+    return (issue or {}).get("_prof") or designs.PROFILES[designs.DEFAULT_PROFILE]
+
+
+def _rail(canvas: Image.Image, prof) -> None:
+    """The page spine per profile: a red/navy left bar, a thin navy bar, top+bottom rules, or none."""
+    d = ImageDraw.Draw(canvas)
+    style = prof.rail
+    if style == "none":
+        return
+    if style == "top_bottom_rules":
+        d.rectangle([0, 0, MW, 6], fill=(*prof.accent, 255))
+        d.rectangle([0, MH - 6, MW, MH], fill=(*prof.accent, 255))
+        return
+    if style == "thin_navy":
+        d.rectangle([0, 0, 7, MH], fill=(*NAVY, 255))
+        return
+    col = NAVY if style == "left_navy" else prof.accent   # left_red -> the profile accent
+    d.rectangle([0, 0, RAIL, MH], fill=(*col, 255))
 
 
 def _ellipsize(d: ImageDraw.ImageDraw, text: str, font, max_w: int) -> str:
@@ -193,43 +221,49 @@ def _festoon(d: ImageDraw.ImageDraw, y: int, palette: list[tuple]) -> None:
         d.ellipse([x - r, y - r, x + r, y + r], fill=(*col, 255))
 
 
-def _masthead(canvas: Image.Image, edition: str, month_hint: str = "") -> None:
+def _masthead(canvas: Image.Image, edition: str, prof=None) -> None:
+    prof = prof or designs.PROFILES[designs.DEFAULT_PROFILE]
     d = ImageDraw.Draw(canvas)
-    tf = heading_font(84)
+    tf = font(prof.head_family, 84)
     title = "TALENTRUPT"
     tw = d.textlength(title, font=tf)
     tx = (MW - tw) // 2
     d.text((tx, 66), title, font=tf, fill=NAVY)
-    sf = heading_font(38)
+    sf = font(prof.head_family, 38)
     stw = d.textlength("TIMES", font=sf)
-    d.text((tx + tw - stw, 150), "TIMES", font=sf, fill=RED)
+    d.text((tx + tw - stw, 150), "TIMES", font=sf, fill=prof.accent)
     ef = body_font(24)
     if edition:
-        d.text((40, 74), edition.upper()[:26], font=ef, fill=SUBINK)
-    d.line([(40, 214), (MW - 40, 214)], fill=(*RED, 255), width=4)
+        # Below the masthead (a wide display masthead would otherwise collide with a top-left edition).
+        d.text((40, 182), edition.upper()[:26], font=ef, fill=SUBINK)
+    d.line([(40, 214), (MW - 40, 214)], fill=(*prof.accent, 255), width=4)
 
 
 # ---- page renderers ------------------------------------------------------------------------------
 def _render_cover(issue: dict) -> Image.Image:
+    prof = _mprof(issue)
     palette = _festive_palette(issue.get("theme", ""))
-    canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    _rail(canvas, prof)
     # festive confetti in reserved zones (top band + left gutter), theme-tinted
     try:
         _confetti(d, RAIL, 0, MW, 60, 22, _seed(issue.get("title", "")))
     except Exception:
         pass
-    _masthead(canvas, issue.get("edition", ""))
+    _masthead(canvas, issue.get("edition", ""), prof)
 
     cover = issue.get("cover", {}) or {}
-    # 1) champion photo on the RIGHT — a clean framed PORTRAIT. (A headshot rarely cuts out cleanly on the
-    # free keyer, and a bad cut-out rendered as an empty blob; a framed crop always shows the real face.)
+    # 1) champion photo — a clean framed PORTRAIT, on the side the profile prefers (framed_left flips it so a
+    # run of issues varies). A framed crop always shows the real face (a headshot rarely cuts out cleanly).
+    photo_left = prof.cover_style == "framed_left"
+    text_x = (MW - 490) if photo_left else 46          # name/stats column opposite the photo
     photo = cover.get("photo")
     if photo:
         try:
             src = _open_photo(photo)
-            fw, fh, fx, fy, r = 500, 900, MW - 524, 300, 46
+            fw, fh, fy, r = 500, 900, 300, 46
+            fx = 24 if photo_left else MW - 524
             sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
             ImageDraw.Draw(sh).rounded_rectangle([fx + 8, fy + 14, fx + fw + 8, fy + fh + 14], radius=r,
                                                  fill=(11, 34, 58, 95))
@@ -240,28 +274,29 @@ def _render_cover(issue: dict) -> Image.Image:
         except Exception as e:
             log.warning("magazine cover photo failed: %s", e)
 
-    # 2) champion name (script) upper-left
+    # 2) champion name (script) upper, in the text column
     d = ImageDraw.Draw(canvas)
     name = (cover.get("name") or "").strip()
     if name:
         nf = script_font(104)
         ny = 288
         for ln in _wrap(d, name, nf, int(MW * 0.44))[:2]:
-            d.text((46, ny), ln, font=nf, fill=RED)
+            d.text((text_x, ny), ln, font=nf, fill=prof.accent)
             ny += 96
 
-    # 3) stat callouts down the LEFT column (centred at x=0.22·MW, laid out by measured width)
+    # 3) stat callouts down the text column (centred, laid out by measured width)
     stats = [s for s in (cover.get("stats") or []) if (s or {}).get("label")][:6]
+    col_cx = (MW - 245) if photo_left else int(MW * 0.22)
     sy = 560
     for s in stats:
         cw, _ch = _chip_size(s.get("label", ""), s.get("value", ""))
-        _stat_chip(canvas, int(MW * 0.22 - cw / 2), sy, s.get("label", ""), s.get("value", ""))
+        _stat_chip(canvas, int(col_cx - cw / 2), sy, s.get("label", ""), s.get("value", ""))
         sy += 150
 
     # 4) headline + tagline in a navy bottom band
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 1256, MW, MH], fill=(*NAVY, 255))
-    d.rectangle([0, 1256, RAIL, MH], fill=(*RED, 255))
+    d.rectangle([0, 1256, RAIL, MH], fill=(*prof.accent, 255))
     hl = (cover.get("headline") or "In the Spotlight").strip()
     hf = heading_font(58)
     hy = 1292
@@ -279,20 +314,22 @@ def _render_cover(issue: dict) -> Image.Image:
 
 
 def _render_editorial(issue: dict, editorial: str) -> Image.Image:
+    prof = _mprof(issue)
     palette = _festive_palette(issue.get("theme", ""))
-    canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    _rail(canvas, prof)
     _festoon(d, 96, palette)
     theme = (issue.get("theme") or "").strip()
     kicker = "EDITOR'S NOTE"
-    d.text((60, 190), kicker, font=heading_font(26), fill=RED)
+    d.text((60, 190), kicker, font=heading_font(26), fill=prof.accent)
     title = (f"Happy {theme.title()}!" if theme else "A Note From The Desk")
+    tf = font(prof.head_family, 72)
     ty = 234
-    for ln in _wrap(d, title, heading_font(72), MW - 120)[:2]:
-        d.text((60, ty), ln, font=heading_font(72), fill=NAVY)
+    for ln in _wrap(d, title, tf, MW - 120)[:2]:
+        d.text((60, ty), ln, font=tf, fill=NAVY)
         ty += 78
-    d.line([(60, ty + 8), (300, ty + 8)], fill=(*RED, 255), width=5)
+    d.line([(60, ty + 8), (300, ty + 8)], fill=(*prof.accent, 255), width=5)
     _para(d, 60, ty + 44, editorial or "", body_font(30), INK, MW - 130, 46, max_lines=20)
     # festive footer accents + wordmark
     try:
@@ -306,7 +343,8 @@ def _render_editorial(issue: dict, editorial: str) -> Image.Image:
     return canvas.convert("RGB")
 
 
-def _spotlight_card(canvas: Image.Image, y0: int, entry: dict, palette: list[tuple], flip: bool) -> None:
+def _spotlight_card(canvas: Image.Image, y0: int, entry: dict, palette: list[tuple], flip: bool,
+                    _accent: tuple = RED) -> None:
     """One teammate spotlight inside a white rounded card starting at y0 (card height ~510)."""
     card_h = 512
     pad = 44
@@ -345,7 +383,7 @@ def _spotlight_card(canvas: Image.Image, y0: int, entry: dict, palette: list[tup
     meta = " · ".join([m for m in (role, office) if m])
     if meta:
         mf = body_font(26)
-        d.text((tx, ty), _ellipsize(d, meta, mf, tw), font=mf, fill=RED)
+        d.text((tx, ty), _ellipsize(d, meta, mf, tw), font=mf, fill=_accent)
         ty += 44
     # stat chips row — laid out by MEASURED width, stopping before the text column's right edge
     stats = [s for s in (entry.get("stats") or []) if (s or {}).get("label")][:3]
@@ -368,21 +406,23 @@ def _spotlight_card(canvas: Image.Image, y0: int, entry: dict, palette: list[tup
 
 
 def _render_spotlights(issue: dict, entries: list[dict]) -> list[Image.Image]:
+    prof = _mprof(issue)
     palette = _festive_palette(issue.get("theme", ""))
+    tf = font(prof.head_family, 58)
     pages: list[Image.Image] = []
     per_page = 2
     for i in range(0, len(entries), per_page):
         chunk = entries[i:i + per_page]
-        canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+        canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
         d = ImageDraw.Draw(canvas)
-        d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+        _rail(canvas, prof)
         _festoon(d, 90, palette)
-        d.text((60, 150), "TEAM SPOTLIGHT", font=heading_font(30), fill=RED)
-        d.text((60, 192), "Champions of the Month", font=heading_font(58), fill=NAVY)
-        d.line([(60, 270), (360, 270)], fill=(*RED, 255), width=5)
+        d.text((60, 150), "TEAM SPOTLIGHT", font=heading_font(30), fill=prof.accent)
+        d.text((60, 192), "Champions of the Month", font=tf, fill=NAVY)
+        d.line([(60, 270), (360, 270)], fill=(*prof.accent, 255), width=5)
         y0 = 320
         for j, entry in enumerate(chunk):
-            _spotlight_card(canvas, y0, entry, palette, flip=(j % 2 == 1))
+            _spotlight_card(canvas, y0, entry, palette, flip=(j % 2 == 1), _accent=prof.accent)
             y0 += 560
         try:
             paste_wordmark(canvas, 60, MH - 64, 200, 36, dark_bg=False, align="left")
@@ -425,18 +465,20 @@ _UNIT_CAPTION = {"margin": "Total margin", "placements": "Placements",
 
 def _render_award_podium(issue: dict, award: dict) -> Image.Image:
     """A full page for one headline award: kicker + title + a 3-place leaderboard of real people."""
+    prof = _mprof(issue)
     palette = _festive_palette(issue.get("theme", ""))
-    canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    _rail(canvas, prof)
     _festoon(d, 92, palette)
-    d.text((60, 150), "AWARD OF THE MONTH", font=heading_font(28), fill=RED)
+    d.text((60, 150), "AWARD OF THE MONTH", font=heading_font(28), fill=prof.accent)
     title = (award.get("title") or "Champions").strip()
+    tf = font(prof.head_family, 62)
     ty = 194
-    for ln in _wrap(d, title, heading_font(62), MW - 130)[:2]:
-        d.text((60, ty), ln, font=heading_font(62), fill=NAVY)
+    for ln in _wrap(d, title, tf, MW - 130)[:2]:
+        d.text((60, ty), ln, font=tf, fill=NAVY)
         ty += 70
-    d.line([(60, ty + 6), (330, ty + 6)], fill=(*RED, 255), width=5)
+    d.line([(60, ty + 6), (330, ty + 6)], fill=(*prof.accent, 255), width=5)
     caption = _UNIT_CAPTION.get(award.get("unit", ""), "")
 
     winners = [w for w in (award.get("winners") or []) if (w or {}).get("name")][:3]
@@ -467,7 +509,7 @@ def _render_award_podium(issue: dict, award: dict) -> Image.Image:
         d.text((tx, y0 + 132), _ellipsize(d, str(w.get("value") or ""), vf, tw), font=vf,
                fill=(*NAVY, 255))
         if caption:
-            d.text((tx, y0 + 250), caption.upper(), font=body_font(28), fill=RED)
+            d.text((tx, y0 + 250), caption.upper(), font=body_font(28), fill=prof.accent)
         y0 += card_h + gap
     try:
         paste_wordmark(canvas, 60, MH - 60, 200, 36, dark_bg=False, align="left")
@@ -478,14 +520,15 @@ def _render_award_podium(issue: dict, award: dict) -> Image.Image:
 
 def _render_category_champions(issue: dict, cat_awards: list[dict]) -> Image.Image:
     """A single page with three columns (LI / Non-Tech / Tech), each a compact top-3 leaderboard."""
+    prof = _mprof(issue)
     palette = _festive_palette(issue.get("theme", ""))
-    canvas = Image.new("RGBA", (MW, MH), (*CREAM, 255))
+    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    _rail(canvas, prof)
     _festoon(d, 92, palette)
-    d.text((60, 150), "CATEGORY CHAMPIONS", font=heading_font(28), fill=RED)
-    d.text((60, 194), "Top of Their Field", font=heading_font(62), fill=NAVY)
-    d.line([(60, 268), (330, 268)], fill=(*RED, 255), width=5)
+    d.text((60, 150), "CATEGORY CHAMPIONS", font=heading_font(28), fill=prof.accent)
+    d.text((60, 194), "Top of Their Field", font=font(prof.head_family, 62), fill=NAVY)
+    d.line([(60, 268), (330, 268)], fill=(*prof.accent, 255), width=5)
 
     cols = cat_awards[:3]
     left, right = 44, MW - 44
@@ -527,10 +570,13 @@ def _render_category_champions(issue: dict, cat_awards: list[dict]) -> Image.Ima
 
 
 def _render_closing(issue: dict) -> Image.Image:
+    prof = _mprof(issue)
     palette = _festive_palette(issue.get("theme", ""))
-    canvas = Image.new("RGBA", (MW, MH), (*NAVY, 255))
+    # Closing stays a dark, celebratory page; midnight goes near-black, others navy.
+    close_bg = prof.bg if prof.key == "midnight" else NAVY
+    canvas = Image.new("RGBA", (MW, MH), (*close_bg, 255))
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, 0, RAIL, MH], fill=(*RED, 255))
+    d.rectangle([0, 0, RAIL, MH], fill=(*prof.accent, 255))
     try:
         _confetti(d, RAIL, 80, MW, 260, 26, _seed("close"))
         _confetti(d, RAIL, MH - 300, MW, MH - 80, 26, _seed("close2"))
@@ -588,8 +634,13 @@ async def _write_editorial(brand, theme: str, title: str) -> str:
 
 
 # ---- public entry point --------------------------------------------------------------------------
-async def build_magazine(brand, issue: dict) -> tuple[str, str, dict]:
+async def build_magazine(brand, issue: dict, profile: str | None = None,
+                         owner: str = "") -> tuple[str, str, dict]:
     """Render the whole issue to a multi-page PDF and return (path, file_name, meta).
+
+    A DESIGN PROFILE (palette + typography + spine + cover side) is auto-rotated per owner so consecutive
+    issues look designed, not stamped; `profile` forces a specific one. Only the CHROME changes — award
+    ranks, medal colours, stat values, real photos and the festive garland are untouched.
 
     `issue` shape (photos already resolved to bytes by the caller):
       {title, edition, theme, editorial,
@@ -598,6 +649,8 @@ async def build_magazine(brand, issue: dict) -> tuple[str, str, dict]:
     """
     title = (issue.get("title") or "Talentrupt Times").strip()
     theme = (issue.get("theme") or "").strip()
+    prof = designs.resolve_profile(profile) or designs.pick_profile(owner, "magazine")
+    issue["_prof"] = prof                         # read by every _render_* via _mprof(issue)
     editorial = (issue.get("editorial") or "").strip() or await _write_editorial(brand, theme, title)
 
     pages: list[Image.Image] = []
@@ -631,5 +684,7 @@ async def build_magazine(brand, issue: dict) -> tuple[str, str, dict]:
         "title": title,
         "edition": issue.get("edition", ""),
         "theme": theme,
+        "profile": prof.key,
+        "profile_name": prof.name,
     }
     return str(path), file_name, meta

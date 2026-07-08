@@ -2132,7 +2132,7 @@ async def generate_magazine(
                       if s.label.strip()],
         })
     try:
-        path, _fname, meta = await gen_magazine.build_magazine(brand, issue)
+        path, _fname, meta = await gen_magazine.build_magazine(brand, issue, owner=role)
     except Exception as e:
         log.warning("magazine build failed: %s", e)
         raise HTTPException(status_code=500, detail="Couldn't build the magazine — please try again.")
@@ -2267,7 +2267,7 @@ async def generate_magazine_from_data(
 
     brand = db.query(Brand).first()
     try:
-        path, _fname, meta = await gen_magazine.build_magazine(brand, issue)
+        path, _fname, meta = await gen_magazine.build_magazine(brand, issue, owner=role)
     except Exception as e:
         log.warning("magazine (from data) build failed: %s", e)
         raise HTTPException(status_code=500, detail="Couldn't build the magazine — please try again.")

@@ -3,6 +3,25 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Design variety — Magazines now rotate the 6 designer profiles too (part 2 of 2) (2026-07-08)
+Every magazine used to render in one fixed format (red spine, photo-right cover, sans masthead). Now
+`build_magazine` **auto-rotates a design profile per issue** (per owner, never repeats the last) — the same
+6 profiles the Chat posts use — so a run of issues looks designed, not stamped.
+
+- The profile restyles the **chrome** only: page fill (cream/warm-white), the **spine** (red / navy / thin /
+  top-&-bottom rules / none), the decorative **accent** colour (masthead rule, section kickers, dividers,
+  spotlight roles, award captions), the **masthead + title typography** (Editorial Cream gets a real Playfair
+  serif masthead), and the **cover photo side** (Editorial Cream flips it left).
+- **Data is untouched across every profile**: award ranks, gold/silver/bronze medals, stat values, category
+  bands, and the real employee photos render identically — verified side-by-side. A **festive theme** (Diwali,
+  Christmas, …) still gets its festoon garland + festive palette on every profile, so holiday issues are safe.
+- Wired at both `/api/magazine/generate` and `/api/magazine/from-data` (`owner=role`); the chosen profile is
+  saved in the asset meta. Inner pages always stay light for legible white cards + crisp PDF.
+- Fixed a masthead collision where a wide display masthead overlapped the edition line (moved edition below
+  the masthead).
+- Verified: 6 sample issues (cover + editorial + award podium + category page + 2 spotlights + closing) — each
+  a distinct look; award data identical across all 6; PDF page count/size unchanged.
+
 ## Design variety — Chat posts now rotate 6 designer "profiles" (part 1 of 2) (2026-07-08)
 Every Chat post used to come out in one look (navy/cream only). Now the app behaves like an in-house
 graphic designer: it **auto-rotates a design profile per post and never repeats the last one**, varying all

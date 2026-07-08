@@ -190,7 +190,13 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
   observance (mission keeps its own 6 backdrops); the chosen profile is stored in the asset meta. Fonts are
   bundled (Poppins/Playfair/Archivo Black, SIL OFL) so **dev == prod** — this also fixed a prod bug where the
   Linux droplet (no Windows fonts) fell back to Pillow's default font for all text. Headlines auto-shrink so a
-  wide display face never breaks a word mid-line. Campaign (`teampost`) + decks keep their own variety. If the model
+  wide display face never breaks a word mid-line. Campaign (`teampost`) + decks keep their own variety.
+  **Magazines use the SAME profiles:** `magazine.build_magazine(profile=…, owner=…)` auto-rotates a profile
+  per issue and restyles the chrome only — page fill, spine (`_rail`), accent colour, masthead/title type
+  (Editorial Cream = Playfair serif masthead), and cover photo side — while ALL data (award ranks, medal
+  colours, stat values, category bands, real photos) and the festive garland on holiday themes stay identical
+  across profiles. Inner pages always stay light. Wired at both `/api/magazine/*` endpoints; profile saved in
+  the asset meta. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over
