@@ -179,7 +179,18 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
   variant is persisted (`bg_variant` in body/meta) so successive edits keep changing, and the reply says what
   actually changed ("Warmed up the background…"). A **text**-only edit leaves the backdrop alone. This works
   even when the LLM is rate-limited (regex fallback flags both "different background" and "warmer/brighter" as
-  background edits). A brand-new request ("create a new image") is NOT treated as an edit. If the model
+  background edits). A brand-new request ("create a new image") is NOT treated as an edit.
+- **DESIGN VARIETY (`generation/designs.py`) — the app designs like a person, never stamps one look:** a
+  `DesignProfile` bundles a palette (bg/ink/accent/card roles), a type pairing (`head_family`/`body_family`
+  resolved by `common.font`), a layout signature (align, kicker style, divider, hero photo side), and a motif.
+  **6 profiles** — Classic Navy, Editorial Cream (serif, photo-left), Bold Red (display poster), Split Duotone,
+  Soft Neutral (centred), Midnight (dark+gold). `pick_profile(owner, surface)` **auto-rotates and never repeats
+  the last 3** (in-memory per owner+surface, like `teampost._SKIN_ROT`); `next_profile` powers a refine "use a
+  different style" swap. `chatpost.build_chat_post(profile=…, owner=…)` applies it to hero/statement/stat/
+  observance (mission keeps its own 6 backdrops); the chosen profile is stored in the asset meta. Fonts are
+  bundled (Poppins/Playfair/Archivo Black, SIL OFL) so **dev == prod** — this also fixed a prod bug where the
+  Linux droplet (no Windows fonts) fell back to Pillow's default font for all text. Headlines auto-shrink so a
+  wide display face never breaks a word mid-line. Campaign (`teampost`) + decks keep their own variety. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.
 - **Brand grounding:** generators use `knowledge/retrieve.py` (`brand_context`, `image_references`) over

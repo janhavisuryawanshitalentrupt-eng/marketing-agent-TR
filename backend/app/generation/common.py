@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -20,21 +21,40 @@ _BUNDLED_LOGO = Path(__file__).resolve().parent.parent / "brand" / "tr_logo.png"
 _BUNDLED_WORDMARK = Path(__file__).resolve().parent.parent / "brand" / "tr_wordmark.png"
 _BUNDLED_WORDMARK_WHITE = Path(__file__).resolve().parent.parent / "brand" / "tr_wordmark_white.png"
 
-# Windows font candidates (bold heading + regular body), with graceful fallback.
-_HEADING_CANDIDATES = [
-    "C:/Windows/Fonts/segoeuib.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-    "C:/Windows/Fonts/Poppins-SemiBold.ttf",
-]
-_BODY_CANDIDATES = [
-    "C:/Windows/Fonts/segoeui.ttf",
-    "C:/Windows/Fonts/arial.ttf",
-    "C:/Windows/Fonts/Montserrat-Regular.ttf",
-]
-# Handwritten/script accent for "Featuring [Name]" & anniversary numbers. The bundled Caveat (SIL OFL)
-# ships with the repo so the look is identical on the dev box AND on Linux prod; OS script fonts and the
-# heading font are graceful fallbacks so a missing TTF can never crash rendering.
+# Bundled OFL fonts (ship with the repo -> identical look on the dev box AND on Linux prod). These come
+# FIRST so dev == prod; OS fonts (Windows dev box, Linux DejaVu) are graceful fallbacks and Pillow's
+# built-in default is the last resort so a missing TTF can NEVER crash rendering. NOTE: before this,
+# the candidates were Windows-only paths, so on the Linux droplet EVERY renderer fell back to Pillow's
+# generic default font — bundling real fonts fixes that app-wide.
 _BUNDLED_FONTS = Path(__file__).resolve().parent.parent / "brand" / "fonts"
+
+# Design-system font FAMILIES. `font(family, size)` resolves the first existing path; a family may be a
+# variable font, in which case `_FAMILY_VARIATION` names the master to select (e.g. Playfair -> "Bold").
+_FAMILIES: dict[str, list[str]] = {
+    "sans": [                                                   # default heading (bold-ish)
+        str(_BUNDLED_FONTS / "Poppins-SemiBold.ttf"),
+        "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ],
+    "sans_light": [                                             # default body (regular)
+        str(_BUNDLED_FONTS / "Poppins-Regular.ttf"),
+        "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ],
+    "serif": [                                                  # editorial display serif (variable -> Bold)
+        str(_BUNDLED_FONTS / "PlayfairDisplay-VF.ttf"),
+        "C:/Windows/Fonts/georgiab.ttf", "C:/Windows/Fonts/timesbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    ],
+    "display": [                                                # heavy poster display
+        str(_BUNDLED_FONTS / "ArchivoBlack-Regular.ttf"),
+        "C:/Windows/Fonts/ariblk.ttf", "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ],
+}
+_FAMILY_VARIATION = {"serif": "Bold"}   # variable-font families -> named master to pick
+
+# Handwritten/script accent for "Featuring [Name]" & anniversary numbers (bundled Caveat, variable -> Bold).
 _SCRIPT_CANDIDATES = [
     str(_BUNDLED_FONTS / "Caveat-Bold.ttf"),
     "C:/Windows/Fonts/segoesc.ttf",   # Segoe Script (dev-box hand feel)
@@ -50,14 +70,36 @@ def _first_existing(candidates: list[str]) -> str | None:
     return None
 
 
+@lru_cache(maxsize=8)
+def _family_path(family: str) -> str | None:
+    return _first_existing(_FAMILIES.get(family) or _FAMILIES["sans"])
+
+
+def font(family: str, size: int) -> ImageFont.FreeTypeFont:
+    """Load a design-system font family at `size`. Bundled-first (dev==prod), graceful OS/default
+    fallback (never raises). Selects the correct master on variable-font families."""
+    path = _family_path(family)
+    if not path:
+        return ImageFont.load_default(size)
+    f = ImageFont.truetype(path, size)
+    var = _FAMILY_VARIATION.get(family)
+    if var and path.lower().endswith(".ttf"):
+        try:
+            f.set_variation_by_name(var)   # e.g. Playfair Display VF -> "Bold" master
+        except Exception:
+            pass
+    return f
+
+
 def heading_font(size: int) -> ImageFont.FreeTypeFont:
-    path = _first_existing(_HEADING_CANDIDATES)
-    return ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
+    """Default bold heading font — now the bundled 'sans' family (Poppins). Kept as an alias so EVERY
+    existing renderer (teampost, decks, pdf, posts) benefits with zero call-site edits."""
+    return font("sans", size)
 
 
 def body_font(size: int) -> ImageFont.FreeTypeFont:
-    path = _first_existing(_BODY_CANDIDATES)
-    return ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
+    """Default regular body font — the bundled 'sans_light' family (Poppins Regular)."""
+    return font("sans_light", size)
 
 
 def script_font(size: int) -> ImageFont.FreeTypeFont:

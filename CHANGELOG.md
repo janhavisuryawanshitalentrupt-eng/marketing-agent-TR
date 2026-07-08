@@ -3,6 +3,33 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Design variety — Chat posts now rotate 6 designer "profiles" (part 1 of 2) (2026-07-08)
+Every Chat post used to come out in one look (navy/cream only). Now the app behaves like an in-house
+graphic designer: it **auto-rotates a design profile per post and never repeats the last one**, varying all
+four axes the user asked for — colour theme, layout/composition, typography, and decorative motif — while
+staying on Talentrupt brand. (Magazine gets the same treatment in part 2.)
+
+- **New shared module `generation/designs.py`** — a `DesignProfile` (palette roles + type pairing + layout
+  signature + motif) and **6 profiles**: **Classic Navy** (today's look, formalised), **Editorial Cream**
+  (serif, photo-left, journal frame), **Bold Red** (display poster), **Split Duotone** (navy/cream split +
+  arcs), **Soft Neutral** (centred, airy), **Midnight** (dark + gold). Rotation is per-owner + per-surface
+  with a last-3 memory (`pick_profile`/`next_profile`), so consecutive posts never repeat.
+- **Real fonts bundled** (`brand/fonts/`, all SIL OFL): Poppins (sans), Playfair Display (serif), Archivo
+  Black (display). `common.font(family, size)` resolves bundled-first → this also **fixes a prod bug**: the
+  Linux droplet had no Windows fonts and was falling back to Pillow's generic default for ALL text. Dev and
+  prod now render identically.
+- **`chatpost.py`** threads the profile through every chrome piece (canvas/kicker/headline/divider/stat
+  cards/footer/motifs) and honours per-profile **layout**: hero photo side flips, centred vs left alignment,
+  and kicker styles (pill/band/rule/plain). Headlines **auto-shrink to never break a word mid-way** with the
+  wide display faces.
+- **Refine**: "use a different style / different look" now rotates to a **different profile** ("Switched to
+  the Midnight style — same person, same words."). Mission keeps its 6 backdrop variants on top.
+- **Untouched:** the meaningful-copy engine, the mission template's curated questions + `bg_variant`, real
+  photos as-is, no fabricated stats, wordmark always present. Campaign (`teampost`) and decks keep their own
+  variety systems (they only pick up the nicer default font).
+- Verified: all 6 profiles rendered for hero + statement (12 PNGs) — distinct palettes/type/layout, wordmark
+  clear, no clipping, legible; mission + weak-headline→meaningful-copy paths unchanged; teampost/decks render.
+
 ## EVERY Chat post now gets meaningful copy — curated fallback across all templates (2026-07-08)
 Extends the previous fix to **all** templates (statement / stat / hero / observance / mission), not just
 Mission. The failure mode: when the LLM is rate-limited (or returns a weak line), the headline fell back to a

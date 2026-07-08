@@ -31,6 +31,8 @@ from .common import (
     storage_subdir,
     unique_name,
 )
+from . import designs
+from .common import font
 from .teampost import CREAM, NAVY, NAVY2, RED, WHITE, _cover_fit, _cutout, _enhance_photo, _wrap
 
 log = logging.getLogger("talentrupt.chatpost")
@@ -256,6 +258,19 @@ def _solid(bg: str) -> Image.Image:
     return Image.new("RGB", (W, H), CREAM if bg == "cream" else NAVY)
 
 
+def _canvas(prof) -> Image.Image:
+    """A fresh RGBA canvas painted with the profile's background: a solid fill, a navy/cream vertical
+    SPLIT (split_duotone), or subtle angular facets over a near-black base (midnight)."""
+    canvas = Image.new("RGBA", (W, H), (*prof.bg, 255))
+    if prof.key == "split_duotone":
+        ImageDraw.Draw(canvas).rectangle([int(W * 0.46), 0, W, H], fill=(*prof.bg_alt, 255))
+    elif prof.motif == "facets":
+        shades = [prof.bg_alt, (min(255, prof.bg_alt[0] + 6), min(255, prof.bg_alt[1] + 8), min(255, prof.bg_alt[2] + 10)),
+                  prof.bg_alt, prof.bg]
+        _faceted_bg(canvas, shades)
+    return canvas
+
+
 async def _ai_scene(scene: str) -> Image.Image | None:
     """A photographic themed background for observance posts (no text, reserved zones). None on failure."""
     from ..providers import llm
@@ -333,9 +348,9 @@ HERO_TEXT_W = 420
 _PERSON_MAX_W = W - (PAD + HERO_TEXT_W) - 32   # keep the person clear of the headline column
 
 
-def _place_person_cutout(canvas: Image.Image, cut: Image.Image) -> int:
-    """Size the cut-out person aspect-aware + bottom-right anchor (no backdrop). Returns the person's LEFT x
-    so the caller can keep text clear. A seated/upper-body/standing shot all read as a prominent hero."""
+def _place_person_cutout(canvas: Image.Image, cut: Image.Image, side: str = "right") -> int:
+    """Size the cut-out person aspect-aware + bottom anchor (no backdrop) on the chosen `side`. Returns
+    the person's LEFT x so the caller can keep text clear. Seated/upper-body/standing all read as a hero."""
     bbox = cut.getbbox()          # tighten to the real subject (defensive)
     if bbox:
         cut = cut.crop(bbox)
@@ -350,7 +365,8 @@ def _place_person_cutout(canvas: Image.Image, cut: Image.Image) -> int:
         cut = cut.crop((x0, 0, x0 + crop_w, cut.height))
         pw = _PERSON_MAX_W
     p = cut.resize((pw, ph), Image.LANCZOS)
-    x, y = W - pw - 24, H - ph    # right + bottom anchored (feet / desk crop at the base edge)
+    x = 24 if side == "left" else W - pw - 24   # bottom anchored on the chosen side
+    y = H - ph
     sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     ImageDraw.Draw(sh).ellipse([x + int(pw * 0.16), H - 40, x + int(pw * 0.84), H - 8], fill=(0, 0, 0, 95))
     canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(13)))
@@ -358,45 +374,49 @@ def _place_person_cutout(canvas: Image.Image, cut: Image.Image) -> int:
     return x
 
 
-def _float_cutout(canvas: Image.Image, cut: Image.Image, bg: str) -> None:
-    """A cleanly cut-out person, prominent + bottom-right anchored on a soft brand backdrop (arc)."""
-    acc = RED if bg != "cream" else NAVY
-    ImageDraw.Draw(canvas, "RGBA").ellipse([520, 11, 1686, 1177], fill=(*acc, 240))
-    _place_person_cutout(canvas, cut)
+def _float_cutout(canvas: Image.Image, cut: Image.Image, disc: tuple, side: str = "right") -> None:
+    """A cleanly cut-out person, prominent + bottom anchored on a soft brand backdrop disc (`disc` colour)."""
+    box = [520, 11, 1686, 1177] if side == "right" else [W - 1686, 11, W - 520, 1177]
+    ImageDraw.Draw(canvas, "RGBA").ellipse(box, fill=(*disc, 240))
+    _place_person_cutout(canvas, cut, side=side)
 
 
-def _photo_panel(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
-    """No clean cut-out possible (prod default) -> a clean rounded PHOTO PANEL on the right: the person's
-    real photo cover-fit into a rounded card (their own background clipped to the shape), a brand accent
-    disc behind it, a soft drop shadow and a white keyline. Reads as intentional design, never a broken
+def _photo_panel(canvas: Image.Image, person_rgb: Image.Image, disc: tuple, side: str = "right",
+                 keyline: tuple = WHITE) -> None:
+    """No clean cut-out possible (prod default) -> a clean rounded PHOTO PANEL on the chosen side: the
+    person's real photo cover-fit into a rounded card (their own background clipped to the shape), a brand
+    accent disc behind it, a soft drop shadow and a keyline. Reads as intentional design, never a broken
     cut-out — and the person is fully framed, never half-off."""
     pw, ph = int(W * 0.44), int(H * 0.80)
-    px, py = W - pw - 34, (H - ph) // 2
+    px = 34 if side == "left" else W - pw - 34
+    py = (H - ph) // 2
     d = ImageDraw.Draw(canvas, "RGBA")
-    acc = RED if bg != "cream" else NAVY
-    d.ellipse([px - 46, py - 26, px + pw + 34, py + ph + 26], fill=(*acc, 235))        # accent behind
+    d.ellipse([px - 46, py - 26, px + pw + 34, py + ph + 26], fill=(*disc, 235))        # accent behind
     sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     ImageDraw.Draw(sh).rounded_rectangle([px + 6, py + 12, px + pw + 6, py + ph + 12], radius=40,
                                          fill=(11, 34, 58, 95))
     canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(16)))
     canvas.alpha_composite(_rounded(_cover_fit(person_rgb, pw, ph), 40), (px, py))
     ImageDraw.Draw(canvas).rounded_rectangle([px - 4, py - 4, px + pw + 4, py + ph + 4], radius=44,
-                                             outline=(*WHITE, 255), width=6)
+                                             outline=(*keyline, 255), width=6)
 
 
-def _hero_person(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
-    """Place the featured person on the right: a floating cut-out (when the background can be removed),
-    else a clean framed photo panel. Either way the real face + clothes are untouched and fully in frame."""
+def _hero_person(canvas: Image.Image, person_rgb: Image.Image, prof) -> None:
+    """Place the featured person on `prof.hero_photo_side`: a floating cut-out (when the background can be
+    removed), else a clean framed photo panel. The real face + clothes are untouched and fully in frame."""
+    side = getattr(prof, "hero_photo_side", "right")
+    disc = prof.disc_col
+    keyline = prof.accent2 if prof.dark else prof.accent
     try:
         cut, ok = _clean_cutout(person_rgb)
         if ok and cut is not None:
-            _float_cutout(canvas, cut, bg)
+            _float_cutout(canvas, cut, disc, side=side)
         else:
-            _photo_panel(canvas, person_rgb, bg)
+            _photo_panel(canvas, person_rgb, disc, side=side, keyline=keyline)
     except Exception as e:
         log.warning("chatpost hero person failed: %s", e)
         try:
-            _photo_panel(canvas, person_rgb, bg)
+            _photo_panel(canvas, person_rgb, disc, side=side, keyline=keyline)
         except Exception:
             pass
 
@@ -515,7 +535,7 @@ def _render_mission(plan: dict, person_rgb: Image.Image) -> Image.Image:
         if ok and cut is not None:
             _place_person_cutout(canvas, cut)
         else:
-            _photo_panel(canvas, person_rgb, "navy")
+            _photo_panel(canvas, person_rgb, RED)
     except Exception as e:
         log.warning("mission person failed: %s", e)
     _wordmark(canvas, dark_bg=True)
@@ -564,7 +584,7 @@ def _render_mission(plan: dict, person_rgb: Image.Image) -> Image.Image:
 # --------------------------------------------------------------------------------------------------
 # Brand chrome (drawn crisply by the app)
 # --------------------------------------------------------------------------------------------------
-def _wordmark(canvas: Image.Image, dark_bg: bool, align: str = "left") -> None:
+def _wordmark(canvas: Image.Image, dark_bg: bool, align: str = "left", x: int = PAD) -> None:
     col = WHITE if dark_bg else NAVY
     if align == "center":
         if not paste_wordmark(canvas, PAD, 60, W - 2 * PAD, 56, dark_bg=dark_bg, align="center"):
@@ -572,65 +592,110 @@ def _wordmark(canvas: Image.Image, dark_bg: bool, align: str = "left") -> None:
             f = heading_font(40)
             d.text(((W - d.textlength("TALENTRUPT", font=f)) / 2, 66), "TALENTRUPT", font=f, fill=col)
         return
-    if not paste_wordmark(canvas, PAD, 60, 300, 56, dark_bg=dark_bg, align="left"):
-        ImageDraw.Draw(canvas).text((PAD, 66), "TALENTRUPT", font=heading_font(40), fill=col)
+    if not paste_wordmark(canvas, x, 60, 300, 56, dark_bg=dark_bg, align="left"):
+        ImageDraw.Draw(canvas).text((x, 66), "TALENTRUPT", font=heading_font(40), fill=col)
 
 
-def _kicker(canvas: Image.Image, x: int, y: int, text: str) -> int:
-    """A coral rounded pill with white uppercase text. Returns the y below it."""
+def _kicker(canvas: Image.Image, x: int, y: int, text: str, prof, center: bool = False) -> int:
+    """The eyebrow above the headline, styled per profile: pill | band | rule | plain. Returns y below it."""
     if not text:
         return y
     d = ImageDraw.Draw(canvas)
+    style = prof.kicker_style
+    if style == "plain":                         # letterspaced caps, no chrome (soft_neutral)
+        f = heading_font(24)
+        t = " ".join((text.upper()[:26]))
+        tw = d.textlength(t, font=f)
+        tx = (W - tw) / 2 if center else x
+        d.text((tx, y), t, font=f, fill=(*prof.accent, 255))
+        return int(y + 46)
+    if style == "rule":                          # small-caps over a thin accent2 rule (editorial)
+        f = heading_font(24)
+        t = " ".join((text.upper()[:26]))
+        tw = d.textlength(t, font=f)
+        tx = (W - tw) / 2 if center else x
+        d.text((tx, y), t, font=f, fill=(*prof.accent, 255))
+        rx0 = (W - tw) / 2 if center else x
+        d.rectangle([rx0, y + 40, rx0 + tw, y + 42], fill=(*prof.accent2, 255))
+        return int(y + 66)
+    # pill (default) or band (square-corner)
     f = heading_font(26)
     t = text.upper()[:26]
     tw = d.textlength(t, font=f)
-    d.rounded_rectangle([x, y, x + tw + 44, y + 50], radius=25, fill=(*RED, 255))
-    d.text((x + 22, y + 10), t, font=f, fill=WHITE)
+    bx = (W - (tw + 44)) / 2 if center else x
+    radius = 25 if style == "pill" else 4
+    d.rounded_rectangle([bx, y, bx + tw + 44, y + 50], radius=radius, fill=(*prof.accent, 255))
+    d.text((bx + 22, y + 10), t, font=f, fill=(*prof.on_accent, 255))
     return y + 68
 
 
 def _headline(canvas: Image.Image, text: str, red_word: str, x: int, y: int, max_w: int,
-              size: int, base: tuple, max_lines: int = 4) -> int:
-    """Bold headline wrapped to max_w, with any word matching `red_word` flipped to coral red."""
+              size: int, prof, max_lines: int = 4, center: bool = False) -> int:
+    """Headline wrapped to max_w in the profile's head family, with any `red_word` flipped to the accent.
+    Centered when `center` (soft_neutral). Returns the y below the block."""
     d = ImageDraw.Draw(canvas)
-    f = heading_font(size)
+    size = max(20, int(size * getattr(prof, "head_scale", 1.0)))
+    f = font(prof.head_family, size)
+    # Shrink until the LONGEST single word fits the column — wide display faces (Archivo/Playfair) must
+    # never break a word mid-way ("Healthcar/e"). Words still wrap normally; only the size adapts.
+    words_all = [w for w in re.split(r"\s+", text) if w]
+    while size > 30 and max((d.textlength(w, font=f) for w in words_all), default=0) > max_w:
+        size -= 4
+        f = font(prof.head_family, size)
+    base = prof.ink
     red_tokens = {re.sub(r"[^a-z0-9]", "", w.lower()) for w in (red_word or "").split() if w}
     lines = _wrap(d, text, f, max_w)[:max_lines]
-    lh = int(size * 1.08)
+    lh = int(size * 1.12)
     for ln in lines:
-        cx = x
+        lw = d.textlength(ln, font=f)
+        cx = (W - lw) / 2 if center else x
         for word in ln.split():
             key = re.sub(r"[^a-z0-9]", "", word.lower())
-            col = RED if (key and key in red_tokens) else base
+            col = prof.accent if (key and key in red_tokens) else base
             d.text((cx, y), word, font=f, fill=col)
             cx += d.textlength(word + " ", font=f)
         y += lh
     return y
 
 
-def _divider(canvas: Image.Image, x: int, y: int, dark_bg: bool) -> int:
+def _divider(canvas: Image.Image, x: int, y: int, prof, center: bool = False) -> int:
+    """Divider under the headline, styled per profile: bar | dots | double_rule | none."""
     d = ImageDraw.Draw(canvas)
-    d.rectangle([x, y, x + 96, y + 8], fill=(*RED, 255))
+    col = prof.divider_col
+    style = prof.divider
+    if style == "none":
+        return y + 8
+    if style == "dots":
+        cx = W / 2 if center else x + 24
+        for i in range(3):
+            px = cx + (i - (1 if center else 0)) * 34
+            d.ellipse([px - 8, y - 4, px + 8, y + 12], fill=(*col, 255))
+        return y + 30
+    if style == "double_rule":
+        x0 = x
+        d.rectangle([x0, y, x0 + 150, y + 2], fill=(*col, 255))
+        d.rectangle([x0, y + 8, x0 + 150, y + 10], fill=(*col, 255))
+        return y + 34
+    bx = (W - 96) / 2 if center else x           # bar
+    d.rectangle([bx, y, bx + 96, y + 8], fill=(*col, 255))
     return y + 30
 
 
-def _stat_cards(canvas: Image.Image, stats: list[dict], x: int, y: int, total_w: int, dark_bg: bool) -> None:
-    """A row of up to 3 rounded stat cards (navy / red / navy…) with a big value + a small label."""
+def _stat_cards(canvas: Image.Image, stats: list[dict], x: int, y: int, total_w: int, prof) -> None:
+    """A row of up to 3 rounded stat cards with a big value + a small label, colours from the profile."""
     n = len(stats)
     if not n:
         return
     gap = 22
     cw = (total_w - gap * (n - 1)) // n
     ch = 190
-    cols = [CARD_NAVY, CARD_RED, CARD_NAVY]
-    if dark_bg:
-        cols = [CARD_RED, WHITE, CARD_RED]
+    # Alternate the profile's card fill with its accent for rhythm (both are legibility-checked).
+    cols = [prof.card_bg, prof.accent, prof.card_bg]
     d = ImageDraw.Draw(canvas)
     for i, s in enumerate(stats[:3]):
         cx = x + i * (cw + gap)
         fill = cols[i % 3]
-        on = WHITE if fill != WHITE else NAVY
-        # shadow + card
+        on = prof.on_accent if fill == prof.accent else prof.card_ink
         sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         ImageDraw.Draw(sh).rounded_rectangle([cx + 3, y + 6, cx + cw + 3, y + ch + 6], radius=26,
                                              fill=(11, 34, 58, 60))
@@ -638,9 +703,9 @@ def _stat_cards(canvas: Image.Image, stats: list[dict], x: int, y: int, total_w:
         d = ImageDraw.Draw(canvas)
         d.rounded_rectangle([cx, y, cx + cw, y + ch], radius=26, fill=(*fill, 255))
         val = str(s["value"])[:8]
-        vf = heading_font(76)
+        vf = font(prof.head_family, 76)
         while d.textlength(val, font=vf) > cw - 40 and vf.size > 34:
-            vf = heading_font(vf.size - 6)
+            vf = font(prof.head_family, vf.size - 6)
         d.text((cx + (cw - d.textlength(val, font=vf)) / 2, y + 30), val, font=vf, fill=(*on, 255))
         lab = str(s["label"]).upper()[:22]
         lf = body_font(24)
@@ -649,35 +714,37 @@ def _stat_cards(canvas: Image.Image, stats: list[dict], x: int, y: int, total_w:
                    fill=(*on, 220))
 
 
-def _cta_button(canvas: Image.Image, x: int, y: int, text: str, dark_bg: bool) -> None:
+def _cta_button(canvas: Image.Image, x: int, y: int, text: str, prof) -> None:
     if not text:
         return
     d = ImageDraw.Draw(canvas)
     f = heading_font(26)
     t = text.upper()[:22]
     tw = d.textlength(t, font=f)
-    col = WHITE if dark_bg else NAVY
+    col = prof.ink
     d.rounded_rectangle([x, y, x + tw + 96, y + 58], radius=29, outline=(*col, 255), width=3)
     d.text((x + 28, y + 14), t, font=f, fill=col)
-    # little arrow
     ax = x + tw + 54
-    d.line([(ax, y + 29), (ax + 22, y + 29)], fill=(*RED, 255), width=4)
-    d.line([(ax + 14, y + 21), (ax + 22, y + 29), (ax + 14, y + 37)], fill=(*RED, 255), width=4, joint="curve")
+    d.line([(ax, y + 29), (ax + 22, y + 29)], fill=(*prof.accent, 255), width=4)
+    d.line([(ax + 14, y + 21), (ax + 22, y + 29), (ax + 14, y + 37)], fill=(*prof.accent, 255), width=4, joint="curve")
 
 
-def _footer(canvas: Image.Image, dark_bg: bool) -> None:
-    """A red-circle globe + website, bottom-left (Talentrupt's footer signature)."""
+def _footer(canvas: Image.Image, prof, align: str = "left") -> None:
+    """An accent-circle globe + website (Talentrupt's footer signature), profile-coloured. `align` puts it
+    bottom-left (default) or bottom-right (so it clears a hero photo placed on the left)."""
     d = ImageDraw.Draw(canvas)
     cy = H - 66
     r = 20
-    d.ellipse([PAD, cy - r, PAD + 2 * r, cy + r], fill=(*RED, 255))
-    # simple globe glyph
-    gx0, gy0 = PAD + 6, cy - 14
-    d.ellipse([gx0, gy0, gx0 + 28, gy0 + 28], outline=(*WHITE, 255), width=2)
-    d.line([(gx0 + 14, gy0), (gx0 + 14, gy0 + 28)], fill=(*WHITE, 255), width=2)
-    d.line([(gx0, gy0 + 14), (gx0 + 28, gy0 + 14)], fill=(*WHITE, 255), width=2)
-    d.text((PAD + 2 * r + 16, cy - 17), "www.talentrupt.com", font=body_font(28),
-           fill=WHITE if dark_bg else NAVY)
+    url = "www.talentrupt.com"
+    uf = body_font(28)
+    block_w = 2 * r + 16 + int(d.textlength(url, font=uf))
+    x0 = (W - PAD - block_w) if align == "right" else PAD
+    d.ellipse([x0, cy - r, x0 + 2 * r, cy + r], fill=(*prof.accent, 255))
+    gx0, gy0 = x0 + 6, cy - 14
+    d.ellipse([gx0, gy0, gx0 + 28, gy0 + 28], outline=(*prof.on_accent, 255), width=2)
+    d.line([(gx0 + 14, gy0), (gx0 + 14, gy0 + 28)], fill=(*prof.on_accent, 255), width=2)
+    d.line([(gx0, gy0 + 14), (gx0 + 28, gy0 + 14)], fill=(*prof.on_accent, 255), width=2)
+    d.text((x0 + 2 * r + 16, cy - 17), url, font=uf, fill=prof.ink)
 
 
 # --- corner accents (tasteful, sparse) ------------------------------------------------------------
@@ -701,18 +768,46 @@ def _dot_grid(canvas: Image.Image, x: int, y: int, cols: int, rows: int, gap: in
             d.ellipse([px - r, py - r, px + r, py + r], fill=(*color, 210))
 
 
-def _accents(canvas: Image.Image, dark_bg: bool, seed: int) -> None:
-    accent = RED
-    faint = (WHITE if dark_bg else NAVY)
-    kind = seed % 3
-    if kind == 0:
-        _diag_circle(canvas, W - 120, 150, 96, accent)
-        _dot_grid(canvas, PAD, H - 210, 5, 4, 26, 5, faint)
-    elif kind == 1:
-        _diag_circle(canvas, W - 130, H - 150, 104, faint)
-        _dot_grid(canvas, W - 200, 150, 4, 4, 26, 5, accent)
-    else:
-        _dot_grid(canvas, PAD, H - 210, 6, 3, 24, 5, accent)
+def _arcs(canvas: Image.Image, cx: int, cy: int, color: tuple) -> None:
+    """Concentric quarter-circle strokes radiating from a corner (split_duotone signature)."""
+    d = ImageDraw.Draw(canvas, "RGBA")
+    for i, r in enumerate((150, 230, 310)):
+        d.arc([cx - r, cy - r, cx + r, cy + r], start=180, end=270, fill=(*color, 200 - i * 30), width=6)
+
+
+def _hairline_frame(canvas: Image.Image, color: tuple, corner: tuple) -> None:
+    """A thin inset frame with a small solid square on the top-left corner (editorial signature)."""
+    d = ImageDraw.Draw(canvas, "RGBA")
+    m = 30
+    d.rectangle([m, m, W - m, H - m], outline=(*color, 150), width=1)
+    d.rectangle([m, m, m + 26, m + 26], fill=(*corner, 255))
+
+
+def _accents(canvas: Image.Image, prof, seed: int) -> None:
+    """Decorative motif for the poster templates, dispatched on the profile's signature."""
+    accent, accent2 = prof.accent, prof.accent2
+    motif = prof.motif
+    if motif == "arcs":
+        _arcs(canvas, int(W * 0.62), H + 20, accent)
+        _dot_grid(canvas, PAD, H - 200, 4, 3, 24, 5, accent2)
+    elif motif == "hairline_frame":
+        _hairline_frame(canvas, accent2, accent)
+    elif motif == "facets":                       # facets already painted on the bg -> add a faint grid
+        _dot_grid(canvas, W - 200, 150, 4, 4, 26, 5, accent2)
+        _dot_grid(canvas, PAD, H - 210, 5, 3, 26, 5, accent)
+    elif motif == "dot_grid":
+        _dot_grid(canvas, W - 210, 150, 4, 4, 28, 6, accent2)
+        _dot_grid(canvas, PAD, H - 210, 5, 3, 26, 5, accent)
+    else:                                         # diag_circle (classic) — the original signature
+        kind = seed % 3
+        if kind == 0:
+            _diag_circle(canvas, W - 120, 150, 96, accent)
+            _dot_grid(canvas, PAD, H - 210, 5, 4, 26, 5, accent2)
+        elif kind == 1:
+            _diag_circle(canvas, W - 130, H - 150, 104, accent2)
+            _dot_grid(canvas, W - 200, 150, 4, 4, 26, 5, accent)
+        else:
+            _dot_grid(canvas, PAD, H - 210, 6, 3, 24, 5, accent)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -731,63 +826,68 @@ def _scrim_left(canvas: Image.Image, dark: bool) -> Image.Image:
     return out
 
 
-def _render(plan: dict, bg_img: Image.Image | None, person: Image.Image | None) -> Image.Image:
+def _render(plan: dict, bg_img: Image.Image | None, person: Image.Image | None, prof) -> Image.Image:
     tmpl = plan["template"]
-    dark = plan["bg"] != "cream"
-    base = WHITE if dark else NAVY
 
     if tmpl == "mission" and person is not None:
-        return _render_mission(plan, person)
+        return _render_mission(plan, person)      # mission keeps its own 6-backdrop variant system
 
     if tmpl == "hero" and person is not None:
-        HW = HERO_TEXT_W                                   # left text column width — clears the person
-        canvas = _solid(plan["bg"]).convert("RGBA")
-        _hero_person(canvas, person, plan["bg"])
-        _wordmark(canvas, dark_bg=dark)
+        HW = HERO_TEXT_W
+        side = prof.hero_photo_side
+        tx = (W - PAD - HW) if side == "left" else PAD    # text column opposite the photo
+        canvas = _canvas(prof)
+        _hero_person(canvas, person, prof)
+        _wordmark(canvas, dark_bg=prof.dark, x=(tx if side == "left" else PAD))
         y = 210
-        y = _kicker(canvas, PAD, y, plan["kicker"])
-        y = _headline(canvas, plan["headline"], plan["red_word"], PAD, y, HW, 72, base, max_lines=5)
-        y = _divider(canvas, PAD, y + 16, dark)
+        y = _kicker(canvas, tx, y, plan["kicker"], prof)
+        y = _headline(canvas, plan["headline"], plan["red_word"], tx, y, HW, 72, prof, max_lines=5)
+        y = _divider(canvas, tx, y + 16, prof)
         d = ImageDraw.Draw(canvas)
         for ln in _wrap(d, plan["subtext"], body_font(30), HW)[:3]:
-            d.text((PAD, y), ln, font=body_font(30), fill=(WHITE if dark else SUBINK))
+            d.text((tx, y), ln, font=body_font(30), fill=prof.sub)
             y += 42
         if plan["cta"]:
-            _cta_button(canvas, PAD, y + 20, plan["cta"], dark)
-        _footer(canvas, dark_bg=dark)
+            _cta_button(canvas, tx, y + 20, plan["cta"], prof)
+        _footer(canvas, prof, align="right" if side == "left" else "left")
         return canvas.convert("RGB")
 
     if tmpl == "observance":
-        scene = bg_img if bg_img is not None else _solid(plan["bg"])
-        canvas = _scrim_left(scene, dark)
+        # A photo scene is the star; the profile only restyles the chrome (type/kicker/divider colours).
+        scene = bg_img if bg_img is not None else _canvas(prof)
+        canvas = _scrim_left(scene, True)
         _wordmark(canvas, dark_bg=True, align="center")
         y = 250
         d = ImageDraw.Draw(canvas)
         if plan["kicker"]:
-            y = _kicker(canvas, PAD, y, plan["kicker"])
-        y = _headline(canvas, plan["headline"], plan["red_word"], PAD, y, W - 2 * PAD, 96, WHITE, max_lines=3)
-        y = _divider(canvas, PAD, y + 16, True)
+            y = _kicker(canvas, PAD, y, plan["kicker"], prof, center=True)
+        y = _headline(canvas, plan["headline"], plan["red_word"], PAD, y, W - 2 * PAD, 96, prof,
+                      max_lines=3, center=True)
+        y = _divider(canvas, PAD, y + 16, prof, center=True)
         for ln in _wrap(d, plan["subtext"], body_font(32), W - 2 * PAD)[:3]:
-            d.text((PAD, y), ln, font=body_font(32), fill=CREAM)
+            d.text(((W - d.textlength(ln, font=body_font(32))) / 2, y), ln, font=body_font(32), fill=CREAM)
             y += 44
-        _footer(canvas, dark_bg=True)
+        _footer(canvas, prof)
         return canvas.convert("RGB")
 
     # statement / stat (no person)
-    canvas = _solid(plan["bg"]).convert("RGBA")
-    _accents(canvas, dark, hash(plan["headline"]) & 7)
-    _wordmark(canvas, dark_bg=dark)
+    center = prof.align == "center"
+    canvas = _canvas(prof)
+    _accents(canvas, prof, hash(plan["headline"]) & 7)
+    _wordmark(canvas, dark_bg=prof.dark, align="center" if center else "left")
     y = 210
-    y = _kicker(canvas, PAD, y, plan["kicker"])
-    y = _headline(canvas, plan["headline"], plan["red_word"], PAD, y, W - 2 * PAD, 92, base, max_lines=4)
-    y = _divider(canvas, PAD, y + 16, dark)
+    y = _kicker(canvas, PAD, y, plan["kicker"], prof, center=center)
+    y = _headline(canvas, plan["headline"], plan["red_word"], PAD, y, W - 2 * PAD, 92, prof,
+                  max_lines=4, center=center)
+    y = _divider(canvas, PAD, y + 16, prof, center=center)
     d = ImageDraw.Draw(canvas)
     for ln in _wrap(d, plan["subtext"], body_font(32), W - 2 * PAD)[:3]:
-        d.text((PAD, y), ln, font=body_font(32), fill=(CREAM if dark else SUBINK))
+        lx = (W - d.textlength(ln, font=body_font(32))) / 2 if center else PAD
+        d.text((lx, y), ln, font=body_font(32), fill=prof.sub)
         y += 46
     if plan["template"] == "stat" and plan["stats"]:
-        _stat_cards(canvas, plan["stats"], PAD, max(y + 30, 620), W - 2 * PAD, dark)
-    _footer(canvas, dark_bg=dark)
+        _stat_cards(canvas, plan["stats"], PAD, max(y + 30, 620), W - 2 * PAD, prof)
+    _footer(canvas, prof)
     return canvas.convert("RGB")
 
 
@@ -801,6 +901,8 @@ def _save(canvas: Image.Image, plan: dict) -> tuple[str, str, dict]:
         "url": public_url("images", fname), "renderer": "chat_talentrupt",
         "template": plan["template"], "size": f"{W}x{H}",
         "bg_variant": int(plan.get("bg_variant", 0)),
+        "profile": plan.get("profile", designs.DEFAULT_PROFILE),
+        "profile_name": plan.get("profile_name", ""),
     }
 
 
@@ -810,11 +912,15 @@ def _save(canvas: Image.Image, plan: dict) -> tuple[str, str, dict]:
 async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, style: str | None = None,
                           person_photo: bytes | None = None, person_name: str = "",
                           headline: str = "", subtext: str = "", person_role: str = "",
-                          bg_variant: int | None = None
+                          bg_variant: int | None = None,
+                          profile: str | None = None, owner: str = ""
                           ) -> list[tuple[str, str, dict]]:
     """Render `count` Talentrupt-brand Chat posts for `concept`. If `person_photo` is given, the real
     person is composited AS-IS. A person request mentioning 'mission' uses the 'Man on a Mission' spotlight
-    template; otherwise a hero. When `headline` is supplied the copy is used verbatim (no LLM planning)."""
+    template; otherwise a hero. When `headline` is supplied the copy is used verbatim (no LLM planning).
+
+    A DESIGN PROFILE (palette + typography + layout + motif) is auto-rotated per owner (never repeats the
+    last used) so consecutive posts look designed, not stamped; `profile` forces a specific one (refine)."""
     count = max(1, min(count, 3))
     person = _prep_person(person_photo) if person_photo else None
     tagline = (brand.tagline if brand and brand.tagline else "RPO Done Right")
@@ -845,11 +951,17 @@ async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, sty
                               "bg": hero_bg}, (concept or headline), tagline, has_person=person is not None)]
     else:
         plans = await _plan(brand, concept, count, has_person=person is not None)
+    # Resolve the design profile: an explicit key (refine "different style") wins; otherwise auto-rotate
+    # per owner. With multiple variations, give each a FRESH profile so the batch itself looks varied.
+    base_prof = designs.resolve_profile(profile) or designs.pick_profile(owner, "post")
     out: list[tuple[str, str, dict]] = []
-    for p in plans:
+    for idx, p in enumerate(plans):
+        prof = base_prof if (idx == 0 or profile) else designs.pick_profile(owner, "post")
+        p["profile"] = prof.key
+        p["profile_name"] = prof.name
         try:
             bg = await _ai_scene(p["scene"]) if (p["template"] == "observance") else None
-            canvas = _render(p, bg, person)
+            canvas = _render(p, bg, person, prof)
             out.append(_save(canvas, p))
         except Exception as e:
             log.warning("chatpost render failed: %s", e)

@@ -170,30 +170,37 @@ async def regenerate_asset(
         is_chat_hero = (body.get("style") == "chat_hero" or meta_in.get("renderer") == "chat_talentrupt") \
             and not in_campaign
         if is_chat_hero:
-            from . import chatpost
-            # A conversational edit on a Chat house-style post keeps the SAME person + layout + text and
-            # changes the BACKDROP (this branch used to ignore the edit and re-render an identical image).
-            # Rotate to a different backdrop variant unless the edit only touched the text.
+            from . import chatpost, designs
+            owner = getattr(a, "owner", "") or "admin"
+            # A conversational edit on a Chat house-style post keeps the SAME person + text and changes the
+            # LOOK (this branch used to ignore the edit and re-render an identical image). A design/style edit
+            # rotates to a DIFFERENT design profile (palette + typography + layout + motif); a mission post
+            # additionally rotates its backdrop variant. A text-only edit leaves the look alone.
             try:
                 prev_variant = int(body.get("bg_variant") or meta_in.get("bg_variant") or 0)
             except (TypeError, ValueError):
                 prev_variant = 0
+            prev_profile = body.get("profile") or meta_in.get("profile")
             change_bg = op in ("background", "design", "other")
             new_variant = prev_variant
+            new_profile = prev_profile
             if change_bg:
                 new_variant = chatpost.mission_variant(instruction, prev_variant)
                 if new_variant == prev_variant:          # keyword landed on the current one -> force a change
                     new_variant = (prev_variant + 1) % chatpost.MISSION_BG_COUNT
+                nxt = designs.next_profile(prev_profile, owner, "post")
+                new_profile = nxt.key
                 lo = (instruction or "").lower()
                 if any(w in lo for w in ("warm", "cozy", "cosy")):
-                    note = "Warmed up the background — same person, same layout."
+                    note = "Warmed up the look — same person, same words."
                 elif any(w in lo for w in ("bright", "light", "vivid", "vibrant", "lighter")):
-                    note = "Brightened the background — same person, same layout."
+                    note = "Brightened the look — same person, same words."
                 else:
-                    note = "Switched to a fresh background — same person, same layout."
+                    note = f"Switched to the {nxt.name} style — same person, same words."
             hp = await chatpost.build_chat_post(brand, concept=(head or name), count=1, person_photo=raw,
                                                 person_name=name, headline=(head or name), subtext=sub,
-                                                person_role=role, bg_variant=new_variant)
+                                                person_role=role, bg_variant=new_variant,
+                                                profile=new_profile, owner=owner)
             if not hp:
                 return None
             path, _fn, m = hp[0]
@@ -201,7 +208,7 @@ async def regenerate_asset(
             new_meta["bg_variant"] = new_variant
             new_body = {"person": name, "role": role, "headline": head, "subline": sub, "kind": "team",
                         "style": "chat_hero", "employee_id": emp_id, "template": m.get("template"),
-                        "bg_variant": new_variant}
+                        "bg_variant": new_variant, "profile": m.get("profile", new_profile)}
         else:
             path, _fn, m = await teampost.build_ai_scene(
                 brand, raw, name=("" if in_campaign else name), role=("" if in_campaign else role),
