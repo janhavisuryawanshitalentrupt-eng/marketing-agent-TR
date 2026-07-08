@@ -182,7 +182,7 @@ export function UserMessage({
           )
         )}
       </div>
-      <Avatar name={displayName} size={30} />
+      <Avatar name={displayName} size={30} self />
     </div>
   );
 }

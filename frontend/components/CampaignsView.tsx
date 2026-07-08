@@ -446,7 +446,7 @@ function NewCampaignChat({ onPlanned }: { onPlanned: (c: CampaignDetail) => void
           m.role === "user" ? (
             <div key={i} className="flex items-start justify-end gap-2.5">
               <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-2.5 text-sm text-cream">{m.content}</div>
-              <Avatar name={displayName} size={30} />
+              <Avatar name={displayName} size={30} self />
             </div>
           ) : (
             <div key={i} className="flex items-start gap-2.5">

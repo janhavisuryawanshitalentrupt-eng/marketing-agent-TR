@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Profile photo upload/edit in the account menu (2026-07-08)
+You can now set a profile picture from the account dropdown (UI only — no backend/workflow touched).
+
+- A **camera badge** on the avatar in the account menu + **"Add / Change photo"** and **"Remove photo"**
+  items (icon-led). Picks any image, cover-fits it to a 256px square on the client, stores a compact JPEG.
+- The photo replaces the coloured-initials avatar on **all of the signed-in user's avatars** (header, account
+  menu, and their chat messages) via a small local store (`lib/avatar.ts`) + a new `self` prop on `Avatar`;
+  company/other avatars stay as initials.
+- Stored in the browser, keyed per signed-in user (admin vs member don't share). Note: it's per-browser
+  (not synced across devices) — a server-persisted version can be added later if wanted.
+- Verified in a live preview: upload → avatar becomes the image everywhere + "Profile photo updated" toast;
+  Remove → back to initials + toast; stored ~4.7KB; `next build` clean, no console errors.
+
 ## Chat empty-state: richer "Popular tasks" starter cards (2026-07-08)
 Restyled the Chat welcome screen's starter suggestions to the reference design (UI only — same prompts sent):
 a small "✦ Popular tasks" label, and each card is now an **icon tile** (coral image / blue deck / green PDF /

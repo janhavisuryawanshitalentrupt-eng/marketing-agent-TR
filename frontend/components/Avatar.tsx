@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { getAvatar, subscribeAvatar } from "@/lib/avatar";
+
 // Deterministic, tasteful avatar colors (brand-adjacent).
 const COLORS = [
   "linear-gradient(135deg,#0b3559,#0e4373)",
@@ -23,7 +26,30 @@ function hashIndex(name: string, mod: number): number {
   return h % mod;
 }
 
-export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
+/** `self` = this is the SIGNED-IN user's avatar, so it shows their uploaded profile photo (from the local
+ * avatar store) when one is set, falling back to the coloured initials. Company/other avatars omit `self`. */
+export function Avatar({ name, size = 36, self = false }: { name: string; size?: number; self?: boolean }) {
+  const [photo, setPhoto] = useState<string | null>(null);
+  useEffect(() => {
+    if (!self) return;
+    const update = () => setPhoto(getAvatar());
+    update();
+    return subscribeAvatar(update);
+  }, [self]);
+
+  if (self && photo) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photo}
+        alt=""
+        className="inline-block shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size }}
+        aria-hidden
+      />
+    );
+  }
+
   const bg = COLORS[hashIndex(name || "?", COLORS.length)];
   return (
     <span

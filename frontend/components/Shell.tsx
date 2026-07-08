@@ -7,6 +7,8 @@ import { useAuth } from "./AuthGate";
 import { Avatar } from "./Avatar";
 import { MyraMark } from "./MyraLogo";
 import { AiStatus } from "./AiStatus";
+import { useToast } from "./Toast";
+import { fileToAvatarDataUrl, getAvatar, setAvatar, setAvatarUser, subscribeAvatar } from "@/lib/avatar";
 import { ChatPanel } from "./ChatPanel";
 import { CampaignsView } from "./CampaignsView";
 import { MagazineView } from "./MagazineView";
@@ -53,6 +55,33 @@ export function Shell() {
     } catch {
       /* ignore */
     }
+  }
+
+  // Profile photo (frontend-only, stored locally per user). A `self` <Avatar> shows it everywhere.
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [hasPhoto, setHasPhoto] = useState(false);
+  useEffect(() => {
+    setAvatarUser(username);
+    const update = () => setHasPhoto(!!getAvatar());
+    update();
+    return subscribeAvatar(update);
+  }, [username]);
+
+  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    try {
+      setAvatar(await fileToAvatarDataUrl(file));
+      toast("Profile photo updated", { kind: "success" });
+    } catch (err) {
+      toast((err as Error)?.message || "Couldn't set that photo", { kind: "error" });
+    }
+  }
+  function removePhoto() {
+    setAvatar(null);
+    toast("Profile photo removed", { kind: "info" });
   }
 
   // Account dropdown (avatar -> name, email, theme, sign out): close on outside-click / Escape.
@@ -145,20 +174,51 @@ export function Shell() {
               aria-label="Account menu"
               className="rounded-full transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-red)]"
             >
-              <Avatar name={displayName} size={34} />
+              <Avatar name={displayName} size={34} self />
             </button>
+            {/* Hidden picker shared by the camera badge + "Change photo" item. */}
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
             {menuOpen && (
               <div
                 role="menu"
                 className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg"
               >
                 <div className="flex items-center gap-3 border-b border-[var(--border)] px-3 py-3">
-                  <Avatar name={displayName} size={36} />
+                  {/* Avatar with a camera badge — click to upload/replace the profile photo. */}
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    className="relative shrink-0 rounded-full transition hover:opacity-90"
+                    title="Change photo"
+                    aria-label="Change profile photo"
+                  >
+                    <Avatar name={displayName} size={44} self />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-[var(--surface)] bg-[var(--brand-red)] text-white">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx="12" cy="13" r="4" /></svg>
+                    </span>
+                  </button>
                   <div className="min-w-0 leading-tight">
                     <div className="truncate text-sm font-medium">{displayName}</div>
                     <div className="truncate text-[11px] text-muted">{username || ""}</div>
                   </div>
                 </div>
+                <button
+                  role="menuitem"
+                  onClick={() => fileRef.current?.click()}
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx="12" cy="13" r="4" /></svg>
+                  <span>{hasPhoto ? "Change photo" : "Add photo"}</span>
+                </button>
+                {hasPhoto && (
+                  <button
+                    role="menuitem"
+                    onClick={removePhoto}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-muted transition hover:bg-[var(--surface-2)] hover:text-[var(--brand-red)]"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6" /></svg>
+                    <span>Remove photo</span>
+                  </button>
+                )}
                 <button
                   role="menuitem"
                   onClick={toggleTheme}
