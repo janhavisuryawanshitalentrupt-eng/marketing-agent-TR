@@ -35,6 +35,7 @@ export interface ChatState {
   newChat: () => void;
   openConversation: (id: number) => void;
   deleteConversation: (id: number) => void;
+  clearConversations: () => Promise<void>;
 }
 
 /**
@@ -287,6 +288,19 @@ export function makeChatStore(endpoint: string, kind: string) {
       [conversationId, cancelStream],
     );
 
+    const clearConversations = useCallback(async () => {
+      const ids = conversations.map((c) => c.id);
+      // Optimistically clear the list + reset to a fresh chat, then delete each on the server.
+      setConversations([]);
+      cancelStream();
+      setConversationId(null);
+      setMessages([]);
+      setStatus("");
+      setBusy(false);
+      setAttachments([]);
+      await Promise.allSettled(ids.map((id) => deleteConversationApi(id)));
+    }, [conversations, cancelStream]);
+
     const openConversation = useCallback((id: number) => {
       cancelStream(); // stop any in-flight stream before loading the opened conversation
       setStatus("");
@@ -311,7 +325,7 @@ export function makeChatStore(endpoint: string, kind: string) {
         value={{
           messages, status, busy, conversationId, conversations,
           attachments, attaching, send, stop, attach, removeAttachment, editMessage, regenerate, newChat,
-          openConversation, deleteConversation,
+          openConversation, deleteConversation, clearConversations,
         }}
       >
         {children}

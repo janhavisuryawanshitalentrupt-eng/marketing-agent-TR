@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Chat sidebar: readable conversation titles + Clear all (2026-07-08)
+The conversation list in the navy sidebar was hard to read and had no bulk cleanup.
+
+- **Brighter, bolder titles**: list items went from 62%-opacity muted text to **white at 85%** with a medium font
+  weight (active row is full white), so the history is legible on the navy rail.
+- **Clear all**: a small "Clear all" action next to the CONVERSATIONS label wipes every conversation at once
+  (optimistic clear + reset to a fresh chat, deletes each on the server), behind a styled confirm dialog with a
+  toast on completion.
+- Single-conversation delete now uses the same **styled confirm dialog** instead of the native `confirm()` popup,
+  matching the rest of the app.
+- Verified live: titles render white/medium, Clear all opens the dialog ("All N conversations…"), cancel leaves
+  everything intact, no console errors, `next build` clean.
+
 ## Magazine: trim roster helper text to one line (2026-07-08)
 Shortened the paragraph under the roster dropzone to a single concise line — the long multi-line explanation was
 overkill.

@@ -11,6 +11,8 @@ import { RefineChips } from "./RefineChips";
 import { GenerationsGallery } from "./GenerationsGallery";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
+import { ConfirmDialog } from "./Dialog";
+import { useToast } from "./Toast";
 import { useAtMentions, AtMenu, type AtCommand } from "@/lib/atMentions";
 
 // Popular starter tasks — an icon + a title/subtitle, matching the reference empty-state design. `prompt`
@@ -67,10 +69,14 @@ export function ChatPanel() {
     newChat,
     openConversation,
     deleteConversation,
+    clearConversations,
   } = useChat();
+  const { toast } = useToast();
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<"chat" | "generations">("chat");
   const [attPreview, setAttPreview] = useState<{ url: string; name: string } | null>(null); // attachment lightbox
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; title: string } | null>(null); // single-delete confirm
+  const [confirmClear, setConfirmClear] = useState(false); // clear-all confirm
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -121,34 +127,43 @@ export function ChatPanel() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-3">
-          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted">
-            Conversations
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-[10px] uppercase tracking-wider text-white/60">Conversations</span>
+            {conversations.length > 0 && (
+              <button
+                onClick={() => setConfirmClear(true)}
+                className="rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/60 transition hover:bg-white/10 hover:text-white"
+                title="Delete all conversations"
+              >
+                Clear all
+              </button>
+            )}
           </div>
           {conversations.length === 0 && (
-            <p className="px-2 py-2 text-xs text-muted">No conversations yet.</p>
+            <p className="px-2 py-2 text-xs text-white/60">No conversations yet.</p>
           )}
           {conversations.map((c) => (
             <div key={c.id} className="group relative">
               <button
                 onClick={() => openConversation(c.id)}
-                className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-8 text-left text-sm transition ${
+                className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-8 text-left text-sm font-medium transition ${
                   conversationId === c.id
-                    ? "bg-[var(--brand-navy)] text-cream"
-                    : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
+                    ? "bg-[var(--brand-navy)] text-white"
+                    : "text-white/85 hover:bg-[var(--surface-2)] hover:text-white"
                 }`}
                 title={c.title}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-80"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" /></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" /></svg>
                 <span className="min-w-0 flex-1 truncate">{c.title}</span>
               </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (confirm("Delete this conversation?")) deleteConversation(c.id);
+                  setDeleteTarget({ id: c.id, title: c.title });
                 }}
                 title="Delete conversation"
                 aria-label="Delete conversation"
-                className="absolute right-1.5 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-[var(--brand-red)] focus-visible:opacity-100 group-hover:opacity-100"
+                className="absolute right-1.5 top-1.5 rounded-md p-1 text-white/70 opacity-0 transition hover:text-[var(--brand-red)] focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" /></svg>
               </button>
@@ -426,6 +441,34 @@ export function ChatPanel() {
 
       {attPreview && (
         <ImageLightbox url={attPreview.url} title={attPreview.name} onClose={() => setAttPreview(null)} />
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete this conversation?"
+          message={`"${deleteTarget.title}" and its messages will be removed. This can't be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            deleteConversation(deleteTarget.id);
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {confirmClear && (
+        <ConfirmDialog
+          title="Clear all conversations?"
+          message={`All ${conversations.length} conversation${conversations.length === 1 ? "" : "s"} will be permanently removed. This can't be undone.`}
+          confirmLabel="Clear all"
+          onConfirm={() => {
+            setConfirmClear(false);
+            clearConversations()
+              .then(() => toast("All conversations cleared", { kind: "success" }))
+              .catch(() => toast("Couldn't clear conversations", { kind: "error" }));
+          }}
+          onCancel={() => setConfirmClear(false)}
+        />
       )}
     </div>
   );
