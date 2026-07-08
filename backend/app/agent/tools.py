@@ -896,6 +896,17 @@ _META_WORDS_RE = re.compile(
     r"photos?|reels?|stories|story)\b", re.I,
 )
 
+# STYLING directives describe HOW to render, not WHAT the post says — a request like "…use a different
+# style / new look / another version / different background" must never leak into the headline or caption.
+_STYLE_DIRECTIVE_RE = re.compile(
+    r"\b(?:(?:in|with|using|use|give\s+it|make\s+it|try|do|want|need)\s+)?"
+    r"(?:a|an|the|some)?\s*"
+    r"(?:different|new|another|fresh|alternate|other|second|3rd|third)\s+"
+    r"(?:styles?|looks?|versions?|vibes?|themes?|designs?|layouts?|colou?rs?|backgrounds?|"
+    r"scenes?|variations?|angles?|takes?)\b",
+    re.I,
+)
+
 
 _FILLER_WORDS = {
     "and", "the", "a", "an", "same", "for", "also", "too", "this", "that", "these", "those", "them",
@@ -919,6 +930,7 @@ def _clean_headline(message: str, name: str = "") -> str:
         prev = m
         m = _INSTRUCTION_RE.sub("", m, count=1).strip()
     m = _META_WORDS_RE.sub(" ", m)  # drop any EMBEDDED artefact word ("… mission post for" -> "… mission for")
+    m = _STYLE_DIRECTIVE_RE.sub(" ", m)  # drop styling directives ("… use a different style" -> "…")
     m = re.sub(r"\s+", " ", m).strip(" -,:;.")
     m = re.sub(r"\s+(?:of|for|about|with|to|on|in|and|the|a|an)$", "", m, flags=re.I).strip()  # dangling tail word
     mm = re.sub(r"^(?:of|for|about|featuring|with|on|the)\s+", "", m, flags=re.I)  # leftover leading preposition…

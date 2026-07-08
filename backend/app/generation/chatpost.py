@@ -303,6 +303,24 @@ def _hero_person(canvas: Image.Image, person_rgb: Image.Image, bg: str) -> None:
 # --------------------------------------------------------------------------------------------------
 _MISSION_Q = "What does success look like when you're building for the long term?"
 
+# Curated reflective questions for the 'Man on a Mission' spotlight — real, meaningful copy so the
+# post never echoes the user's raw instruction (e.g. "Use A Different Style"). Seeded per person so
+# it's stable, and offset by the backdrop variant so a "different style" edit rotates it too.
+_MISSION_QUESTIONS = [
+    "What does building something that lasts really take?",
+    "What does it take to lead when it matters most?",
+    "What drives the people who shape what's next?",
+    "What does success look like when you're building for the long term?",
+    "How do you turn a bold vision into everyday progress?",
+    "What keeps a great team moving toward a big goal?",
+    "What does showing up with purpose look like every day?",
+]
+
+
+def _mission_question(name: str, variant: int = 0) -> str:
+    seed = sum(ord(c) for c in (name or "")) + int(variant or 0)
+    return _MISSION_QUESTIONS[seed % len(_MISSION_QUESTIONS)]
+
 
 # 'Man on a Mission' backdrop palettes. All are DARK so the fixed light text (red lead, white/cream
 # copy, light-blue script name, white role pill) stays legible on every one. Index 0 is the original
@@ -418,14 +436,24 @@ def _render_mission(plan: dict, person_rgb: Image.Image) -> Image.Image:
     y += 50
     d.text((x, y), (plan.get("person_name") or "").strip(), font=script_font(64), fill=(0x9E, 0xC6, 0xEC))
     y += 84
-    role = (plan.get("person_role") or "").strip()
+    role = (plan.get("person_role") or "").strip().upper()
     if role:
-        rf = heading_font(28)
-        rt = role.upper()[:24]
+        # Auto-fit: shrink the font so the WHOLE role fits the pill (never a mid-word cut like "SPECILA").
+        MAX_PILL_W = 470          # keep the pill clear of the person on the right
+        size = 28
+        rf = heading_font(size)
+        while size > 15 and d.textlength(role, font=rf) + 96 > MAX_PILL_W:
+            size -= 1
+            rf = heading_font(size)
+        rt = role
+        if d.textlength(rt, font=rf) + 96 > MAX_PILL_W:   # still too long at min size -> trim on a word
+            while rt and d.textlength(rt + "…", font=rf) + 96 > MAX_PILL_W:
+                rt = rt.rsplit(" ", 1)[0] if " " in rt.strip() else rt[:-1]
+            rt = rt.rstrip() + "…"
         rw = d.textlength(rt, font=rf)
         d.rounded_rectangle([x, y, int(x + rw + 96), y + 58], radius=29, fill=(*WHITE, 255))
         _briefcase(d, x + 24, y + 15, RED)
-        d.text((x + 64, y + 15), rt, font=rf, fill=NAVY)
+        d.text((x + 64, y + (58 - size) // 2 - 2), rt, font=rf, fill=NAVY)
     d.line([(PAD, H - 66), (PAD + 210, H - 66)], fill=(*WHITE, 255), width=3)
     return canvas.convert("RGB")
 
@@ -691,9 +719,16 @@ async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, sty
         cl = (headline + " " + (concept or "")).lower()
         if person is not None and "mission" in cl:
             lead = "Woman" if re.search(r"\bwom[ae]n\b", cl) else "Man"
+            # The question is CURATED meaningful copy — never the user's raw instruction. Only honour a
+            # caller-supplied subtext when it's a genuine sentence (has spaces, no styling/deliverable words).
+            st = (subtext or "").strip()
+            good_sub = (len(st.split()) >= 4 and not re.search(
+                r"\b(style|styles|look|version|background|scene|theme|design|layout|variation|post|image|"
+                r"different|warmer|brighter|colou?r|colou?rs)\b", st, re.I))
+            question = st if good_sub else _mission_question(person_name, int(bg_variant or 0))
             plans = [{"template": "mission", "lead": lead, "mission_word": "Mission!", "bg": "navy",
                       "bg_variant": int(bg_variant or 0) % MISSION_BG_COUNT,
-                      "person_name": person_name, "person_role": person_role, "subtext": (subtext or "").strip()}]
+                      "person_name": person_name, "person_role": person_role, "subtext": question}]
         else:
             kicker = (person_name.strip().upper()[:26] if person_name else "")
             # Edit path passes a variant -> alternate navy/cream deterministically so 'change the

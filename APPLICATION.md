@@ -149,7 +149,13 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   occasion series still uses `build_ai_scene`). The **`mission`** template ("Man on a Mission" spotlight) has
   **6 backdrop palettes** (`_MISSION_BGS`: navy / warm espresso / bright azure / deep maroon / teal / indigo —
   all dark so the fixed light text stays legible); the default is navy and a conversational edit swaps it (see
-  refine, below) while keeping the person, layout, and text. CAMPAIGN and MAGAZINE renderers are untouched.
+  refine, below) while keeping the person, layout, and text. Its question is **curated meaningful copy**
+  (`_MISSION_QUESTIONS`, seeded per person + backdrop variant) — never the user's raw instruction; a
+  caller subtext is used only when it's a real sentence (≥4 words, no styling/deliverable words). The
+  "Featuring" role pill **auto-fits** (shrinks to show the full role; never a mid-word cut). Styling
+  directives ("use a different style / new look / another version / different background") are stripped from
+  copy upstream by `_clean_headline` (`_STYLE_DIRECTIVE_RE`) so they can't be printed as a headline/caption.
+  CAMPAIGN and MAGAZINE renderers are untouched.
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as

@@ -3,6 +3,25 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Fix: Chat posts now carry MEANINGFUL copy (no leaked instructions, no cut-off role) (2026-07-08)
+A Man-on-a-Mission post was showing the user's raw instruction as its caption — e.g. the question read
+*"Mission, Use A Different Style"* — and the role pill was cut mid-word (*"TALENT DISCOVERY SPECILA"*).
+
+- **Meaningful question, never the instruction.** The Mission spotlight now uses a **curated set of 7
+  reflective questions** (seeded per person, and offset by the backdrop variant so a "different style" edit
+  rotates it too). A caller-supplied subtext is only used when it's a genuine sentence (≥4 words, no
+  styling/deliverable words) — otherwise the curated question is drawn.
+- **Styling directives are stripped from copy.** `_clean_headline` now removes "use a different style / new
+  look / another version / different background / …" (`_STYLE_DIRECTIVE_RE`) so a "how to render it" phrase can
+  never end up printed as the headline or caption.
+- **Role pill auto-fits.** The "Featuring" role now **shrinks to fit and never truncates mid-word** — the full
+  "TALENT DISCOVERY SPECIALIST" shows (only an extreme length trims on a word boundary with an ellipsis).
+- Verified: "…use a different style" → cleaned to "on mission"; the post renders "What does building something
+  that lasts really take?" with the full role pill; a second variant rotates to a different question.
+
+Note: a role that is *misspelled in Folders* (e.g. "Specilaist") still shows as saved — fix it on the employee
+card; the renderer only stopped cutting it off.
+
 ## Fix: "change the background / warmer / brighter" on a Chat post now actually changes it (2026-07-08)
 Editing a Man-on-a-Mission (or hero) Chat post with "keep the same person but use a different background and
 scene" or "make it warmer and brighter" was replying *"Refreshed the design."* but handing back an
