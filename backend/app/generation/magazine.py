@@ -40,6 +40,7 @@ from .teampost import (
     WHITE,
     _confetti,
     _cover_fit,
+    _cutout,
     _enhance_photo,
     _wrap,
 )
@@ -349,12 +350,148 @@ def _cover_band_bottom(issue: dict, prof) -> Image.Image:
     return canvas.convert("RGB")
 
 
+def _grain(canvas: Image.Image, strength: int = 9) -> None:
+    """A subtle paper-grain overlay — the print/editorial texture the reference magazines have."""
+    try:
+        import numpy as np
+        n = np.random.RandomState(_seed("grain")).randint(0, 255, (MH, MW), dtype="uint8")
+        noise = Image.fromarray(n, "L").convert("RGBA")
+        noise.putalpha(strength)
+        canvas.alpha_composite(noise)
+    except Exception:
+        pass
+
+
+def _person_cutout_layer(photo, target_h: int):
+    """A background-removed, height-fitted person layer + True when the cut-out really worked (prod: hosted
+    remove.bg; dev: numpy studio keyer). Returns (None, False) so the caller frames the photo instead."""
+    try:
+        import numpy as np
+        cut = _cutout(_open_photo(photo))
+        if cut.mode != "RGBA":
+            return None, False
+        al = np.asarray(cut.split()[-1])
+        ok = int(al.min()) < 245 and 0.12 <= float((al > 127).mean()) <= 0.92
+        if not ok:
+            return None, False
+        bbox = cut.getbbox()
+        cut = cut.crop(bbox) if bbox else cut
+        scale = target_h / cut.height
+        return cut.resize((max(1, int(cut.width * scale)), target_h), Image.LANCZOS), True
+    except Exception:
+        return None, False
+
+
+def _big_stat(canvas: Image.Image, x: int, y: int, value: str, label: str, color: tuple,
+              align: str = "left", max_w: int = 300) -> None:
+    """A reference-style stat callout: a BIG coloured number with a bold label beneath (not a small pill)."""
+    d = ImageDraw.Draw(canvas)
+    vf = font("display", 66)
+    val = str(value)[:8]
+    while d.textlength(val, font=vf) > max_w and vf.size > 34:
+        vf = font("display", vf.size - 6)
+    lf = heading_font(26)
+    vx = (x - d.textlength(val, font=vf)) if align == "right" else x
+    d.text((vx, y), val, font=vf, fill=(*color, 255))
+    ly = y + vf.size + 6
+    for i, ln in enumerate(_wrap(d, str(label).upper(), lf, max_w)[:2]):
+        lx = (x - d.textlength(ln, font=lf)) if align == "right" else x
+        d.text((lx, ly + i * 30), ln, font=lf, fill=(*NAVY, 255))
+
+
+def _cover_spotlight(issue: dict, prof) -> Image.Image:
+    """The signature TR-magazine cover, learned from the real reference issues: a compact newspaper masthead,
+    a HUGE display TITLE, the champion CUT-OUT overlapping it, big stat numbers flanking them, a 'Top
+    Performer' eyebrow + name + blurb in a bottom band, over a lightly grained page."""
+    cover = issue.get("cover", {}) or {}
+    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
+    _grain(canvas)
+    d = ImageDraw.Draw(canvas)
+    # 1) compact newspaper masthead
+    ed = (issue.get("edition") or "").strip()
+    d.text((44, 60), "SPECIAL EDITION", font=font("serif", 26), fill=NAVY)
+    if ed:
+        d.text((MW - 44 - d.textlength(ed.upper()[:20], font=body_font(24)), 66), ed.upper()[:20],
+               font=body_font(24), fill=SUBINK)
+    mf = font("serif", 78)
+    tw = d.textlength("TALENTRUPT", font=mf)
+    tmw = d.textlength(" TIMES", font=mf)
+    mx = (MW - tw - tmw) / 2
+    d.text((mx, 100), "TALENTRUPT", font=mf, fill=NAVY)
+    d.text((mx + tw, 100), " TIMES", font=mf, fill=prof.accent)
+    d.line([(44, 196), (MW - 44, 196)], fill=(*NAVY, 255), width=4)
+    d.line([(44, 204), (MW - 44, 204)], fill=(*NAVY, 255), width=2)
+    # 2) HUGE display title (the cover headline), the person will overlap its lower half
+    title = (cover.get("headline") or "Best Performer").strip().upper()
+    title_family = "serif" if prof.head_family == "serif" else "display"   # elegant serif for editorial profiles
+    tf = font(title_family, 150)
+    words = title.split()
+    while tf.size > 70 and max((d.textlength(w, font=tf) for w in words), default=0) > MW - 80:
+        tf = font(title_family, tf.size - 8)
+    tlines = _wrap(d, title, tf, MW - 80)[:3]
+    if len(tlines) >= 3:                       # a long title -> a touch smaller so 3 lines sit above the person
+        tf = font(title_family, int(tf.size * 0.82))
+        tlines = _wrap(d, title, tf, MW - 80)[:3]
+    ty = 232 if len(tlines) >= 3 else 236
+    for ln in tlines:
+        d.text(((MW - d.textlength(ln, font=tf)) / 2, ty), ln, font=tf, fill=(*prof.accent, 255))
+        ty += int(tf.size * 0.96)
+    # 3) champion — cut-out overlapping the title, else a clean framed portrait
+    photo = cover.get("photo")
+    person_bottom = MH - 250
+    if photo:
+        layer, ok = _person_cutout_layer(photo, target_h=int(MH * 0.62))
+        if ok and layer is not None:
+            px = (MW - layer.width) // 2
+            sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            ImageDraw.Draw(sh).ellipse([px + int(layer.width * 0.12), person_bottom - 44,
+                                        px + int(layer.width * 0.88), person_bottom - 6], fill=(0, 0, 0, 70))
+            canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(14)))
+            canvas.alpha_composite(layer, (px, person_bottom - layer.height))
+        else:
+            try:
+                fw, fh = 420, 560
+                fx, fy = (MW - fw) // 2, person_bottom - fh
+                canvas.alpha_composite(_rounded(_cover_fit(_open_photo(photo), fw, fh), 28), (fx, fy))
+                ImageDraw.Draw(canvas).rounded_rectangle([fx - 4, fy - 4, fx + fw + 4, fy + fh + 4],
+                                                         radius=32, outline=(*prof.accent, 255), width=6)
+            except Exception as e:
+                log.warning("spotlight cover photo failed: %s", e)
+    # 4) big stat callouts flanking the champion (up to 3 per side)
+    stats = [s for s in (cover.get("stats") or []) if (s or {}).get("label") and (s or {}).get("value")][:6]
+    left, right = stats[0::2][:3], stats[1::2][:3]
+    for i, s in enumerate(left):
+        _big_stat(canvas, 54, 560 + i * 172, s.get("value", ""), s.get("label", ""), prof.accent,
+                  align="left", max_w=260)
+    for i, s in enumerate(right):
+        _big_stat(canvas, MW - 54, 560 + i * 172, s.get("value", ""), s.get("label", ""), prof.accent,
+                  align="right", max_w=260)
+    # 5) bottom band: Top-Performer eyebrow + name + blurb
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, MH - 250, MW, MH], fill=(*NAVY, 255))
+    d.rectangle([0, MH - 250, RAIL, MH], fill=(*prof.accent, 255))
+    eb = "TOP PERFORMER"
+    ef2 = heading_font(24)
+    ew = d.textlength(eb, font=ef2)
+    d.rounded_rectangle([44, MH - 232, 44 + ew + 36, MH - 190], radius=21, fill=(*prof.accent, 255))
+    d.text((62, MH - 226), eb, font=ef2, fill=WHITE)
+    name = (cover.get("name") or "").strip()
+    if name:
+        d.text((44, MH - 178), name, font=font("display", 58), fill=WHITE)
+    blurb = (cover.get("tagline") or cover.get("blurb") or "").strip()
+    if blurb:
+        _para(d, 44, MH - 104, blurb, body_font(24), CREAM, MW - 88, 32, max_lines=2)
+    return canvas.convert("RGB")
+
+
 def _render_cover(issue: dict) -> Image.Image:
     prof = _mprof(issue)
     if prof.cover_style == "split_panel":
         return _cover_split_panel(issue, prof)
     if prof.cover_style == "band_bottom":
         return _cover_band_bottom(issue, prof)
+    if prof.cover_style in ("framed_right", "framed_left"):
+        return _cover_spotlight(issue, prof)   # the reference-style magazine cover (default)
     palette = _festive_palette(issue.get("theme", ""))
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)

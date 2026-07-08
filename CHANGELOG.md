@@ -3,6 +3,25 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine covers now LEARN from the real TR Times reference issues (2026-07-08)
+The user added a folder of 10 real past Talentrupt magazines (`TR Magazines/`). I rendered them (PyMuPDF) and
+studied the design language, then rebuilt the cover to match it — our old flat-vector cover (framed photo +
+small pills + small bottom-band headline) looked nothing like the real editorial issues.
+
+- **New reference-style `_cover_spotlight` (now the default cover):** a compact **newspaper masthead**
+  (Playfair "TALENTRUPT" + red "TIMES", "SPECIAL EDITION" + date, double rules), a **HUGE display TITLE**
+  (the cover headline, e.g. "BEST PERFORMER" / "HALL OF EXCELLENCE" — condensed Archivo, or an elegant serif
+  on editorial profiles), the champion **cut-out overlapping the title** (the classic magazine trick; hosted
+  remove.bg on prod, numpy studio-keyer on dev, framed-photo fallback), **big stat callouts** (large coloured
+  number + label, flanking the person — not tiny pills), and a bottom band with a **"TOP PERFORMER" eyebrow +
+  name + blurb**, over a subtle **paper grain**. Long titles wrap to 3 lines and auto-shrink; a missing photo
+  degrades gracefully.
+- The `split_panel` and `band_bottom` covers stay as the two alternates, so covers still rotate. Inner pages
+  and all data (award ranks, medals, stat values, real photos) are unchanged and identical across profiles.
+- Saved the reference design language to memory so future magazine work keeps matching it.
+- Verified by rendering all 9 magazines + the spotlight cover in condensed and serif variants + no-photo and
+  long-title edge cases.
+
 ## Richer design variety — 9 profiles, 4 magazine cover layouts, per-profile motifs (2026-07-08)
 Deepened the variety so posts/magazines look even more "designed by a person," each unique:
 

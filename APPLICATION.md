@@ -198,7 +198,11 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
   `framed_right`/`framed_left`/`split_panel` = full-height photo + navy sidebar / `band_bottom` = display
   headline + bottom band), plus per-profile inner-page garlands (`_motif_band`) — while ALL data (award ranks,
   medal colours, stat values, category bands, real photos) and the festive festoon on holiday themes stay
-  identical across profiles. Inner pages always stay light. Wired at both `/api/magazine/*` endpoints; profile saved in
+  identical across profiles. Inner pages always stay light. The **default cover is `_cover_spotlight`**,
+  modelled on the real reference issues in `TR Magazines/`: newspaper masthead + a HUGE display title (the
+  cover headline; condensed, or serif on editorial profiles) + the champion **cut-out overlapping the title**
+  (`_cutout`, framed fallback) + big stat callouts (`_big_stat`) + a "TOP PERFORMER" eyebrow/name/blurb band,
+  over a paper `_grain`. (`split_panel`/`band_bottom` remain the alternates.) Wired at both `/api/magazine/*` endpoints; profile saved in
   the asset meta. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.
