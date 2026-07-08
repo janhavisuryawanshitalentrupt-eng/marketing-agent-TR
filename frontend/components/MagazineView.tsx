@@ -540,10 +540,7 @@ export function MagazineView() {
             <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Roster file</div>
             <RosterDropzone file={dataFile} onFile={setDataFile} inputRef={fileInputRef} />
             <p className="mt-2 text-[11px] text-muted">
-              Upload a CSV or Excel roster (a Name column + metric columns like Submissions, Interviews,
-              Offers, Starts…), or a full <span className="font-medium text-foreground">award report</span>{" "}
-              workbook (an awards leaderboard tab + a raw deal sheet). We rank the team, feature the top
-              performers, and pull each person&apos;s photo from Folders by name.
+              CSV or Excel with a Name column + metric columns — or a full award report workbook. Photos pull from Folders by name.
             </p>
 
             <div className="mt-3 grid gap-2.5 sm:grid-cols-2">

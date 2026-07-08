@@ -3,6 +3,10 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine: trim roster helper text to one line (2026-07-08)
+Shortened the paragraph under the roster dropzone to a single concise line — the long multi-line explanation was
+overkill.
+
 ## Magazine: Create/Past-issues tabs, wider layout + real covers on prod (2026-07-08)
 Follow-up to the Magazine refresh based on live feedback.
 
