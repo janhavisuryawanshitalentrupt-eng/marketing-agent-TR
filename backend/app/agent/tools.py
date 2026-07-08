@@ -40,6 +40,7 @@ def serialize_asset(a: Asset) -> dict:
         "body": a.body,
         "file_url": a.file_url,
         "meta": a.meta,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
     }
 
 

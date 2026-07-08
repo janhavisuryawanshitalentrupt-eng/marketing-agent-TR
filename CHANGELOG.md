@@ -3,6 +3,18 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Generations gallery: sort + month grouping (like a phone gallery) (2026-07-08)
+The "Your generations" gallery now sorts and groups by date so a big pile of images is easy to scan.
+
+- **Newest / Oldest** segmented sort control in the gallery toolbar.
+- **Month grouping** with sticky "JULY 2026 · N" headers (each shows its count) — like a mobile photo gallery.
+- Undated (pre-existing) assets fall under an "Earlier" group; sorting falls back to the id when a date is
+  missing so nothing is lost.
+- Backend: `serialize_asset` now also returns `created_at` (a read-only field; no workflow change) and the
+  frontend `Asset` type carries it.
+- Verified in a live preview: headers render "July 2026" / "June 2026", the Oldest toggle flips the order,
+  no console errors, `next build` clean. All existing toasts/dialogs/skeleton/actions still work.
+
 ## UI polish: toasts, styled dialogs, AI-status pill, skeletons (2026-07-08)
 Presentation-only UX upgrades — no generation/API workflow changed:
 

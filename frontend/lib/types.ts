@@ -10,6 +10,7 @@ export interface Asset {
   body: Record<string, unknown>;
   file_url: string | null;
   meta: Record<string, unknown>;
+  created_at?: string | null;
 }
 
 export interface Folder {
