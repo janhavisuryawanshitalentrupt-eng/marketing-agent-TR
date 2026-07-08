@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## UI polish: toasts, styled dialogs, AI-status pill, skeletons (2026-07-08)
+Presentation-only UX upgrades — no generation/API workflow changed:
+
+- **App-wide toasts** (`components/Toast.tsx`, `ToastProvider` mounted in `AuthGate`): success/error/info with
+  auto-dismiss. Downloads, delete, regenerate/refine now confirm instead of failing silently.
+- **Styled dialogs** (`components/Dialog.tsx`): replaced the native `window.confirm`/`window.prompt` in the
+  generations gallery with in-app Confirm (delete) and Prompt (refine, with a textarea + ⌘/Ctrl+Enter) modals
+  — Escape/overlay to close. Same underlying actions.
+- **AI status pill** in the header (`components/AiStatus.tsx`): a read-only poll of `/api/health/llm` showing
+  🟢 "AI ready" / 🟠 "AI paused — add credits" (or rate-limited), so a credit lapse is obvious instead of a
+  cryptic per-turn error.
+- **Skeleton loaders** in the gallery (shimmer cards) + a friendlier empty state; gallery card actions
+  (Regenerate/Refine/Delete) are now **visible on touch**, not hover-only.
+- Verified in a live browser preview (login → AI pill shows "AI paused — add credits" with local creds out →
+  delete/refine dialogs open → download + delete toasts fire → no console errors; `next build` typechecks clean).
+
 ## Magazine editorial, award, category & closing pages given the reference editorial treatment (2026-07-08)
 Finished the reference pass across the remaining inner pages so the whole issue reads like the real TR Times:
 

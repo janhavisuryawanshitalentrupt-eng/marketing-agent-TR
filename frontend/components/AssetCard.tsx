@@ -5,9 +5,17 @@ import Link from "next/link";
 import { downloadFile, getDeckPreview, fileUrl } from "@/lib/api";
 import type { Asset } from "@/lib/types";
 import type { DeckSlide } from "@/lib/api";
+import { useToast } from "./Toast";
 
 function dlName(asset: Asset): string {
   return (asset.file_url || "").split("/").pop() || asset.title || "download";
+}
+
+/** Download with a toast on success/failure (downloads used to fail silently). */
+function doDownload(url: string, name: string, toast: (m: string, o?: { kind?: "success" | "error" | "info" }) => void) {
+  downloadFile(url, name)
+    .then(() => toast("Downloaded", { kind: "success" }))
+    .catch(() => toast("Download failed — please try again", { kind: "error" }));
 }
 
 export function AssetCard({ asset }: { asset: Asset }) {
@@ -85,6 +93,7 @@ function PostCard({ asset }: { asset: Asset }) {
 function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const url = fileUrl(asset.file_url);
   const isVideo = asset.type === "video";
+  const { toast } = useToast();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div
@@ -94,7 +103,7 @@ function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => vo
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2.5">
           <span className="truncate font-heading text-sm font-semibold">{asset.title}</span>
           <div className="flex shrink-0 items-center gap-1">
-            <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
+            <button onClick={() => doDownload(url, dlName(asset), toast)} type="button" title="Download" aria-label="Download" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
               <DownloadIcon />
             </button>
             <button onClick={onClose} type="button" aria-label="Close preview" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
@@ -118,6 +127,7 @@ function MediaPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => vo
 function ImageCard({ asset }: { asset: Asset }) {
   const url = fileUrl(asset.file_url);
   const [preview, setPreview] = useState(false);
+  const { toast } = useToast();
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
       {/* No `title` here: a native tooltip on the full-image button pops "View" OVER the picture. aria-label keeps a11y. */}
@@ -131,7 +141,7 @@ function ImageCard({ asset }: { asset: Asset }) {
           <button onClick={() => setPreview(true)} type="button" title="View" aria-label="View" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
             <EyeIcon />
           </button>
-          <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
+          <button onClick={() => doDownload(url, dlName(asset), toast)} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
             <DownloadIcon />
           </button>
         </div>
@@ -144,6 +154,7 @@ function ImageCard({ asset }: { asset: Asset }) {
 function VideoCard({ asset }: { asset: Asset }) {
   const url = fileUrl(asset.file_url);
   const [preview, setPreview] = useState(false);
+  const { toast } = useToast();
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
       {/* No `title` here: a native tooltip on the full-video button pops "View" OVER the video. aria-label keeps a11y. */}
@@ -156,7 +167,7 @@ function VideoCard({ asset }: { asset: Asset }) {
           <button onClick={() => setPreview(true)} type="button" title="View" aria-label="View" className="rounded-lg border border-[var(--border)] p-1.5 text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
             <EyeIcon />
           </button>
-          <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
+          <button onClick={() => doDownload(url, dlName(asset), toast)} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-navy)] p-1.5 text-cream transition hover:opacity-90">
             <DownloadIcon />
           </button>
         </div>
@@ -180,6 +191,7 @@ function FileCard({
   const url = fileUrl(asset.file_url);
   const [slides, setSlides] = useState<DeckSlide[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
   async function openDeckPreview() {
     setLoading(true);
@@ -236,7 +248,7 @@ function FileCard({
               <EyeIcon />
             </a>
           )}
-          <button onClick={() => downloadFile(url, dlName(asset)).catch(() => {})} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-red)] p-2 text-white transition hover:opacity-90">
+          <button onClick={() => doDownload(url, dlName(asset), toast)} type="button" title="Download" aria-label="Download" className="rounded-lg bg-[var(--brand-red)] p-2 text-white transition hover:opacity-90">
             <DownloadIcon />
           </button>
         </div>

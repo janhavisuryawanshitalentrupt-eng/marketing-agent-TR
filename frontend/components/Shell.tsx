@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "./AuthGate";
 import { Avatar } from "./Avatar";
 import { MyraMark } from "./MyraLogo";
+import { AiStatus } from "./AiStatus";
 import { ChatPanel } from "./ChatPanel";
 import { CampaignsView } from "./CampaignsView";
 import { MagazineView } from "./MagazineView";
@@ -133,8 +134,9 @@ export function Shell() {
           })}
         </nav>
 
-        {/* Right: account menu — avatar opens a dropdown (name, email, theme, sign out) */}
-        <div className="flex flex-1 items-center justify-end">
+        {/* Right: AI status pill + account menu — avatar opens a dropdown (name, email, theme, sign out) */}
+        <div className="flex flex-1 items-center justify-end gap-3">
+          <AiStatus />
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen((v) => !v)}

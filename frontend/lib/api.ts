@@ -154,6 +154,21 @@ export async function getHealth(): Promise<Health> {
   return res.json();
 }
 
+/** Live AI (LLM) self-test — read-only. Powers the header status pill so a credit lapse / rate-limit is
+ * visible instead of a cryptic per-turn error. Does not affect any generation flow. */
+export interface LlmHealth {
+  ok: boolean;
+  reason?: string; // out_of_credits | rate_limited | bad_key | bad_model | network | ...
+  detail?: string;
+}
+export async function getLlmHealth(): Promise<LlmHealth> {
+  const res = await fetchRetry(`${API_BASE}/api/health/llm`, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, "AI health check failed");
+  const data = await res.json().catch(() => ({}));
+  const chat = (data && data.chat) || {};
+  return { ok: !!chat.ok, reason: chat.reason, detail: chat.detail };
+}
+
 export async function getBrand(): Promise<Brand> {
   const res = await fetchRetry(`${API_BASE}/api/brand`, { headers: authHeaders() });
   if (!res.ok) throw new ApiError(res.status, "Failed to load brand");

@@ -13,6 +13,7 @@ import type { Brand, Health } from "@/lib/types";
 import { ChatProvider, CreateProvider } from "./ChatProvider";
 import { Login } from "./Login";
 import { Shell } from "./Shell";
+import { ToastProvider } from "./Toast";
 
 interface AuthState {
   brand: Brand | null;
@@ -99,14 +100,16 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ brand, health, role, username, logout, refreshHealth }}>
-      <ChatProvider>
-        <CreateProvider>
-          {/* Shell renders all section views (kept mounted so state survives navigation);
-              the route pages render null and only drive the URL. */}
-          <Shell />
-          {children}
-        </CreateProvider>
-      </ChatProvider>
+      <ToastProvider>
+        <ChatProvider>
+          <CreateProvider>
+            {/* Shell renders all section views (kept mounted so state survives navigation);
+                the route pages render null and only drive the URL. */}
+            <Shell />
+            {children}
+          </CreateProvider>
+        </ChatProvider>
+      </ToastProvider>
     </AuthContext.Provider>
   );
 }
