@@ -201,10 +201,12 @@ function IssueCard({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={cover} alt="" onError={() => setImgOk(false)} className="h-full w-full object-cover object-top" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--grad-navy)" }}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--brand-red)]">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2.5 p-4 text-center" style={{ background: "var(--grad-navy)" }}>
+            <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="text-white/90">
               <path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" />
             </svg>
+            <span className="line-clamp-2 text-xs font-medium text-cream">{asset.title || "Magazine"}</span>
+            {edition && <span className="line-clamp-1 text-[10px] text-cream/70">{edition}</span>}
           </div>
         )}
         {profileName && (
@@ -320,6 +322,7 @@ function monthLabel(a: Asset): string {
 
 export function MagazineView() {
   const { toast } = useToast();
+  const [view, setView] = useState<"create" | "issues">("create");
   const [mode, setMode] = useState<"data" | "manual">("data");
   const [issueSort, setIssueSort] = useState<"newest" | "oldest">("newest");
   const [deleteIssue, setDeleteIssue] = useState<Asset | null>(null);
@@ -401,7 +404,7 @@ export function MagazineView() {
     try {
       const asset = await generateMagazine(spec);
       setIssues((prev) => [asset, ...prev]);
-      toast("Magazine generated", { kind: "success" });
+      toast("Magazine generated", { kind: "success", action: { label: "View", onClick: () => setView("issues") } });
     } catch {
       setError("Couldn't generate the magazine — please try again.");
       toast("Couldn't generate the magazine", { kind: "error" });
@@ -427,7 +430,7 @@ export function MagazineView() {
       setDataResult(result);
       setDataFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      toast(`Magazine built · ${result.featured?.length ?? 0} featured`, { kind: "success" });
+      toast(`Magazine built · ${result.featured?.length ?? 0} featured`, { kind: "success", action: { label: "View", onClick: () => setView("issues") } });
     } catch (e) {
       const msg = (e as Error)?.message || "Couldn't generate the magazine — please try again.";
       setDataError(msg);
@@ -471,7 +474,7 @@ export function MagazineView() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-heading text-xl font-semibold">Magazine</h2>
@@ -479,18 +482,45 @@ export function MagazineView() {
               Generate a branded multi-page magazine from your team&apos;s real photos and stats.
             </p>
           </div>
+          {/* Primary view switch — mirrors Chat's "Chat / Your generations" tabs. */}
+          <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+            <button
+              onClick={() => setView("create")}
+              type="button"
+              className={`rounded-md px-3 py-1.5 transition ${view === "create" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+            >
+              Create
+            </button>
+            <button
+              onClick={() => setView("issues")}
+              type="button"
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 transition ${view === "issues" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+            >
+              Past issues
+              {issues.length > 0 && (
+                <span className={`rounded-full px-1.5 text-[10px] leading-4 ${view === "issues" ? "bg-cream/25 text-cream" : "bg-[var(--surface-3)] text-muted"}`}>
+                  {issues.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {view === "create" && (
+        <div className="mx-auto max-w-3xl">
+        <div className="mt-5 flex justify-end">
           <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
             <button
               onClick={() => setMode("data")}
               type="button"
-              className={`rounded-md px-3 py-1.5 transition ${mode === "data" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+              className={`rounded-md px-3 py-1.5 transition ${mode === "data" ? "bg-[var(--surface-3)] text-foreground" : "text-muted hover:text-foreground"}`}
             >
               From data file
             </button>
             <button
               onClick={() => setMode("manual")}
               type="button"
-              className={`rounded-md px-3 py-1.5 transition ${mode === "manual" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+              className={`rounded-md px-3 py-1.5 transition ${mode === "manual" ? "bg-[var(--surface-3)] text-foreground" : "text-muted hover:text-foreground"}`}
             >
               Manual
             </button>
@@ -798,11 +828,17 @@ export function MagazineView() {
         </div>
         </>
         )}
+        </div>
+        )}
 
-        {/* Past issues — a shelf of real cover thumbnails, grouped by month. */}
-        <div className="mt-8">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-wider text-muted">Past issues</div>
+        {view === "issues" && (
+        <div className="mt-6">
+          {/* A shelf of real cover thumbnails, grouped by month. */}
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="font-heading text-lg font-semibold">Past issues</h3>
+              <p className="mt-0.5 text-xs text-muted">Every magazine you&apos;ve generated, newest first.</p>
+            </div>
             {issues.length > 1 && (
               <div className="flex items-center rounded-lg border border-[var(--border)] p-0.5">
                 {(["newest", "oldest"] as const).map((s) => (
@@ -820,7 +856,7 @@ export function MagazineView() {
             )}
           </div>
           {issuesLoading ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
                   <div className="skeleton aspect-[7/10] w-full rounded-none" />
@@ -836,7 +872,14 @@ export function MagazineView() {
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--surface-2)] text-muted">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" /></svg>
               </div>
-              <p className="text-sm text-muted">No magazines yet — generate your first issue above.</p>
+              <p className="text-sm text-muted">No magazines yet.</p>
+              <button
+                type="button"
+                onClick={() => setView("create")}
+                className="btn-primary"
+              >
+                Create your first issue
+              </button>
             </div>
           ) : (
             issueGroups.map((g) => (
@@ -845,7 +888,7 @@ export function MagazineView() {
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{g.key}</h3>
                   <span className="text-[11px] text-muted/70">· {g.items.length}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {g.items.map((asset) => (
                     <IssueCard key={asset.id} asset={asset} onDelete={setDeleteIssue} />
                   ))}
@@ -854,6 +897,7 @@ export function MagazineView() {
             ))
           )}
         </div>
+        )}
       </div>
 
       {deleteIssue && (

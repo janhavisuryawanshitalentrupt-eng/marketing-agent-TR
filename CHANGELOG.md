@@ -3,6 +3,23 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine: Create/Past-issues tabs, wider layout + real covers on prod (2026-07-08)
+Follow-up to the Magazine refresh based on live feedback.
+
+- **Root-cause fix — real cover thumbnails now work on prod**: `PyMuPDF` was never in `requirements.txt`, so the
+  droplet had no `fitz` and every cover-preview call 500'd into the fallback box. Pinned `PyMuPDF==1.27.2.3`
+  (matches local) so the next deploy installs it and cards show the actual designed covers.
+- **Readable fallback**: when a preview genuinely can't render, the navy tile now shows a **white** book icon
+  plus the issue title + edition in cream (was a near-invisible dark-red icon on navy).
+- **Past issues is its own tab**: added a primary **Create / Past issues** toggle (with a live count badge) in the
+  header, mirroring Chat's "Chat / Your generations". The builder and the shelf no longer stack in one narrow
+  column — each view gets the screen. The page widened to `max-w-6xl` and the shelf grid goes up to 5 covers per
+  row on large screens. The old From-data/Manual toggle moved inside the Create view as a secondary control.
+- Generate success toasts now carry a **"View"** action that jumps straight to the new issue; the empty state has
+  a "Create your first issue" button that flips back to the builder.
+- Presentation only — generation paths untouched. Verified live: tabs switch, real covers load, forced fallback
+  shows the white-icon tile, count badge + sort work, no console errors, `next build` clean.
+
 ## Magazine builder form: roster dropzone + quick-picks + toasts (2026-07-08)
 Part 2 of the Magazine UI refresh — the "From data file" builder now feels modern.
 
