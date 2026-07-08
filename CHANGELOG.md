@@ -3,6 +3,25 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## The prompt is CONTEXT, never the drawn headline — echo guard + matched copy (2026-07-08)
+Follow-up so a post NEVER prints the user's raw words as the headline and a batch never looks templated:
+
+- **Echo guard (`_looks_like_echo`):** when the AI writer is down, a request like "create a diwali post for
+  our company" used to be cleaned to "diwali for our company" and drawn **verbatim** (title-cased). Now any
+  headline that is just a substring / ≥70%-word-overlap of the request is treated as an echo and **replaced
+  with real written copy themed from the request** — "Happy Diwali", "Healthcare Hiring, Done Right", "Sales
+  Talent That Closes", etc. The prompt is used only as CONTEXT.
+- **Broader theme bank:** `_THEME_COPY` grew from 8 to 20 themes (sales, marketing, finance, customer success,
+  design, product, remote, early-careers, referrals, events, milestones/anniversary, …) so more contexts get
+  specific meaningful copy instead of the generic default; healthcare now matches plurals ("nurses",
+  "doctors"), and anniversary/birthday route to celebratory copy (not a generic greeting).
+- **Matched headline + subline:** fixed a bug where the headline and subline could come from two separate
+  random draws (mismatched pair, e.g. "Hire Smarter, Grow Faster" + the wrong subline). Copy is now resolved
+  ONCE as a matched pair (`_resolved` flag stops `_coerce` re-drawing).
+- Verified end-to-end: a bare "create a post of Pooja" rendered 6× rotates through all 6 designs with matched,
+  varied copy and the name as the kicker; "diwali" → "Happy Diwali"; "hiring nurses" → "Healthcare Hiring".
+  (Magazines already rotate designs; their copy is structured/generated, so no prompt-echo path exists there.)
+
 ## Post copy now rotates when the LLM is down + an LLM self-test endpoint (2026-07-08)
 Two follow-ups after seeing a batch of posts read identically and edits erroring:
 

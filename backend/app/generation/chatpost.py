@@ -142,7 +142,7 @@ _HOLIDAY_COPY = {
 }
 
 _THEME_COPY = [
-    (re.compile(r"\b(nurse|nursing|healthcare|clinical|medical|hospital|patient|care\s*team)\b", re.I),
+    (re.compile(r"\b(nurs\w*|healthcare|clinical|medical|hospital\w*|patient\w*|care\s*team|doctor\w*|physician\w*)\b", re.I),
      "Healthcare Hiring, Done Right", "Connecting care teams with the talent they need to thrive.", "HEALTHCARE HIRING"),
     (re.compile(r"\b(engineer|developer|software|tech|coding|devops|cloud|\bit\b)\b", re.I),
      "Building Tech Teams That Deliver", "The right engineers, matched to your mission.", "TECH HIRING"),
@@ -154,6 +154,28 @@ _THEME_COPY = [
      "Leadership That Moves You Forward", "Placing the leaders who shape what's next.", "LEADERSHIP HIRING"),
     (re.compile(r"\b(diversit|inclusion|\bdei\b|belonging)\w*\b", re.I),
      "Hiring for Every Story", "Diverse teams build better outcomes.", "DIVERSITY IN HIRING"),
+    (re.compile(r"\b(sales|revenue|account\s*exec|business\s*develop|\bbd\b|quota|pipeline)\w*\b", re.I),
+     "Sales Talent That Closes", "The people who turn pipeline into revenue.", "SALES HIRING"),
+    (re.compile(r"\b(market|brand|content|social\s*media|seo|growth\s*market)\w*\b", re.I),
+     "Marketing Minds That Move", "Storytellers and strategists who grow your brand.", "MARKETING HIRING"),
+    (re.compile(r"\b(finance|accounting|accountant|fintech|audit|cfo|bookkeep)\w*\b", re.I),
+     "Numbers People You Can Trust", "Finance talent that keeps you sharp and steady.", "FINANCE HIRING"),
+    (re.compile(r"\b(customer\s*(success|support|service)|\bcx\b|support\s*team|helpdesk)\w*\b", re.I),
+     "Customer Champions Wanted", "The people who make every client feel first.", "CX HIRING"),
+    (re.compile(r"\b(design|designer|\bux\b|\bui\b|creative|product\s*design)\w*\b", re.I),
+     "Design That Speaks", "Creative talent that shapes how the world sees you.", "DESIGN HIRING"),
+    (re.compile(r"\b(product\s*manage|\bpm\b|product\s*lead|roadmap)\w*\b", re.I),
+     "Product Leaders Who Ship", "The people who turn vision into what users love.", "PRODUCT HIRING"),
+    (re.compile(r"\b(remote|hybrid|work\s*from\s*home|\bwfh\b|distributed\s*team)\w*\b", re.I),
+     "Work From Anywhere", "Great talent isn't bound by a postcode.", "REMOTE HIRING"),
+    (re.compile(r"\b(intern|fresher|graduate|campus|entry.?level|trainee)\w*\b", re.I),
+     "Where Careers Take Off", "Backing fresh talent with big ambitions.", "EARLY CAREERS"),
+    (re.compile(r"\b(referr|refer\s*a\s*friend)\w*\b", re.I),
+     "Know Someone Great?", "The best hires often come from the best people.", "REFERRALS OPEN"),
+    (re.compile(r"\b(webinar|event|summit|conference|meetup|workshop)\w*\b", re.I),
+     "Save the Date", "Join us — let's talk about what's next in hiring.", "YOU'RE INVITED"),
+    (re.compile(r"\b(award|milestone|anniversar|celebrat|achievement|record\s*month)\w*\b", re.I),
+     "A Moment Worth Celebrating", "Proud of the team behind every win.", "CELEBRATING"),
     (re.compile(r"\b(cultur|team|people|employee|onboard)\w*\b", re.I),
      "People First, Always", "Building teams where great work happens.", "PEOPLE FIRST"),
     (re.compile(r"\b(recruit|hir|staffing|sourc|\brpo\b|talent)\w*\b", re.I),
@@ -191,8 +213,9 @@ def _meaningful_copy(concept: str) -> tuple[str, str, str]:
         if key in _HOLIDAY_COPY:
             h, s = _HOLIDAY_COPY[key]
             return h, s, ""
-        if key in ("festival", "holiday", "seasons greetings", "season's greetings", "anniversary", "birthday"):
+        if key in ("festival", "holiday", "seasons greetings", "season's greetings"):
             return "Season's Greetings", "Wishing you joy and good things ahead.", ""
+        # anniversary / birthday fall through to the celebratory THEME copy below (not a generic greeting)
     for rx, h, s, k in _THEME_COPY:
         if rx.search(c):
             return h, s, k
@@ -209,6 +232,27 @@ def _is_weak_headline(h: str) -> bool:
     if all(w in _WEAK_WORDS or len(w) <= 2 for w in lows):
         return True
     return lows[0] in _WEAK_WORDS or lows[-1] in _WEAK_WORDS
+
+
+def _norm_words(s: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", "", (s or "").lower())
+
+
+def _looks_like_echo(headline: str, concept: str) -> bool:
+    """True when the 'headline' is really just the user's own words (a cleaned/title-cased fragment of the
+    prompt) rather than written copy. When the LLM rewrites the request it stops being a substring of it; a
+    down/absent LLM leaves a raw fragment that IS a substring — so we replace it with meaningful copy. The
+    user's prompt is CONTEXT, never the literal headline drawn on the image."""
+    h = _norm_words(headline).strip()
+    c = _norm_words(concept).strip()
+    if not h:
+        return True
+    hw = h.split()
+    # substring overlap either way, or ≥70% of the headline's words appear in the prompt = an echo
+    if (" " + h + " ") in (" " + c + " ") or (c and (" " + c + " ") in (" " + h + " ")):
+        return True
+    cset = set(c.split())
+    return sum(1 for w in hw if w in cset) / len(hw) >= 0.7
 
 
 def _good_subtext(st: str) -> bool:
@@ -230,8 +274,10 @@ def _fallback_plan(concept: str, tagline: str, has_person: bool) -> dict:
 
 def _coerce(v: dict, concept: str, tagline: str, has_person: bool) -> dict:
     headline = (v.get("headline") or "").strip()
-    if _is_weak_headline(headline):        # LLM off, or a prompt-echo fragment -> real curated copy
-        mh, ms, mk = _meaningful_copy(concept)
+    # `_resolved` = the caller already picked a MATCHED headline+subline (person hero); don't re-pick here
+    # (a second random draw would mismatch the two). Otherwise replace a fragment / raw prompt-echo.
+    if not v.get("_resolved") and (_is_weak_headline(headline) or _looks_like_echo(headline, concept)):
+        mh, ms, mk = _meaningful_copy(concept)                              #  -> real written copy
         headline = mh
         v = {**v, "subtext": (v.get("subtext") or ms), "kicker": (v.get("kicker") or mk)}
     tmpl = v.get("template") if v.get("template") in _TEMPLATES else "statement"
@@ -959,11 +1005,20 @@ async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, sty
             # background' visibly flips; first generation (variant None) stays random for variety.
             hero_bg = (["navy", "cream"][int(bg_variant) % 2] if bg_variant is not None
                        else random.choice(["navy", "cream"]))
-            # A real subline, never a stray instruction fragment. Pass the full concept so `_coerce` /
-            # `_meaningful_copy` can theme-detect and replace a weak/echoed headline with real copy.
-            hero_sub = subtext if _good_subtext(subtext) else _meaningful_copy(concept or headline)[1]
+            # The prompt is CONTEXT — never draw it verbatim. Resolve the copy ONCE, as a matched pair: if
+            # there's no real topic, or the headline is weak / just an echo of the request / merely the
+            # person's name, use meaningful written copy themed from the request; else keep the LLM headline.
+            topic = (concept or "").strip()
+            mh, ms, _mk = _meaningful_copy(topic or headline)
+            head_bad = (not topic) or _is_weak_headline(headline) or _looks_like_echo(headline, topic) \
+                or _norm_words(headline) == _norm_words(person_name)
+            if head_bad:
+                headline, hero_sub = mh, ms
+            else:
+                hero_sub = subtext if _good_subtext(subtext) else ms
             plans = [_coerce({"template": "hero", "headline": headline, "subtext": hero_sub, "kicker": kicker,
-                              "bg": hero_bg}, (concept or headline), tagline, has_person=person is not None)]
+                              "bg": hero_bg, "_resolved": True}, (topic or headline), tagline,
+                             has_person=person is not None)]
     else:
         plans = await _plan(brand, concept, count, has_person=person is not None)
     # Resolve the design profile: an explicit key (refine "different style") wins; otherwise auto-rotate
