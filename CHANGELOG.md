@@ -3,6 +3,12 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Chat empty-state: richer "Popular tasks" starter cards (2026-07-08)
+Restyled the Chat welcome screen's starter suggestions to the reference design (UI only — same prompts sent):
+a small "✦ Popular tasks" label, and each card is now an **icon tile** (coral image / blue deck / green PDF /
+violet people) + a **bold title + subtitle** + a **circular arrow**, in a 2-column grid (1-col on mobile).
+Tapping a card sends the same prompt as before. Verified in a live preview; `next build` clean, no console errors.
+
 ## Generations gallery: sort + month grouping (like a phone gallery) (2026-07-08)
 The "Your generations" gallery now sorts and groups by date so a big pile of images is easy to scan.
 

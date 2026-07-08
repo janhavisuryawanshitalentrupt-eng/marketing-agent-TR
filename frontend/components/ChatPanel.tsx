@@ -13,12 +13,30 @@ import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { useAtMentions, AtMenu, type AtCommand } from "@/lib/atMentions";
 
-const SUGGESTIONS = [
-  "Create an image for a data-driven hiring post",
-  "Build a pitch deck for staffing agencies",
-  "Make a one-pager PDF on our RPO services",
-  "Find 5 US healthcare staffing agencies for RPO",
+// Popular starter tasks — an icon + a title/subtitle, matching the reference empty-state design. `prompt`
+// is what gets sent when the card is tapped (unchanged behaviour).
+type Suggestion = {
+  icon: "image" | "deck" | "pdf" | "people";
+  title: string;
+  subtitle: string;
+  prompt: string;
+  color: string;
+  tint: string;
+};
+const SUGGESTIONS: Suggestion[] = [
+  { icon: "image", title: "Create an image", subtitle: "for a data-driven hiring post", color: "#ff7a52", tint: "rgba(255,122,82,0.16)", prompt: "Create an image for a data-driven hiring post" },
+  { icon: "deck", title: "Build a pitch deck", subtitle: "for staffing agencies", color: "#3b82f6", tint: "rgba(59,130,246,0.14)", prompt: "Build a pitch deck for staffing agencies" },
+  { icon: "pdf", title: "Make a one-pager PDF", subtitle: "on our RPO services", color: "#22a45d", tint: "rgba(34,164,93,0.15)", prompt: "Make a one-pager PDF on our RPO services" },
+  { icon: "people", title: "Find 5 US healthcare", subtitle: "staffing agencies for RPO", color: "#8b7ef0", tint: "rgba(139,126,240,0.16)", prompt: "Find 5 US healthcare staffing agencies for RPO" },
 ];
+
+function TaskIcon({ name, color }: { name: Suggestion["icon"]; color: string }) {
+  const p = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (name === "image") return (<svg {...p}><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>);
+  if (name === "deck") return (<svg {...p}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M2 20h20M9 16v4M15 16v4" /></svg>);
+  if (name === "pdf") return (<svg {...p}><path d="M6 2h9l5 5v15H6zM14 2v6h6" /></svg>);
+  return (<svg {...p}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>);
+}
 
 // Chat understands the widest set of actions, so its "@" palette adds "post" and "prospects".
 const CHAT_AT_COMMANDS: AtCommand[] = [
@@ -179,14 +197,30 @@ export function ChatPanel() {
                   I find &amp; analyze prospects, generate images &amp; decks, search our brand library,
                   and write any copy. Attach a file and I&apos;ll use it as context.
                 </p>
-                <div className="mx-auto mt-8 grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mx-auto mt-8 mb-3 flex items-center justify-center gap-1.5 text-xs font-medium text-muted">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-[var(--brand-red)]"><path d="M12 2l1.9 5.8L20 9.7l-5 3.6L16.8 20 12 16.3 7.2 20 9 13.3l-5-3.6 6.1-1.9z" /></svg>
+                  Popular tasks
+                </div>
+                <div className="mx-auto grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
                   {SUGGESTIONS.map((s) => (
                     <button
-                      key={s}
-                      onClick={() => submit(s)}
-                      className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left text-sm text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+                      key={s.prompt}
+                      onClick={() => submit(s.prompt)}
+                      className="group flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition hover:border-[var(--brand-red)] hover:shadow-[var(--shadow-card)]"
                     >
-                      {s}
+                      <span
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                        style={{ background: s.tint }}
+                      >
+                        <TaskIcon name={s.icon} color={s.color} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-heading text-sm font-semibold text-foreground">{s.title}</span>
+                        <span className="block truncate text-xs text-muted">{s.subtitle}</span>
+                      </span>
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-muted transition group-hover:border-[var(--brand-red)] group-hover:text-[var(--brand-red)]">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                      </span>
                     </button>
                   ))}
                 </div>
