@@ -306,6 +306,49 @@ function RosterDropzone({
   );
 }
 
+// A numbered step header with a trailing divider rule (matches the builder's 1/2/3 sections).
+function StepHead({ n, label }: { n: number; label: string }) {
+  return (
+    <div className="mb-3.5 mt-6 flex items-center gap-2.5 first:mt-0">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--brand-navy)] text-[10px] font-semibold text-cream">{n}</span>
+      <span className="text-sm font-semibold text-foreground">{label}</span>
+      <span className="h-px flex-1 bg-[var(--border)]" />
+    </div>
+  );
+}
+
+// Live, templated preview of the cover — driven by the form fields (NOT a real render). Gives a sense of the
+// masthead, theme edition line, title and how many people get featured before you generate.
+function CoverPreview({ title, edition, theme, featureLabel }: { title: string; edition: string; theme: string; featureLabel: string }) {
+  const t = title.trim() || "Talentrupt Times";
+  const ed = edition.trim() || "Vol 1 · September 2025";
+  const th = theme.trim();
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
+      {/* Navy masthead */}
+      <div className="px-4 pb-4 pt-3.5" style={{ background: "var(--grad-navy)" }}>
+        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[var(--brand-coral)]">
+          <span className="truncate">{th ? `${th} Edition` : "Special Edition"}</span>
+          <span className="shrink-0 pl-2">Talentrupt</span>
+        </div>
+        <div className="mt-2 truncate font-serif text-2xl font-bold leading-tight text-white">{t}</div>
+        <div className="mt-1 text-[11px] text-cream/70">{ed}</div>
+      </div>
+      {/* Hero photo placeholder (real team photo drops in on generate) */}
+      <div className="relative h-40" style={{ backgroundImage: "repeating-linear-gradient(45deg, var(--surface-2) 0, var(--surface-2) 10px, var(--surface-3) 10px, var(--surface-3) 20px)" }}>
+        <span className="absolute bottom-2.5 left-2.5 rounded-md bg-[var(--surface)]/90 px-2 py-0.5 font-mono text-[10px] text-muted">team hero photo</span>
+        <span className="absolute bottom-2.5 right-2.5 rounded-full bg-[var(--brand-red)] px-2.5 py-0.5 text-[10px] font-medium text-cream">{featureLabel}</span>
+      </div>
+      {/* Article skeleton lines */}
+      <div className="space-y-2 p-4">
+        <div className="h-2.5 w-3/4 rounded bg-[var(--surface-2)]" />
+        <div className="h-2.5 w-full rounded bg-[var(--surface-2)]" />
+        <div className="h-2.5 w-2/3 rounded bg-[var(--surface-2)]" />
+      </div>
+    </div>
+  );
+}
+
 // Date helpers for grouping past issues by month (like a shelf).
 function assetTime(a: Asset): number {
   if (a.created_at) {
@@ -507,148 +550,299 @@ export function MagazineView() {
         </div>
 
         {view === "create" && (
-        <div className="mx-auto max-w-3xl">
-        <div className="mt-5 flex justify-end">
-          <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
-            <button
-              onClick={() => setMode("data")}
-              type="button"
-              className={`rounded-md px-3 py-1.5 transition ${mode === "data" ? "bg-[var(--surface-3)] text-foreground" : "text-muted hover:text-foreground"}`}
-            >
-              From data file
-            </button>
-            <button
-              onClick={() => setMode("manual")}
-              type="button"
-              className={`rounded-md px-3 py-1.5 transition ${mode === "manual" ? "bg-[var(--surface-3)] text-foreground" : "text-muted hover:text-foreground"}`}
-            >
-              Manual
-            </button>
-          </div>
-        </div>
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          {/* LEFT — the builder form */}
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+            {/* Mode toggle */}
+            <div className="mb-5 flex rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-1 text-sm font-medium">
+              <button
+                onClick={() => setMode("data")}
+                type="button"
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition ${mode === "data" ? "bg-[var(--surface)] text-foreground shadow-[var(--shadow-card)]" : "text-muted hover:text-foreground"}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2h9l5 5v15H6zM14 2v6h6" /></svg>
+                From data file
+              </button>
+              <button
+                onClick={() => setMode("manual")}
+                type="button"
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition ${mode === "manual" ? "bg-[var(--surface)] text-foreground shadow-[var(--shadow-card)]" : "text-muted hover:text-foreground"}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z" /></svg>
+                Manual entry
+              </button>
+            </div>
 
-        {noEmployees && (
-          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm text-muted">
-            You don&apos;t have any employees yet. Add real photos in{" "}
-            <a href="/folders" className="font-medium text-[var(--brand-red)] hover:underline">Folders</a>{" "}
-            first — the magazine cover and spotlights feature real team photos.
-          </div>
-        )}
+            {noEmployees && (
+              <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm text-muted">
+                You don&apos;t have any employees yet. Add real photos in{" "}
+                <a href="/folders" className="font-medium text-[var(--brand-red)] hover:underline">Folders</a>{" "}
+                first — the magazine cover and spotlights feature real team photos.
+              </div>
+            )}
 
-        {mode === "data" && (
-          <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-            <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Roster file</div>
-            <RosterDropzone file={dataFile} onFile={setDataFile} inputRef={fileInputRef} />
-            <p className="mt-2 text-[11px] text-muted">
-              CSV or Excel with a Name column + metric columns — or a full award report workbook. Photos pull from Folders by name.
-            </p>
-
-            <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+            {mode === "data" && (
               <div>
-                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Theme</label>
-                <input
-                  value={dataTheme}
-                  onChange={(e) => setDataTheme(e.target.value)}
-                  placeholder="Diwali / Christmas / Cricket…"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-                />
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {THEME_CHIPS.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setDataTheme(t)}
-                      className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
-                        dataTheme.trim().toLowerCase() === t.toLowerCase()
-                          ? "border-transparent bg-[var(--brand-red)] text-cream"
-                          : "border-[var(--border)] text-muted hover:border-[var(--brand-red)] hover:text-foreground"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
+                <StepHead n={1} label="Roster source" />
+                <RosterDropzone file={dataFile} onFile={setDataFile} inputRef={fileInputRef} />
+                <p className="mt-2 text-[11px] text-muted">
+                  CSV or Excel with a <span className="font-medium text-foreground">Name</span> column + metric columns — or a full award report workbook. Photos pull from Folders by name.
+                </p>
+
+                <StepHead n={2} label="Cover & edition" />
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Title</label>
+                    <input
+                      value={dataTitle}
+                      onChange={(e) => setDataTitle(e.target.value)}
+                      placeholder="Talentrupt Times"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Edition</label>
+                    <input
+                      value={dataEdition}
+                      onChange={(e) => setDataEdition(e.target.value)}
+                      placeholder="Vol 1 · September 2025"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Title</label>
-                <input
-                  value={dataTitle}
-                  onChange={(e) => setDataTitle(e.target.value)}
-                  placeholder="Talentrupt Times"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Edition</label>
-                <input
-                  value={dataEdition}
-                  onChange={(e) => setDataEdition(e.target.value)}
-                  placeholder="Vol 1 · September 2025"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Feature count</label>
-                <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
-                  {FEATURE_OPTIONS.map(([label, val]) => {
-                    const active = dataFeatureCount.trim() === val;
-                    return (
+                <div className="mt-2.5">
+                  <label className="mb-1.5 block text-[11px] uppercase tracking-wide text-muted">Theme</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {THEME_CHIPS.map((t) => (
                       <button
-                        key={label}
+                        key={t}
                         type="button"
-                        onClick={() => setDataFeatureCount(val)}
-                        className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition ${
-                          active ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
+                        onClick={() => setDataTheme(t)}
+                        className={`rounded-full border px-3 py-1 text-xs transition ${
+                          dataTheme.trim().toLowerCase() === t.toLowerCase()
+                            ? "border-transparent bg-[var(--brand-navy)] text-cream"
+                            : "border-[var(--border)] text-foreground hover:border-[var(--brand-red)]"
                         }`}
                       >
-                        {label}
+                        {t}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
+                  <input
+                    value={dataTheme}
+                    onChange={(e) => setDataTheme(e.target.value)}
+                    placeholder="…or type a custom theme"
+                    className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-xs outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                  />
+                </div>
+
+                <StepHead n={3} label="Content" />
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Feature count</label>
+                    <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
+                      {FEATURE_OPTIONS.map(([label, val]) => {
+                        const active = dataFeatureCount.trim() === val;
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => setDataFeatureCount(val)}
+                            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition ${
+                              active ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Rank by <span className="normal-case text-muted/70">(column, optional)</span></label>
+                    <input
+                      value={dataRankBy}
+                      onChange={(e) => setDataRankBy(e.target.value)}
+                      placeholder="e.g. Offers"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2.5">
+                  <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Editorial message</label>
+                  <textarea
+                    value={dataEditorial}
+                    onChange={(e) => setDataEditorial(e.target.value)}
+                    rows={3}
+                    placeholder="A short note from leadership…"
+                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                  />
+                  <p className="mt-1 text-[11px] text-muted">Leave blank and Myra writes it.</p>
                 </div>
               </div>
-              <div className="sm:col-span-2">
-                <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Rank by (column, optional)</label>
-                <input
-                  value={dataRankBy}
-                  onChange={(e) => setDataRankBy(e.target.value)}
-                  placeholder="e.g. Offers"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-                />
+            )}
+
+            {mode === "manual" && (
+              <div>
+                <StepHead n={1} label="Issue basics" />
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Title</label>
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="Talentrupt Times"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Edition</label>
+                    <input
+                      value={edition}
+                      onChange={(e) => setEdition(e.target.value)}
+                      placeholder="Vol 1 · September 2025"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Theme</label>
+                    <input
+                      value={theme}
+                      onChange={(e) => setTheme(e.target.value)}
+                      placeholder="Diwali / Christmas / Monsoon / Cricket…"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2.5">
+                  <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Editorial message</label>
+                  <textarea
+                    value={editorial}
+                    onChange={(e) => setEditorial(e.target.value)}
+                    rows={3}
+                    placeholder="A short note from leadership…"
+                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                  />
+                  <p className="mt-1 text-[11px] text-muted">Leave blank and Myra writes it.</p>
+                </div>
+
+                <StepHead n={2} label="Cover champion" />
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Employee</label>
+                    <EmployeeSelect
+                      employees={employees}
+                      value={cover.employee_id}
+                      onChange={(id) => setCover({ ...cover, employee_id: id })}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Headline</label>
+                    <input
+                      value={cover.headline}
+                      onChange={(e) => setCover({ ...cover, headline: e.target.value })}
+                      placeholder="Spark of Brilliance"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2.5">
+                  <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Tagline</label>
+                  <textarea
+                    value={cover.tagline}
+                    onChange={(e) => setCover({ ...cover, tagline: e.target.value })}
+                    rows={2}
+                    placeholder="Jerry's energy and results speak volumes…"
+                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                  />
+                </div>
+                <div className="mt-2.5">
+                  <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Stats</label>
+                  <StatsEditor
+                    stats={cover.stats}
+                    onChange={(stats) => setCover({ ...cover, stats })}
+                    max={MAX_COVER_STATS}
+                  />
+                </div>
+
+                <StepHead n={3} label="Spotlights" />
+                <div className="mb-2.5 flex justify-end">
+                  <button
+                    onClick={addSpotlight}
+                    type="button"
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+                  >
+                    + Add spotlight
+                  </button>
+                </div>
+                {spotlights.length === 0 ? (
+                  <p className="text-sm text-muted">No spotlights yet — optional. Add one to feature more of the team.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {spotlights.map((s, i) => (
+                      <SpotlightCard
+                        key={i}
+                        spotlight={s}
+                        employees={employees}
+                        onChange={(next) => updateSpotlight(i, next)}
+                        onRemove={() => removeSpotlight(i)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
+          </div>
 
-            <div className="mt-2.5">
-              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Editorial message</label>
-              <textarea
-                value={dataEditorial}
-                onChange={(e) => setDataEditorial(e.target.value)}
-                rows={3}
-                placeholder="A short note from leadership…"
-                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-              />
-              <p className="mt-1 text-[11px] text-muted">Leave blank and Myra writes it.</p>
-            </div>
+          {/* RIGHT — live preview + generate */}
+          <div className="self-start lg:sticky lg:top-6">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">Live preview</div>
+            <CoverPreview
+              title={mode === "data" ? dataTitle : title}
+              edition={mode === "data" ? dataEdition : edition}
+              theme={mode === "data" ? dataTheme : theme}
+              featureLabel={
+                mode === "data"
+                  ? dataFeatureCount.trim()
+                    ? `Top ${dataFeatureCount.trim()}`
+                    : "All features"
+                  : `${1 + spotlights.length} featured`
+              }
+            />
 
-            <div className="mt-4">
+            {mode === "data" ? (
               <button
                 onClick={onGenerateFromData}
                 disabled={dataBusy || !dataFile || !dataTheme.trim()}
-                className="btn-primary w-full"
+                className="btn-primary mt-4 w-full"
                 title={!dataFile ? "Choose a roster file first" : !dataTheme.trim() ? "Enter a theme first" : undefined}
               >
-                {dataBusy ? "Generating…" : "Generate magazine"}
+                {dataBusy ? "Generating…" : "Generate magazine →"}
               </button>
-              {dataBusy && (
-                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
-                  Analyzing your roster and generating the magazine… this can take up to a minute.
-                </div>
-              )}
-              {dataError && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{dataError}</p>}
-            </div>
+            ) : (
+              <button
+                onClick={onGenerate}
+                disabled={busy || cover.employee_id == null}
+                className="btn-primary mt-4 w-full"
+                title={cover.employee_id == null ? "Select a cover champion first" : undefined}
+              >
+                {busy ? "Generating…" : "Generate magazine →"}
+              </button>
+            )}
 
-            {dataResult && (
+            {(mode === "data" ? dataBusy : busy) ? (
+              <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+                Building your magazine… this can take up to a minute.
+              </div>
+            ) : (
+              <div className="mt-2 text-center text-[11px] text-muted">~40s · multi-page · PDF + web</div>
+            )}
+            {mode === "data"
+              ? dataError && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{dataError}</p>
+              : error && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{error}</p>}
+
+            {mode === "data" && dataResult && (
               <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3.5 text-sm">
                 {dataResult.format === "award" && (
                   <span className="mb-2 inline-flex items-center rounded-full bg-[var(--brand-navy)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cream">
@@ -685,146 +879,6 @@ export function MagazineView() {
               </div>
             )}
           </div>
-        )}
-
-        {mode === "manual" && (
-        <>
-        {/* Issue basics */}
-        <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Issue basics</div>
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Title</label>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Talentrupt Times"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Edition</label>
-              <input
-                value={edition}
-                onChange={(e) => setEdition(e.target.value)}
-                placeholder="Vol 1 · September 2025"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Theme</label>
-              <input
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                placeholder="Diwali / Christmas / Monsoon / Cricket…"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-              />
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Editorial message</label>
-            <textarea
-              value={editorial}
-              onChange={(e) => setEditorial(e.target.value)}
-              rows={3}
-              placeholder="A short note from leadership…"
-              className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-            />
-            <p className="mt-1 text-[11px] text-muted">Leave blank and Myra writes it.</p>
-          </div>
-        </div>
-
-        {/* Cover champion */}
-        <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Cover champion</div>
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Employee</label>
-              <EmployeeSelect
-                employees={employees}
-                value={cover.employee_id}
-                onChange={(id) => setCover({ ...cover, employee_id: id })}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Headline</label>
-              <input
-                value={cover.headline}
-                onChange={(e) => setCover({ ...cover, headline: e.target.value })}
-                placeholder="Spark of Brilliance"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-              />
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Tagline</label>
-            <textarea
-              value={cover.tagline}
-              onChange={(e) => setCover({ ...cover, tagline: e.target.value })}
-              rows={2}
-              placeholder="Jerry's energy and results speak volumes…"
-              className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-            />
-          </div>
-          <div className="mt-2.5">
-            <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Stats</label>
-            <StatsEditor
-              stats={cover.stats}
-              onChange={(stats) => setCover({ ...cover, stats })}
-              max={MAX_COVER_STATS}
-            />
-          </div>
-        </div>
-
-        {/* Spotlights */}
-        <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="mb-2.5 flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-wider text-muted">Spotlights</div>
-            <button
-              onClick={addSpotlight}
-              type="button"
-              className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
-            >
-              + Add spotlight
-            </button>
-          </div>
-          {spotlights.length === 0 ? (
-            <p className="text-sm text-muted">No spotlights yet — optional. Add one to feature more of the team.</p>
-          ) : (
-            <div className="space-y-3">
-              {spotlights.map((s, i) => (
-                <SpotlightCard
-                  key={i}
-                  spotlight={s}
-                  employees={employees}
-                  onChange={(next) => updateSpotlight(i, next)}
-                  onRemove={() => removeSpotlight(i)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Generate */}
-        <div className="mt-5">
-          <button
-            onClick={onGenerate}
-            disabled={busy || cover.employee_id == null}
-            className="btn-primary w-full"
-            title={cover.employee_id == null ? "Select a cover champion first" : undefined}
-          >
-            {busy ? "Generating…" : "Generate magazine"}
-          </button>
-          {busy && (
-            <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
-              Generating your magazine… this can take up to a minute.
-            </div>
-          )}
-          {error && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{error}</p>}
-        </div>
-        </>
-        )}
         </div>
         )}
 

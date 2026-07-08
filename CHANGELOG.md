@@ -3,6 +3,24 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine builder: two-column layout with a live cover preview (2026-07-09)
+Rebuilt the Magazine "Create" view to a designed two-column builder (matching the requested mockup, same color
+theme).
+
+- **Two columns**: the form on the left, a **live cover preview + Generate** on the right (sticky on scroll).
+  Stacks to one column below `lg`.
+- **Live preview** — a templated cover that updates as you type: navy masthead with a "{Theme} Edition" line, the
+  Talentrupt wordmark, a big serif title, the edition line, a hatched "team hero photo" placeholder, and a
+  feature pill ("All features" / "Top 5"). It's a wireframe of the cover, not a render, so it needs no LLM.
+- **Numbered steps** with divider rules — data mode: 1 Roster source · 2 Cover & edition · 3 Content; manual
+  mode: 1 Issue basics · 2 Cover champion · 3 Spotlights.
+- Mode switch is now a full-width **From data file / Manual entry** pill (with icons). Theme is a row of quick-pick
+  chips plus a small "custom theme" field (free-text preserved). Feature count stays a segmented All/3/5/10.
+- The Generate button, busy state, error and the post-run summary all live under the preview; a "~40s ·
+  multi-page · PDF + web" hint shows when idle. Same generation flow — presentation only.
+- Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
+  render their steps, no console errors, `next build` clean.
+
 ## Brighten navy sidebar lists app-wide (Campaigns + Folders) (2026-07-08)
 Carried the Chat sidebar readability fix to every other navy `.rail` sidebar so the list text is consistent.
 
