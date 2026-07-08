@@ -97,23 +97,126 @@ _HOLIDAY_RE = re.compile(
     r"holiday|yoga|wellness|mindfulness|meditation|anniversary|birthday|season'?s greetings)\b", re.I)
 
 
-def _fallback_plan(concept: str, tagline: str, has_person: bool) -> dict:
+# --------------------------------------------------------------------------------------------------
+# Meaningful copy bank — real marketing copy WITHOUT an LLM, so EVERY post reads as intentional (holiday
+# greetings, themed recruitment lines, or a strong default). Used as the fallback when the LLM is
+# unavailable AND to replace any weak/echoed headline that slips through (see `_is_weak_headline`).
+# --------------------------------------------------------------------------------------------------
+_HOLIDAY_COPY = {
+    "diwali": ("Happy Diwali", "Wishing you light, prosperity, and new beginnings."),
+    "deepavali": ("Happy Diwali", "Wishing you light, prosperity, and new beginnings."),
+    "holi": ("Happy Holi", "May your year be as bright and colourful as today."),
+    "navratri": ("Happy Navratri", "Nine nights of joy, energy, and new beginnings."),
+    "dussehra": ("Happy Dussehra", "May good triumph and new journeys begin."),
+    "dasara": ("Happy Dussehra", "May good triumph and new journeys begin."),
+    "pongal": ("Happy Pongal", "A harvest of joy, health, and prosperity."),
+    "onam": ("Happy Onam", "Wishing you a season of togetherness and plenty."),
+    "raksha": ("Happy Raksha Bandhan", "Celebrating the bonds that keep us strong."),
+    "rakhi": ("Happy Raksha Bandhan", "Celebrating the bonds that keep us strong."),
+    "eid": ("Eid Mubarak", "Wishing you peace, joy, and togetherness."),
+    "ramadan": ("Ramadan Mubarak", "A month of peace, reflection, and blessings."),
+    "ramzan": ("Ramadan Mubarak", "A month of peace, reflection, and blessings."),
+    "christmas": ("Merry Christmas", "Warm wishes for joy and togetherness this season."),
+    "xmas": ("Merry Christmas", "Warm wishes for joy and togetherness this season."),
+    "hanukkah": ("Happy Hanukkah", "Wishing you light and warmth this season."),
+    "new year": ("Happy New Year", "Here's to new goals and great teams ahead."),
+    "thanksgiving": ("Happy Thanksgiving", "Grateful for the people who make it all possible."),
+    "halloween": ("Happy Halloween", "Wishing you a spook-tacular day."),
+    "valentine": ("Happy Valentine's Day", "A little appreciation goes a long way."),
+    "womens day": ("Happy Women's Day", "Celebrating the women who lead, build, and inspire."),
+    "mens day": ("Happy Men's Day", "Here's to the men who lead with heart."),
+    "mothers day": ("Happy Mother's Day", "Celebrating the strength of every mother."),
+    "fathers day": ("Happy Father's Day", "Celebrating the dads who lead by example."),
+    "independence day": ("Happy Independence Day", "Proud, free, and moving forward together."),
+    "republic day": ("Happy Republic Day", "Celebrating unity, pride, and progress."),
+    "labour day": ("Happy Labour Day", "Honouring the people behind every great result."),
+    "labor day": ("Happy Labour Day", "Honouring the people behind every great result."),
+    "earth day": ("Happy Earth Day", "Building a greener, better tomorrow, together."),
+    "pride": ("Happy Pride", "Celebrating every identity, every story."),
+    "yoga": ("International Yoga Day", "A calm mind builds a stronger team."),
+    "wellness": ("Wellness First", "A healthy team is a happy, high-performing team."),
+    "mindfulness": ("A Mindful Moment", "Small pauses power big performance."),
+    "meditation": ("A Mindful Moment", "Small pauses power big performance."),
+}
+
+_THEME_COPY = [
+    (re.compile(r"\b(nurse|nursing|healthcare|clinical|medical|hospital|patient|care\s*team)\b", re.I),
+     "Healthcare Hiring, Done Right", "Connecting care teams with the talent they need to thrive.", "HEALTHCARE HIRING"),
+    (re.compile(r"\b(engineer|developer|software|tech|coding|devops|cloud|\bit\b)\b", re.I),
+     "Building Tech Teams That Deliver", "The right engineers, matched to your mission.", "TECH HIRING"),
+    (re.compile(r"\b(data.?driven|analytics|metric|insight)\w*\b", re.I),
+     "Data-Driven Hiring", "Smarter decisions, backed by real insight.", "DATA-DRIVEN HIRING"),
+    (re.compile(r"\b(scal|grow|growth|expansion|hypergrowth|ramp)\w*\b", re.I),
+     "Scale Your Team With Confidence", "The right people, exactly when you're ready to grow.", "TIME TO SCALE"),
+    (re.compile(r"\b(leader|leadership|executive|c-suite|founder)\w*\b", re.I),
+     "Leadership That Moves You Forward", "Placing the leaders who shape what's next.", "LEADERSHIP HIRING"),
+    (re.compile(r"\b(diversit|inclusion|\bdei\b|belonging)\w*\b", re.I),
+     "Hiring for Every Story", "Diverse teams build better outcomes.", "DIVERSITY IN HIRING"),
+    (re.compile(r"\b(cultur|team|people|employee|onboard)\w*\b", re.I),
+     "People First, Always", "Building teams where great work happens.", "PEOPLE FIRST"),
+    (re.compile(r"\b(recruit|hir|staffing|sourc|\brpo\b|talent)\w*\b", re.I),
+     "Recruitment, Done Right", "We build the teams that build your business.", "LET'S TALK HIRING"),
+]
+
+_DEFAULT_COPY = ("Recruitment, Done Right", "We build the teams that build your business.", "LET'S TALK HIRING")
+
+_WEAK_WORDS = {"on", "for", "of", "with", "to", "in", "and", "the", "a", "an", "at", "by", "about",
+               "from", "as", "or", "but", "our", "your", "my", "this", "that", "it", "is", "are"}
+
+
+def _meaningful_copy(concept: str) -> tuple[str, str, str]:
+    """A real (headline, subline, kicker) for `concept` WITHOUT an LLM — a holiday greeting, a themed
+    recruitment line, or a strong default. Never echoes the raw prompt."""
     c = (concept or "").strip()
     m = _HOLIDAY_RE.search(c)
-    observance = bool(m) and not has_person
-    head = re.split(r"[.!?\n]", c)[0].strip() or c or "RPO Done Right"
-    words = head.split()
-    if len(words) > 9:
-        head = " ".join(words[:9])
+    if m:
+        key = m.group(0).lower().replace("'", "").replace("'", "").strip()
+        if key in _HOLIDAY_COPY:
+            h, s = _HOLIDAY_COPY[key]
+            return h, s, ""
+        if key in ("festival", "holiday", "seasons greetings", "season's greetings", "anniversary", "birthday"):
+            return "Season's Greetings", "Wishing you joy and good things ahead.", ""
+    for rx, h, s, k in _THEME_COPY:
+        if rx.search(c):
+            return h, s, k
+    return _DEFAULT_COPY
+
+
+def _is_weak_headline(h: str) -> bool:
+    """True when a headline is a fragment / prompt-echo rather than real copy: too short, filler-only, or
+    dangling on a preposition (e.g. 'On Mission', 'For The Team', 'Use A Different Style')."""
+    words = re.findall(r"[A-Za-z0-9']+", h or "")
+    if len(words) < 2:
+        return True
+    lows = [w.lower() for w in words]
+    if all(w in _WEAK_WORDS or len(w) <= 2 for w in lows):
+        return True
+    return lows[0] in _WEAK_WORDS or lows[-1] in _WEAK_WORDS
+
+
+def _good_subtext(st: str) -> bool:
+    """True when a supplied subline is a genuine sentence worth printing (not a stray instruction/fragment)."""
+    st = (st or "").strip()
+    return len(st.split()) >= 4 and not re.search(
+        r"\b(style|styles|look|looks|version|background|scene|theme|design|layout|variation|post|image|"
+        r"different|warmer|brighter|colou?r|colou?rs)\b", st, re.I)
+
+
+def _fallback_plan(concept: str, tagline: str, has_person: bool) -> dict:
+    c = (concept or "").strip()
+    observance = bool(_HOLIDAY_RE.search(c)) and not has_person
+    head, sub, kicker = _meaningful_copy(c)
     v = {"template": "observance" if observance else ("hero" if has_person else "statement"),
-         "headline": head, "subtext": tagline, "scene": c, "bg": "navy"}
-    if observance:
-        v["red_word"] = m.group(0)
+         "headline": head, "subtext": sub, "kicker": kicker, "scene": c, "bg": "navy"}
     return _coerce(v, concept, tagline, has_person)
 
 
 def _coerce(v: dict, concept: str, tagline: str, has_person: bool) -> dict:
-    headline = (v.get("headline") or concept or "RPO Done Right").strip()
+    headline = (v.get("headline") or "").strip()
+    if _is_weak_headline(headline):        # LLM off, or a prompt-echo fragment -> real curated copy
+        mh, ms, mk = _meaningful_copy(concept)
+        headline = mh
+        v = {**v, "subtext": (v.get("subtext") or ms), "kicker": (v.get("kicker") or mk)}
     tmpl = v.get("template") if v.get("template") in _TEMPLATES else "statement"
     if has_person:
         tmpl = "hero"
@@ -735,8 +838,11 @@ async def build_chat_post(brand: Brand | None, concept: str, count: int = 1, sty
             # background' visibly flips; first generation (variant None) stays random for variety.
             hero_bg = (["navy", "cream"][int(bg_variant) % 2] if bg_variant is not None
                        else random.choice(["navy", "cream"]))
-            plans = [_coerce({"template": "hero", "headline": headline, "subtext": subtext, "kicker": kicker,
-                              "bg": hero_bg}, headline, tagline, has_person=person is not None)]
+            # A real subline, never a stray instruction fragment. Pass the full concept so `_coerce` /
+            # `_meaningful_copy` can theme-detect and replace a weak/echoed headline with real copy.
+            hero_sub = subtext if _good_subtext(subtext) else _meaningful_copy(concept or headline)[1]
+            plans = [_coerce({"template": "hero", "headline": headline, "subtext": hero_sub, "kicker": kicker,
+                              "bg": hero_bg}, (concept or headline), tagline, has_person=person is not None)]
     else:
         plans = await _plan(brand, concept, count, has_person=person is not None)
     out: list[tuple[str, str, dict]] = []

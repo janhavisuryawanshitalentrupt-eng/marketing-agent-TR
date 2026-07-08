@@ -155,7 +155,11 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   "Featuring" role pill **auto-fits** (shrinks to show the full role; never a mid-word cut). Styling
   directives ("use a different style / new look / another version / different background") are stripped from
   copy upstream by `_clean_headline` (`_STYLE_DIRECTIVE_RE`) so they can't be printed as a headline/caption.
-  CAMPAIGN and MAGAZINE renderers are untouched.
+  **Every template gets meaningful copy even with the LLM offline:** `_meaningful_copy` is a curated bank of
+  ~30 holiday greetings + 8 themed recruitment lines (headline + subline + kicker) + a strong default;
+  `_is_weak_headline` flags any fragment/prompt-echo (too short, filler-only, dangling preposition — "On
+  Mission", "Diwali") and `_coerce`/`_fallback_plan` replace it with themed copy, while `_good_subtext` keeps a
+  supplied subline only when it's a real sentence. CAMPAIGN and MAGAZINE renderers are untouched.
   **Nothing overrides:** each layout keeps text left of the photo and the wordmark in a reserved margin,
   verified by `_ensure_clear`. Cut-outs use `cutout.remove_bg_api` (hosted, opt-in via `BG_REMOVAL_API_KEY`
   — the deploy injects it + `BG_REMOVAL_PROVIDER` from a GitHub secret into the droplet `.env`, same path as

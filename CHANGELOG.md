@@ -3,6 +3,27 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## EVERY Chat post now gets meaningful copy — curated fallback across all templates (2026-07-08)
+Extends the previous fix to **all** templates (statement / stat / hero / observance / mission), not just
+Mission. The failure mode: when the LLM is rate-limited (or returns a weak line), the headline fell back to a
+**raw echo of the cleaned prompt** and the subtext to just the tagline — so posts read as fragments
+("On Mission", "Healthcare Recruitment", "RPO Done Right").
+
+- **Curated copy bank (`_meaningful_copy`, no LLM needed):** ~30 **holiday greetings** (Diwali, Holi, Eid,
+  Christmas, New Year, Women's Day, …) and **8 themed recruitment lines** (healthcare, tech, data-driven,
+  scale, leadership, diversity, culture, general hiring), each with a real headline + subline + kicker, plus a
+  strong default ("Recruitment, Done Right / We build the teams that build your business").
+- **Weak-headline guard (`_is_weak_headline`):** any headline that's a fragment / prompt-echo — too short,
+  filler-only, or dangling on a preposition ("On Mission", "For The Team", "Diwali") — is replaced with real
+  copy themed from the request. Applied in `_coerce` (covers weak LLM output too) and `_fallback_plan`.
+- **Real sublines, not stray instructions:** the person-hero subline uses `_good_subtext` — a supplied line is
+  only kept when it's a genuine sentence; otherwise the themed subline is drawn. Holiday copy now also shows on
+  **person** posts (a Diwali post featuring someone reads "Happy Diwali", not a generic line).
+- Verified: garbage inputs ("On" + "Different Look" for a healthcare request) render "Healthcare Hiring, Done
+  Right / Connecting care teams with the talent they need to thrive"; a bare "Diwali" renders "Happy Diwali /
+  Wishing you light, prosperity, and new beginnings"; statement/observance/hero all produce intentional copy
+  with the LLM offline.
+
 ## Fix: Chat posts now carry MEANINGFUL copy (no leaked instructions, no cut-off role) (2026-07-08)
 A Man-on-a-Mission post was showing the user's raw instruction as its caption — e.g. the question read
 *"Mission, Use A Different Style"* — and the role pill was cut mid-word (*"TALENT DISCOVERY SPECILA"*).
