@@ -202,7 +202,9 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
   modelled on the real reference issues in `TR Magazines/`: newspaper masthead + a HUGE display title (the
   cover headline; condensed, or serif on editorial profiles) + the champion **cut-out overlapping the title**
   (`_cutout`, framed fallback) + big stat callouts (`_big_stat`) + a "TOP PERFORMER" eyebrow/name/blurb band,
-  over a paper `_grain`. (`split_panel`/`band_bottom` remain the alternates.) Wired at both `/api/magazine/*` endpoints; profile saved in
+  over a paper `_grain`. (`split_panel`/`band_bottom` remain the alternates.) The **spotlight spread** matches
+  the reference "Shining Stars" style too: cut-out people with an accent outline (`_outline`) on alternating
+  sides, big names, big inline stat numbers, a blurb, and a hand-drawn arrow (`_hand_arrow`). Wired at both `/api/magazine/*` endpoints; profile saved in
   the asset meta. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.

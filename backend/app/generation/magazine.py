@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import math
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
@@ -593,89 +594,127 @@ def _render_editorial(issue: dict, editorial: str) -> Image.Image:
     return canvas.convert("RGB")
 
 
-def _spotlight_card(canvas: Image.Image, y0: int, entry: dict, palette: list[tuple], flip: bool,
-                    _accent: tuple = RED) -> None:
-    """One teammate spotlight inside a white rounded card starting at y0 (card height ~510)."""
-    card_h = 512
-    pad = 44
-    d = ImageDraw.Draw(canvas)
-    d.rounded_rectangle([pad, y0, MW - pad, y0 + card_h], radius=34, fill=(*WHITE, 255))
-    # circular photo on one side
-    size = 300
-    photo = entry.get("photo")
-    av = _circle_photo(photo, size) if photo else None
-    cx = (MW - pad - 40 - size) if flip else (pad + 40)
-    cy = y0 + (card_h - size) // 2
-    if av is not None:
-        canvas.alpha_composite(av, (cx, cy))
-    else:
-        d.ellipse([cx, cy, cx + size, cy + size], fill=(*CREAM, 255), outline=(*NAVY, 60), width=3)
-        initials = "".join(w[0] for w in (entry.get("name") or "T R").split()[:2]).upper()
-        f = heading_font(96)
-        iw = d.textlength(initials, font=f)
-        d.text((cx + (size - iw) / 2, cy + size / 2 - 60), initials, font=f, fill=NAVY)
+def _outline(canvas: Image.Image, layer: Image.Image, x: int, y: int, color: tuple, w: int = 5) -> None:
+    """A coloured 'sticker' edge around a cut-out person (the reference outline) — the silhouette pasted at
+    8 offsets behind the real person."""
+    try:
+        sil = Image.new("RGBA", layer.size, (*color, 255))
+        sil.putalpha(layer.split()[-1])
+        for dx, dy in ((-w, 0), (w, 0), (0, -w), (0, w), (-w, -w), (w, w), (-w, w), (w, -w)):
+            canvas.alpha_composite(sil, (x + dx, y + dy))
+    except Exception:
+        pass
 
-    # text column sits OPPOSITE the photo and never runs under it
-    if flip:
-        tx = pad + 60
-        tw = (MW - pad - 40 - size - 40) - tx
-    else:
-        tx = pad + 60 + size + 40
-        tw = (MW - pad - 40) - tx
-    tw = max(200, tw)
-    ty = y0 + 42
-    name = (entry.get("name") or "").strip() or "Teammate"
-    nf = heading_font(50)
-    d.text((tx, ty), _ellipsize(d, name, nf, tw), font=nf, fill=NAVY)
-    ty += 62
-    office = (entry.get("office") or "").strip()
-    role = (entry.get("role") or "").strip()
-    meta = " · ".join([m for m in (role, office) if m])
-    if meta:
-        mf = body_font(26)
-        d.text((tx, ty), _ellipsize(d, meta, mf, tw), font=mf, fill=_accent)
-        ty += 44
-    # stat chips row — laid out by MEASURED width, stopping before the text column's right edge
-    stats = [s for s in (entry.get("stats") or []) if (s or {}).get("label")][:3]
-    if stats:
-        cx, right = tx, tx + tw
-        placed = False
-        for s in stats:
-            cw, _ch = _chip_size(s.get("label", ""), s.get("value", ""))
-            if cx > tx and cx + cw > right:
-                break
-            _stat_chip(canvas, cx, ty + 62, s.get("label", ""), s.get("value", ""))
-            cx += cw + 16
-            placed = True
-        if placed:
-            ty += 138
+
+def _hand_arrow(canvas: Image.Image, p0, p1, color: tuple, bend: int = 60) -> None:
+    """A small hand-drawn curved arrow (quadratic bezier + arrowhead) — the reference doodle that points
+    from the name toward the person."""
+    d = ImageDraw.Draw(canvas, "RGBA")
+    cx, cy = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2 - bend
+    pts = []
+    for k in range(21):
+        t = k / 20
+        pts.append(((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * cx + t ** 2 * p1[0],
+                    (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * cy + t ** 2 * p1[1]))
+    for i in range(len(pts) - 1):
+        d.line([pts[i], pts[i + 1]], fill=(*color, 255), width=4)
+    (ex, ey), (bx, by) = pts[-1], pts[-3]
+    ang = math.atan2(ey - by, ex - bx)
+    for da in (math.radians(148), math.radians(-148)):
+        d.line([(ex, ey), (ex + 18 * math.cos(ang + da), ey + 18 * math.sin(ang + da))],
+               fill=(*color, 255), width=4)
+
+
+def _spotlight_card(canvas: Image.Image, y0: int, entry: dict, prof, flip: bool) -> None:
+    """One teammate spotlight (reference 'Shining Star' style): a CUT-OUT person with an accent outline on
+    an alternating side, a big name, big inline stat numbers, and a blurb — no boxy card."""
     d = ImageDraw.Draw(canvas)
+    H = 560
+    person_left = flip
+    photo = entry.get("photo")
+    pw = 0
+    if photo:
+        layer, ok = _person_cutout_layer(photo, target_h=440)
+        if ok and layer is not None:
+            pw = layer.width
+            px = 54 if person_left else (MW - 54 - pw)
+            py = y0 + H - layer.height
+            _outline(canvas, layer, px, py, prof.accent, w=5)
+            canvas.alpha_composite(layer, (px, py))
+        else:
+            fw, fh = 300, 384
+            pw = fw
+            px = 54 if person_left else (MW - 54 - fw)
+            py = y0 + (H - fh) // 2
+            try:
+                canvas.alpha_composite(_rounded(_cover_fit(_open_photo(photo), fw, fh), 24), (px, py))
+                ImageDraw.Draw(canvas).rounded_rectangle([px - 4, py - 4, px + fw + 4, py + fh + 4],
+                                                         radius=28, outline=(*prof.accent, 255), width=6)
+            except Exception:
+                pw = 0
+    pw = pw or 300
+    # text column OPPOSITE the person
+    if person_left:
+        tx = 54 + pw + 54
+        tw = MW - 54 - tx
+    else:
+        tx = 54
+        tw = (MW - 54 - pw - 54) - tx
+    tw = max(240, tw)
+    d = ImageDraw.Draw(canvas)
+    ty = y0 + 26
+    name = (entry.get("name") or "Teammate").strip()
+    nf = font("display", 46)
+    d.text((tx, ty), _ellipsize(d, name, nf, tw), font=nf, fill=(*prof.accent, 255))
+    ty += 64
+    meta = " · ".join([m for m in ((entry.get("role") or "").strip(), (entry.get("office") or "").strip()) if m])
+    if meta:
+        d.text((tx, ty), _ellipsize(d, meta, body_font(24), tw), font=body_font(24), fill=NAVY)
+        ty += 46
+    for s in [s for s in (entry.get("stats") or []) if (s or {}).get("label") and (s or {}).get("value")][:3]:
+        vf = font("display", 44)
+        v = str(s["value"])[:6]
+        d.text((tx, ty), v, font=vf, fill=(*prof.accent, 255))
+        d.text((tx + d.textlength(v, font=vf) + 16, ty + 12),
+               _ellipsize(d, str(s["label"]).upper(), heading_font(24), tw - 120), font=heading_font(24), fill=NAVY)
+        ty += 58
     blurb = (entry.get("blurb") or "").strip()
     if blurb:
-        _para(d, tx, ty + 6, blurb, body_font(25), SUBINK, tw, 36, max_lines=4)
+        _para(d, tx, ty + 6, blurb, body_font(23), SUBINK, tw, 32, max_lines=4)
+    # a small doodle arrow pointing from the text toward the person
+    try:
+        if person_left:
+            _hand_arrow(canvas, (tx - 14, y0 + 70), (54 + pw + 12, y0 + 150), prof.accent, bend=44)
+        else:
+            _hand_arrow(canvas, (tx + min(tw, 250) + 14, y0 + 70), (MW - 54 - pw - 12, y0 + 150),
+                        prof.accent, bend=44)
+    except Exception:
+        pass
 
 
 def _render_spotlights(issue: dict, entries: list[dict]) -> list[Image.Image]:
     prof = _mprof(issue)
-    palette = _festive_palette(issue.get("theme", ""))
-    tf = font(prof.head_family, 58)
     pages: list[Image.Image] = []
     per_page = 2
     for i in range(0, len(entries), per_page):
         chunk = entries[i:i + per_page]
         canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
+        _grain(canvas, 7)
         d = ImageDraw.Draw(canvas)
         _rail(canvas, prof)
-        _motif_band(canvas, prof, issue.get("theme", ""), 90)
-        d.text((60, 150), "TEAM SPOTLIGHT", font=heading_font(30), fill=prof.accent)
-        d.text((60, 192), "Champions of the Month", font=tf, fill=NAVY)
-        d.line([(60, 270), (360, 270)], fill=(*prof.accent, 255), width=5)
-        y0 = 320
+        # editorial header: 'SHINING STARS' (display accent) + 'of the month' (script navy)
+        hf = font("display", 58)
+        d.text((60, 118), "SHINING STARS", font=hf, fill=(*prof.accent, 255))
+        d.text((64, 190), "of the month", font=script_font(52), fill=NAVY)
+        d.line([(60, 268), (360, 268)], fill=(*prof.accent, 255), width=5)
+        y0 = 312
         for j, entry in enumerate(chunk):
-            _spotlight_card(canvas, y0, entry, palette, flip=(j % 2 == 1), _accent=prof.accent)
-            y0 += 560
-        try:
-            paste_wordmark(canvas, 60, MH - 64, 200, 36, dark_bg=False, align="left")
+            _spotlight_card(canvas, y0, entry, prof, flip=(j % 2 == 1))
+            y0 += 588
+        try:                                   # wordmark opposite the last person (which alternates sides)
+            last_left = ((len(chunk) - 1) % 2 == 1)
+            wx = (MW - 260) if last_left else 60
+            paste_wordmark(canvas, wx, MH - 62, 200, 34, dark_bg=False, align="left")
         except Exception:
             pass
         pages.append(canvas.convert("RGB"))

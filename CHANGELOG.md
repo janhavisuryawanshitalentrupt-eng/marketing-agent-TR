@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine spotlight spread rebuilt to the reference "Shining Stars" editorial style (2026-07-08)
+Following the cover work, the inner **spotlight page** now matches the real reference spreads instead of the
+old plain white cards (circular photo + tiny pills).
+
+- `_render_spotlights` / `_spotlight_card` redesigned: an editorial header ("SHINING STARS" display + "of the
+  month" script), each teammate a **cut-out person with an accent 'sticker' outline** (`_outline`) on an
+  alternating side, a **big name** (display, accent), **big inline stat numbers** (value + label, not pills),
+  a blurb, and a small **hand-drawn arrow** (`_hand_arrow`) from the name to the person — over paper grain.
+- Cut-out via `_person_cutout_layer` (remove.bg on prod, numpy studio-keyer on dev), framed-photo fallback.
+- Wordmark auto-places opposite the last person so it never collides; 2 spotlights/page, odd counts split
+  cleanly. All spotlight DATA (names, roles, stat values, real photos) is unchanged.
+- Verified across all 9 profiles + an odd (3) spotlight count + a dark profile.
+
 ## Magazine covers now LEARN from the real TR Times reference issues (2026-07-08)
 The user added a folder of 10 real past Talentrupt magazines (`TR Magazines/`). I rendered them (PyMuPDF) and
 studied the design language, then rebuilt the cover to match it — our old flat-vector cover (framed photo +
