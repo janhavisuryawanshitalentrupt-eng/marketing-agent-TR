@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine editorial, award, category & closing pages given the reference editorial treatment (2026-07-08)
+Finished the reference pass across the remaining inner pages so the whole issue reads like the real TR Times:
+
+- **Editorial note** — a bold NAVY masthead block ("FROM THE EDITOR'S DESK" eyebrow + a big display/serif
+  title), a justified body on the grained page, and a script "— The Talentrupt Team" sign-off (replaces the
+  old festoon note).
+- **Award of the Month** — a big display title, and each winner as a medal rank + photo + **red name banner**
+  + **huge display value** + caption (reference "big number" style). Ranks/medals/values unchanged.
+- **Category Champions** — big display "TOP OF THEIR FIELD" title; column labels are now split cleanly
+  ("Categories — Tech" → "Tech") and **clipped to the column** (fixes an overflow into neighbouring columns).
+- **Closing** — a big "THANK YOU" display title over the script sign-off + confetti.
+- All pages now carry the subtle paper **grain**; titles use serif on editorial profiles, condensed display
+  otherwise. Verified across all 9 profiles + a festive (Diwali) issue; all award/category DATA is unchanged.
+
 ## Magazine spotlight spread rebuilt to the reference "Shining Stars" editorial style (2026-07-08)
 Following the cover work, the inner **spotlight page** now matches the real reference spreads instead of the
 old plain white cards (circular photo + tiny pills).

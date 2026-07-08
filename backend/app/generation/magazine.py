@@ -565,30 +565,33 @@ def _render_cover(issue: dict) -> Image.Image:
 
 
 def _render_editorial(issue: dict, editorial: str) -> Image.Image:
+    """The editor's note — a bold colored masthead block with a big display title, then a justified body on
+    the grained page and a script sign-off (the reference editorial look)."""
     prof = _mprof(issue)
-    palette = _festive_palette(issue.get("theme", ""))
-    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
-    d = ImageDraw.Draw(canvas)
-    _rail(canvas, prof)
-    _motif_band(canvas, prof, issue.get("theme", ""), 96)
     theme = (issue.get("theme") or "").strip()
-    kicker = "EDITOR'S NOTE"
-    d.text((60, 190), kicker, font=heading_font(26), fill=prof.accent)
+    canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
+    _grain(canvas, 7)
+    d = ImageDraw.Draw(canvas)
+    # colored masthead block with eyebrow + big display title
+    block_h = 452
+    d.rectangle([0, 0, MW, block_h], fill=(*NAVY, 255))
+    d.rectangle([0, 0, RAIL, block_h], fill=(*prof.accent, 255))
+    d.text((60, 92), "FROM THE EDITOR'S DESK", font=heading_font(28), fill=(*prof.accent, 255))
     title = (f"Happy {theme.title()}!" if theme else "A Note From The Desk")
-    tf = font(prof.head_family, 72)
-    ty = 234
-    for ln in _wrap(d, title, tf, MW - 120)[:2]:
-        d.text((60, ty), ln, font=tf, fill=NAVY)
-        ty += 78
-    d.line([(60, ty + 8), (300, ty + 8)], fill=(*prof.accent, 255), width=5)
-    _para(d, 60, ty + 44, editorial or "", body_font(30), INK, MW - 130, 46, max_lines=20)
-    # festive footer accents + wordmark
+    tfam = "serif" if prof.head_family == "serif" else "display"
+    tf = font(tfam, 96)
+    words = title.split()
+    while tf.size > 52 and max((d.textlength(w, font=tf) for w in words), default=0) > MW - 120:
+        tf = font(tfam, tf.size - 8)
+    ty = 156
+    for ln in _wrap(d, title, tf, MW - 120)[:3]:
+        d.text((60, ty), ln, font=tf, fill=WHITE)
+        ty += int(tf.size * 0.98)
+    # justified-measure body on the light lower page
+    _para(d, 72, block_h + 60, editorial or "", body_font(30), INK, MW - 144, 48, max_lines=15)
+    d.text((72, MH - 156), "— The Talentrupt Team", font=script_font(50), fill=(*prof.accent, 255))
     try:
-        _confetti(d, RAIL, MH - 150, MW, MH - 60, 16, _seed(title))
-    except Exception:
-        pass
-    try:
-        paste_wordmark(canvas, 60, MH - 70, 220, 40, dark_bg=False, align="left")
+        paste_wordmark(canvas, MW - 258, MH - 64, 200, 34, dark_bg=False, align="left")
     except Exception:
         pass
     return canvas.convert("RGB")
@@ -755,19 +758,22 @@ _UNIT_CAPTION = {"margin": "Total margin", "placements": "Placements",
 def _render_award_podium(issue: dict, award: dict) -> Image.Image:
     """A full page for one headline award: kicker + title + a 3-place leaderboard of real people."""
     prof = _mprof(issue)
-    palette = _festive_palette(issue.get("theme", ""))
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
+    _grain(canvas, 7)
     d = ImageDraw.Draw(canvas)
     _rail(canvas, prof)
-    _motif_band(canvas, prof, issue.get("theme", ""), 92)
-    d.text((60, 150), "AWARD OF THE MONTH", font=heading_font(28), fill=prof.accent)
-    title = (award.get("title") or "Champions").strip()
-    tf = font(prof.head_family, 62)
-    ty = 194
-    for ln in _wrap(d, title, tf, MW - 130)[:2]:
-        d.text((60, ty), ln, font=tf, fill=NAVY)
-        ty += 70
-    d.line([(60, ty + 6), (330, ty + 6)], fill=(*prof.accent, 255), width=5)
+    d.text((60, 118), "AWARD OF THE MONTH", font=heading_font(28), fill=prof.accent)
+    title = (award.get("title") or "Champions").strip().upper()
+    tfam = "serif" if prof.head_family == "serif" else "display"
+    tf = font(tfam, 78)
+    words = title.split()
+    while tf.size > 46 and max((d.textlength(w, font=tf) for w in words), default=0) > MW - 120:
+        tf = font(tfam, tf.size - 6)
+    ty = 158
+    for ln in _wrap(d, title, tf, MW - 120)[:2]:
+        d.text((60, ty), ln, font=tf, fill=(*prof.accent, 255))
+        ty += int(tf.size * 0.98)
+    d.line([(60, ty + 6), (330, ty + 6)], fill=(*NAVY, 255), width=5)
     caption = _UNIT_CAPTION.get(award.get("unit", ""), "")
 
     winners = [w for w in (award.get("winners") or []) if (w or {}).get("name")][:3]
@@ -789,16 +795,18 @@ def _render_award_podium(issue: dict, award: dict) -> Image.Image:
         cy = y0 + card_h // 2
         _medal_circle(canvas, 150, y0 + 74, 52, rank)
         _photo_or_initials(canvas, 300, cy, 208, w)
-        # name + value on the right
+        # name (a small red banner) + BIG display value on the right
         d = ImageDraw.Draw(canvas)
         tx, tw = 452, (MW - 90) - 452
-        d.text((tx, y0 + 68), _ellipsize(d, w.get("name") or "Teammate", heading_font(52), tw),
-               font=heading_font(52), fill=NAVY)
-        vf = heading_font(96)
-        d.text((tx, y0 + 132), _ellipsize(d, str(w.get("value") or ""), vf, tw), font=vf,
+        nm = _ellipsize(d, w.get("name") or "Teammate", heading_font(40), tw - 40)
+        nw = d.textlength(nm, font=heading_font(40))
+        d.rounded_rectangle([tx, y0 + 58, tx + nw + 40, y0 + 116], radius=12, fill=(*prof.accent, 255))
+        d.text((tx + 20, y0 + 68), nm, font=heading_font(40), fill=WHITE)
+        vf = font("display", 100)
+        d.text((tx, y0 + 138), _ellipsize(d, str(w.get("value") or ""), vf, tw), font=vf,
                fill=(*NAVY, 255))
         if caption:
-            d.text((tx, y0 + 250), caption.upper(), font=body_font(28), fill=prof.accent)
+            d.text((tx, y0 + 262), caption.upper(), font=heading_font(26), fill=prof.accent)
         y0 += card_h + gap
     try:
         paste_wordmark(canvas, 60, MH - 60, 200, 36, dark_bg=False, align="left")
@@ -810,14 +818,14 @@ def _render_award_podium(issue: dict, award: dict) -> Image.Image:
 def _render_category_champions(issue: dict, cat_awards: list[dict]) -> Image.Image:
     """A single page with three columns (LI / Non-Tech / Tech), each a compact top-3 leaderboard."""
     prof = _mprof(issue)
-    palette = _festive_palette(issue.get("theme", ""))
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
+    _grain(canvas, 7)
     d = ImageDraw.Draw(canvas)
     _rail(canvas, prof)
-    _motif_band(canvas, prof, issue.get("theme", ""), 92)
-    d.text((60, 150), "CATEGORY CHAMPIONS", font=heading_font(28), fill=prof.accent)
-    d.text((60, 194), "Top of Their Field", font=font(prof.head_family, 62), fill=NAVY)
-    d.line([(60, 268), (330, 268)], fill=(*prof.accent, 255), width=5)
+    d.text((60, 118), "CATEGORY CHAMPIONS", font=heading_font(28), fill=prof.accent)
+    tfam = "serif" if prof.head_family == "serif" else "display"
+    d.text((60, 158), "TOP OF THEIR FIELD", font=font(tfam, 72), fill=(*prof.accent, 255))
+    d.line([(60, 254), (330, 254)], fill=(*NAVY, 255), width=5)
 
     cols = cat_awards[:3]
     left, right = 44, MW - 44
@@ -828,13 +836,18 @@ def _render_category_champions(issue: dict, cat_awards: list[dict]) -> Image.Ima
         x = left + i * (colw + gap)
         d = ImageDraw.Draw(canvas)
         d.rounded_rectangle([x, y0, x + colw, y0 + col_h], radius=26, fill=(*WHITE, 255))
-        # header band
-        label = (aw.get("title") or "").split("—")[-1].strip() or "Category"
+        # header band — the category name only (strip any "Categories — " prefix), clipped to the column
+        raw = (aw.get("title") or "").strip()
+        for sep in ("—", "–", ":", " - "):
+            if sep in raw:
+                raw = raw.split(sep)[-1].strip()
+                break
         d.rounded_rectangle([x, y0, x + colw, y0 + 72], radius=26, fill=(*NAVY, 255))
         d.rectangle([x, y0 + 40, x + colw, y0 + 72], fill=(*NAVY, 255))
-        lf = heading_font(38)
+        lf = heading_font(36)
+        label = _ellipsize(d, raw or "Category", lf, colw - 28)
         lw = d.textlength(label, font=lf)
-        d.text((x + (colw - lw) / 2, y0 + 16), label, font=lf, fill=WHITE)
+        d.text((x + (colw - lw) / 2, y0 + 18), label, font=lf, fill=WHITE)
         winners = [w for w in (aw.get("winners") or []) if (w or {}).get("name")][:3]
         # #1 gets a photo
         cy = y0 + 190
@@ -864,6 +877,7 @@ def _render_closing(issue: dict) -> Image.Image:
     # Closing stays a dark, celebratory page; midnight goes near-black, others navy.
     close_bg = prof.bg if prof.key == "midnight" else NAVY
     canvas = Image.new("RGBA", (MW, MH), (*close_bg, 255))
+    _grain(canvas, 8)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, RAIL, MH], fill=(*prof.accent, 255))
     try:
@@ -871,6 +885,9 @@ def _render_closing(issue: dict) -> Image.Image:
         _confetti(d, RAIL, MH - 300, MW, MH - 80, 26, _seed("close2"))
     except Exception:
         pass
+    thanks = "THANK YOU"
+    tf = font("display", 120)
+    d.text(((MW - d.textlength(thanks, font=tf)) / 2, MH // 2 - 320), thanks, font=tf, fill=(*prof.accent, 255))
     msg = "Here's to another\nremarkable month."
     yf = script_font(96)
     ty = MH // 2 - 150

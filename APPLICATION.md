@@ -204,7 +204,10 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
   (`_cutout`, framed fallback) + big stat callouts (`_big_stat`) + a "TOP PERFORMER" eyebrow/name/blurb band,
   over a paper `_grain`. (`split_panel`/`band_bottom` remain the alternates.) The **spotlight spread** matches
   the reference "Shining Stars" style too: cut-out people with an accent outline (`_outline`) on alternating
-  sides, big names, big inline stat numbers, a blurb, and a hand-drawn arrow (`_hand_arrow`). Wired at both `/api/magazine/*` endpoints; profile saved in
+  sides, big names, big inline stat numbers, a blurb, and a hand-drawn arrow (`_hand_arrow`). The **editorial
+  note** (colored masthead block + big title + justified body + script sign-off), **award** (big title + red
+  name banner + huge display value + medal), **category** (big title + clipped column labels), and **closing**
+  (big "THANK YOU") pages all got the same editorial treatment + paper grain — data always unchanged. Wired at both `/api/magazine/*` endpoints; profile saved in
   the asset meta. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.
