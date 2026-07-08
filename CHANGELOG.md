@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine "Past issues" shelf: real cover thumbnails + sort/grouping (2026-07-08)
+The Past Issues list went from generic navy icon tiles to a proper magazine shelf.
+
+- **Real cover thumbnails**: a new read-only backend endpoint `GET /api/files/pdfs/{name}/preview` rasterizes
+  the PDF's first page to a PNG (PyMuPDF; unauthenticated to match `serve_file`, since the PDF itself already
+  is), so each card shows the actual designed cover. Falls back to an icon tile if a preview fails.
+- Cards are a portrait cover + title/edition/pages + a **design-profile chip**, click the cover to open the
+  PDF, download (with a toast), and **delete** (styled confirm dialog + toast — you couldn't delete before).
+- **Sort (Newest/Oldest) + month grouping** (like the generations gallery) + **skeleton** cards while loading
+  + a friendlier empty state. `serialize_asset` already returns `created_at`.
+- Verified in a live preview: covers render from the preview endpoint, month header + sort show, delete dialog
+  opens; `next build` clean, no console errors. (Part 1 of the Magazine UI refresh.)
+
 ## Click the profile photo to view it enlarged (2026-07-08)
 Clicking your avatar photo in the account menu now opens it in a **lightbox** (dimmed overlay, close ✕,
 Escape/overlay-click to dismiss), plus a "View photo" menu item. The small camera badge still changes it, and

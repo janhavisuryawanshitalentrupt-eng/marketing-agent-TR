@@ -826,6 +826,12 @@ export function fileUrl(path: string | null | undefined): string {
   return path.startsWith("http") ? path : `${API_BASE}${path}`;
 }
 
+/** Full URL of a PDF's rasterized first-page cover thumbnail (for magazine cards). null if no file. */
+export function pdfCoverUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return `${fileUrl(path)}/preview`;
+}
+
 export interface AttachmentMeta {
   id: number;
   filename: string;

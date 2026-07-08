@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  deleteAsset,
   downloadFile,
   fileUrl,
   generateMagazine,
   generateMagazineFromData,
   getAllEmployees,
   getMagazines,
+  pdfCoverUrl,
 } from "@/lib/api";
 import type { Asset, Employee, MagSpotlight, MagStat, MagazineDataResult, MagazineSpec } from "@/lib/types";
+import { useToast } from "./Toast";
+import { ConfirmDialog } from "./Dialog";
 
 const MAX_COVER_STATS = 6;
 const MAX_SPOTLIGHT_STATS = 4;
@@ -169,52 +173,102 @@ function SpotlightCard({
   );
 }
 
-function IssueCard({ asset }: { asset: Asset }) {
+function IssueCard({
+  asset,
+  onDelete,
+}: {
+  asset: Asset;
+  onDelete: (a: Asset) => void;
+}) {
   const meta = asset.meta || {};
   const edition = typeof meta.edition === "string" ? meta.edition : undefined;
   const pages = typeof meta.pages === "number" ? meta.pages : undefined;
+  const profileName = typeof meta.profile_name === "string" ? meta.profile_name : undefined;
   const url = fileUrl(asset.file_url);
+  const cover = pdfCoverUrl(asset.file_url);
+  const [imgOk, setImgOk] = useState(true);
+  const { toast } = useToast();
 
   return (
-    <div className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="flex items-start gap-3">
-        <div
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-cream"
-          style={{ background: "var(--grad-navy)" }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--brand-red)]">
-            <path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" />
-          </svg>
-        </div>
+    <div className="group overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] transition hover:border-[var(--brand-red)] hover:shadow-[var(--shadow-card)]">
+      {/* Cover thumbnail (the PDF's real first page) — click to open the full PDF. */}
+      <button
+        onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")}
+        className="relative block aspect-[7/10] w-full cursor-zoom-in overflow-hidden bg-[var(--surface-2)]"
+        aria-label={`Open ${asset.title || "magazine"}`}
+      >
+        {cover && imgOk ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={cover} alt="" onError={() => setImgOk(false)} className="h-full w-full object-cover object-top" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--grad-navy)" }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--brand-red)]">
+              <path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" />
+            </svg>
+          </div>
+        )}
+        {profileName && (
+          <span className="absolute left-2 top-2 rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+            {profileName}
+          </span>
+        )}
+        <span className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 to-transparent p-2 opacity-0 transition group-hover:opacity-100">
+          <span className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-medium text-[var(--brand-navy)]">Open PDF</span>
+        </span>
+      </button>
+      <div className="flex items-center gap-2 p-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{asset.title || "Untitled issue"}</div>
           <div className="mt-0.5 truncate text-[11px] text-muted">
             {[edition, pages ? `${pages} pages` : null].filter(Boolean).join(" · ") || "PDF"}
           </div>
         </div>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
         <button
-          onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")}
+          onClick={() =>
+            url &&
+            downloadFile(url, `${asset.title || "magazine"}.pdf`)
+              .then(() => toast("Downloaded", { kind: "success" }))
+              .catch(() => toast("Download failed — please try again", { kind: "error" }))
+          }
           disabled={!url}
-          className="btn-ghost flex-1 !px-3 !py-1.5 !text-xs disabled:opacity-50"
+          title="Download PDF"
+          aria-label="Download"
+          className="shrink-0 rounded-lg bg-[var(--brand-navy)] p-2 text-cream transition hover:opacity-90 disabled:opacity-50"
         >
-          Open
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
         </button>
         <button
-          onClick={() => url && downloadFile(url, `${asset.title || "magazine"}.pdf`).catch(() => {})}
-          disabled={!url}
-          className="btn-primary flex-1 !px-3 !py-1.5 !text-xs disabled:opacity-50"
+          onClick={() => onDelete(asset)}
+          title="Delete issue"
+          aria-label="Delete"
+          className="shrink-0 rounded-lg border border-[var(--border)] p-2 text-muted transition hover:border-[var(--brand-red)] hover:text-[var(--brand-red)]"
         >
-          Download
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /></svg>
         </button>
       </div>
     </div>
   );
 }
 
+// Date helpers for grouping past issues by month (like a shelf).
+function assetTime(a: Asset): number {
+  if (a.created_at) {
+    const t = Date.parse(a.created_at);
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+}
+function monthLabel(a: Asset): string {
+  if (!a.created_at) return "Earlier";
+  const d = new Date(a.created_at);
+  return Number.isNaN(d.getTime()) ? "Earlier" : d.toLocaleString(undefined, { month: "long", year: "numeric" });
+}
+
 export function MagazineView() {
+  const { toast } = useToast();
   const [mode, setMode] = useState<"data" | "manual">("data");
+  const [issueSort, setIssueSort] = useState<"newest" | "oldest">("newest");
+  const [deleteIssue, setDeleteIssue] = useState<Asset | null>(null);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeesError, setEmployeesError] = useState(false);
@@ -325,6 +379,36 @@ export function MagazineView() {
       setDataError((e as Error)?.message || "Couldn't generate the magazine — please try again.");
     } finally {
       setDataBusy(false);
+    }
+  }
+
+  // Past issues sorted + grouped by month (a shelf).
+  const issueGroups = useMemo(() => {
+    const sorted = [...issues].sort((a, b) => {
+      const d = assetTime(b) - assetTime(a) || b.id - a.id;
+      return issueSort === "newest" ? d : -d;
+    });
+    const out: { key: string; items: Asset[] }[] = [];
+    const idx = new Map<string, number>();
+    for (const a of sorted) {
+      const key = monthLabel(a);
+      if (!idx.has(key)) { idx.set(key, out.length); out.push({ key, items: [] }); }
+      out[idx.get(key)!].items.push(a);
+    }
+    return out;
+  }, [issues, issueSort]);
+
+  async function confirmDeleteIssue() {
+    const a = deleteIssue;
+    if (!a) return;
+    setDeleteIssue(null);
+    setIssues((prev) => prev.filter((x) => x.id !== a.id)); // optimistic
+    try {
+      await deleteAsset(a.id);
+      toast("Issue deleted", { kind: "success" });
+    } catch {
+      toast("Couldn't delete — please try again", { kind: "error" });
+      getMagazines().then(setIssues).catch(() => {});
     }
   }
 
@@ -646,27 +730,72 @@ export function MagazineView() {
         </>
         )}
 
-        {/* Past issues */}
+        {/* Past issues — a shelf of real cover thumbnails, grouped by month. */}
         <div className="mt-8">
-          <div className="mb-2.5 text-[11px] uppercase tracking-wider text-muted">Past issues</div>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-[11px] uppercase tracking-wider text-muted">Past issues</div>
+            {issues.length > 1 && (
+              <div className="flex items-center rounded-lg border border-[var(--border)] p-0.5">
+                {(["newest", "oldest"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setIssueSort(s)}
+                    className={`rounded-md px-2.5 py-1 text-xs capitalize transition ${
+                      issueSort === s ? "bg-[var(--surface-3)] text-foreground" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {issuesLoading ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-sm text-muted">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
-              Loading past issues…
-            </div>
-          ) : issues.length === 0 ? (
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-sm text-muted">
-              No magazines yet — generate your first issue above.
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {issues.map((asset) => (
-                <IssueCard key={asset.id} asset={asset} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
+                  <div className="skeleton aspect-[7/10] w-full rounded-none" />
+                  <div className="flex items-center gap-2 p-3">
+                    <div className="skeleton h-3 flex-1" />
+                    <div className="skeleton h-7 w-7 rounded-lg" />
+                  </div>
+                </div>
               ))}
             </div>
+          ) : issues.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-12 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--surface-2)] text-muted">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" /></svg>
+              </div>
+              <p className="text-sm text-muted">No magazines yet — generate your first issue above.</p>
+            </div>
+          ) : (
+            issueGroups.map((g) => (
+              <section key={g.key} className="mb-6">
+                <div className="mb-3 flex items-center gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{g.key}</h3>
+                  <span className="text-[11px] text-muted/70">· {g.items.length}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {g.items.map((asset) => (
+                    <IssueCard key={asset.id} asset={asset} onDelete={setDeleteIssue} />
+                  ))}
+                </div>
+              </section>
+            ))
           )}
         </div>
       </div>
+
+      {deleteIssue && (
+        <ConfirmDialog
+          title="Delete this issue?"
+          message={`"${deleteIssue.title || "Untitled issue"}" will be removed from your past issues. This can't be undone.`}
+          confirmLabel="Delete"
+          onConfirm={confirmDeleteIssue}
+          onCancel={() => setDeleteIssue(null)}
+        />
+      )}
     </div>
   );
 }

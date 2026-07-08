@@ -2081,6 +2081,31 @@ def preview_deck(file_name: str, db: Session = Depends(get_db), role: str = Depe
         raise HTTPException(status_code=500, detail="Preview unavailable for this file.")
 
 
+@app.get("/api/files/pdfs/{file_name}/preview")
+def preview_pdf_cover(file_name: str):
+    """Rasterize the FIRST page of a PDF (e.g. a magazine cover) to a PNG so the UI can show a real cover
+    thumbnail in an <img>. Read-only. Unauthenticated to match `serve_file` (the PDF itself is already
+    served the same way, and filenames are random UUIDs); never touches generation."""
+    from fastapi import Response
+    base = storage_subdir("pdfs").resolve()
+    target = (base / file_name).resolve()
+    if target.parent != base or not target.exists():   # flat dir — reject traversal & subpaths
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        import fitz  # PyMuPDF — already installed
+        doc = fitz.open(str(target))
+        page = doc[0]
+        zoom = 640 / page.rect.width                    # ~640px wide thumbnail
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        png = pix.tobytes("png")
+        doc.close()
+        return Response(content=png, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+    except Exception as e:
+        log.warning("pdf cover preview failed for %s: %s", file_name, e)
+        raise HTTPException(status_code=500, detail="Preview unavailable for this file.")
+
+
 # --- Magazine (multi-page PDF) --------------------------------------------
 def _magazine_employee(db: Session, owner: str, employee_id: int | None) -> Employee | None:
     """Resolve an employee id to the caller's OWN Folders employee (owner-scoped), or None."""
