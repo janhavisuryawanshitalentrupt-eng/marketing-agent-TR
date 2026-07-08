@@ -3,6 +3,12 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Click the profile photo to view it enlarged (2026-07-08)
+Clicking your avatar photo in the account menu now opens it in a **lightbox** (dimmed overlay, close ✕,
+Escape/overlay-click to dismiss), plus a "View photo" menu item. The small camera badge still changes it, and
+"Remove photo" also closes the viewer. UI only. Verified in a live preview: click → enlarged photo shows;
+✕/Escape close it; no console errors.
+
 ## Profile photo upload/edit in the account menu (2026-07-08)
 You can now set a profile picture from the account dropdown (UI only — no backend/workflow touched).
 

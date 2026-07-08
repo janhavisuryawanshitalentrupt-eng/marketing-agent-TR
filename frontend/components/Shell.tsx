@@ -81,8 +81,20 @@ export function Shell() {
   }
   function removePhoto() {
     setAvatar(null);
+    setViewPhoto(false);
     toast("Profile photo removed", { kind: "info" });
   }
+
+  // Click the photo to VIEW it enlarged.
+  const [viewPhoto, setViewPhoto] = useState(false);
+  useEffect(() => {
+    if (!viewPhoto) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setViewPhoto(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [viewPhoto]);
 
   // Account dropdown (avatar -> name, email, theme, sign out): close on outside-click / Escape.
   const [menuOpen, setMenuOpen] = useState(false);
@@ -184,23 +196,40 @@ export function Shell() {
                 className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg"
               >
                 <div className="flex items-center gap-3 border-b border-[var(--border)] px-3 py-3">
-                  {/* Avatar with a camera badge — click to upload/replace the profile photo. */}
-                  <button
-                    onClick={() => fileRef.current?.click()}
-                    className="relative shrink-0 rounded-full transition hover:opacity-90"
-                    title="Change photo"
-                    aria-label="Change profile photo"
-                  >
-                    <Avatar name={displayName} size={44} self />
-                    <span className="absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-[var(--surface)] bg-[var(--brand-red)] text-white">
+                  {/* Click the avatar to VIEW the photo (or add one if none); the camera badge changes it. */}
+                  <div className="relative shrink-0">
+                    <button
+                      onClick={() => (hasPhoto ? setViewPhoto(true) : fileRef.current?.click())}
+                      className={`block rounded-full transition hover:opacity-90 ${hasPhoto ? "cursor-zoom-in" : ""}`}
+                      title={hasPhoto ? "View photo" : "Add photo"}
+                      aria-label={hasPhoto ? "View profile photo" : "Add profile photo"}
+                    >
+                      <Avatar name={displayName} size={44} self />
+                    </button>
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      className="absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-[var(--surface)] bg-[var(--brand-red)] text-white transition hover:opacity-90"
+                      title="Change photo"
+                      aria-label="Change profile photo"
+                    >
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx="12" cy="13" r="4" /></svg>
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                   <div className="min-w-0 leading-tight">
                     <div className="truncate text-sm font-medium">{displayName}</div>
                     <div className="truncate text-[11px] text-muted">{username || ""}</div>
                   </div>
                 </div>
+                {hasPhoto && (
+                  <button
+                    role="menuitem"
+                    onClick={() => setViewPhoto(true)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                    <span>View photo</span>
+                  </button>
+                )}
                 <button
                   role="menuitem"
                   onClick={() => fileRef.current?.click()}
@@ -244,6 +273,30 @@ export function Shell() {
           </div>
         </div>
       </header>
+
+      {/* Profile-photo viewer — click the avatar photo to see it enlarged. */}
+      {viewPhoto && getAvatar() && (
+        <div
+          className="fixed inset-0 z-[115] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setViewPhoto(false)}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getAvatar()!}
+              alt={`${displayName}'s profile photo`}
+              className="max-h-[72vh] max-w-[82vw] rounded-2xl border border-[var(--border)] object-contain shadow-2xl"
+            />
+            <button
+              onClick={() => setViewPhoto(false)}
+              aria-label="Close photo"
+              className="absolute -right-3 -top-3 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-muted shadow-lg transition hover:text-foreground"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main — all views stay mounted; only the active one is shown */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
