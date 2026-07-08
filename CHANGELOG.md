@@ -3,6 +3,15 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Brighten navy sidebar lists app-wide (Campaigns + Folders) (2026-07-08)
+Carried the Chat sidebar readability fix to every other navy `.rail` sidebar so the list text is consistent.
+
+- **Campaigns** rail (campaign names) and **Folders** rail (folder names) now render **full white with a medium
+  font weight** instead of the dim `text-muted`, matching the Chat conversation list. Active rows are full white
+  too.
+- Verified live at desktop width: Campaigns and Folders list items compute to `rgb(255,255,255)` / weight 500,
+  no console errors, `next build` clean.
+
 ## Chat sidebar: readable conversation titles + Clear all (2026-07-08)
 The conversation list in the navy sidebar was hard to read and had no bulk cleanup.
 

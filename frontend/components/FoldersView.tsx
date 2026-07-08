@@ -126,8 +126,8 @@ export function FoldersView() {
               <div key={f.id} className="group relative">
                 <button
                   onClick={() => setSelected(f.id)}
-                  className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-9 text-left text-sm transition ${
-                    selected === f.id ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
+                  className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-9 text-left text-sm font-medium transition ${
+                    selected === f.id ? "bg-[var(--brand-navy)] text-white" : "text-white hover:bg-[var(--surface-2)]"
                   }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>

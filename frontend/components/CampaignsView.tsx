@@ -307,10 +307,10 @@ export function CampaignsView() {
               <div key={c.id} className="group relative">
                 <button
                   onClick={() => { setCreating(false); setSelected(c.id); }}
-                  className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-14 text-left text-sm transition ${
+                  className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-14 text-left text-sm font-medium transition ${
                     selected === c.id
-                      ? "bg-[var(--brand-navy)] text-cream"
-                      : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
+                      ? "bg-[var(--brand-navy)] text-white"
+                      : "text-white hover:bg-[var(--surface-2)]"
                   }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>
