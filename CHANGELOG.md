@@ -3,6 +3,20 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Magazine builder form: roster dropzone + quick-picks + toasts (2026-07-08)
+Part 2 of the Magazine UI refresh — the "From data file" builder now feels modern.
+
+- **Drag-and-drop roster upload**: the native file input became a real dropzone (drag a CSV/Excel in, or click
+  to browse). Once a file is chosen it shows a **file chip** (icon, name, size, Replace/Remove) instead of the
+  raw picker — with a red drop-highlight while dragging.
+- **Theme quick-pick chips** (Diwali, Christmas, New Year, Cricket, Monsoon, Summer) under the Theme box — one
+  click fills it; the active theme highlights. Still fully free-typeable.
+- **Feature-count segmented control** (All · 3 · 5 · 10) replaces the bare number input.
+- **Toasts on generate** for both the data and manual builders (success shows how many were featured; failures
+  toast alongside the existing inline error).
+- Presentation only — the same state/handlers drive generation; nothing in the build workflow changed. Verified
+  live: dropzone renders, chips sync to the input, segmented toggles, no console errors, `next build` clean.
+
 ## Magazine "Past issues" shelf: real cover thumbnails + sort/grouping (2026-07-08)
 The Past Issues list went from generic navy icon tiles to a proper magazine shelf.
 

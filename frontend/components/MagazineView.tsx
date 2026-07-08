@@ -250,6 +250,60 @@ function IssueCard({
   );
 }
 
+const THEME_CHIPS = ["Diwali", "Christmas", "New Year", "Cricket", "Monsoon", "Summer"];
+const FEATURE_OPTIONS: [string, string][] = [["All", ""], ["3", "3"], ["5", "5"], ["10", "10"]];
+
+// Drag-and-drop roster upload with a file chip (replaces the native file input).
+function RosterDropzone({
+  file,
+  onFile,
+  inputRef,
+}: {
+  file: File | null;
+  onFile: (f: File | null) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  const [drag, setDrag] = useState(false);
+  const accept = (f: File | null) => {
+    if (f && /\.(csv|xlsx)$/i.test(f.name)) onFile(f);
+  };
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => { e.preventDefault(); setDrag(false); accept(e.dataTransfer.files?.[0] || null); }}
+      className={`rounded-xl border-2 border-dashed p-5 transition ${
+        drag ? "border-[var(--brand-red)] bg-[var(--brand-red)]/5" : "border-[var(--border)] bg-[var(--surface-2)]"
+      }`}
+    >
+      <input ref={inputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(e) => onFile(e.target.files?.[0] || null)} />
+      {file ? (
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-cream" style={{ background: "var(--grad-navy)" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2h9l5 5v15H6zM14 2v6h6" /></svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{file.name}</div>
+            <div className="text-[11px] text-muted">{(file.size / 1024).toFixed(0)} KB · ready</div>
+          </div>
+          <button type="button" onClick={() => inputRef.current?.click()} className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">Replace</button>
+          <button type="button" onClick={() => { onFile(null); if (inputRef.current) inputRef.current.value = ""; }} aria-label="Remove file" className="shrink-0 rounded-lg p-1.5 text-muted transition hover:text-[var(--brand-red)]">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full flex-col items-center gap-2 py-3 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--surface-3)] text-[var(--brand-red)]">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+          </span>
+          <div className="text-sm font-medium">Drag a CSV or Excel roster here</div>
+          <div className="text-[11px] text-muted">or click to browse · .csv, .xlsx</div>
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Date helpers for grouping past issues by month (like a shelf).
 function assetTime(a: Asset): number {
   if (a.created_at) {
@@ -347,15 +401,13 @@ export function MagazineView() {
     try {
       const asset = await generateMagazine(spec);
       setIssues((prev) => [asset, ...prev]);
+      toast("Magazine generated", { kind: "success" });
     } catch {
       setError("Couldn't generate the magazine — please try again.");
+      toast("Couldn't generate the magazine", { kind: "error" });
     } finally {
       setBusy(false);
     }
-  }
-
-  function onDataFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setDataFile(e.target.files && e.target.files[0] ? e.target.files[0] : null);
   }
 
   async function onGenerateFromData() {
@@ -375,8 +427,11 @@ export function MagazineView() {
       setDataResult(result);
       setDataFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      toast(`Magazine built · ${result.featured?.length ?? 0} featured`, { kind: "success" });
     } catch (e) {
-      setDataError((e as Error)?.message || "Couldn't generate the magazine — please try again.");
+      const msg = (e as Error)?.message || "Couldn't generate the magazine — please try again.";
+      setDataError(msg);
+      toast("Couldn't build the magazine", { kind: "error" });
     } finally {
       setDataBusy(false);
     }
@@ -453,24 +508,13 @@ export function MagazineView() {
         {mode === "data" && (
           <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
             <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">Roster file</div>
-            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.xlsx"
-                onChange={onDataFileChange}
-                className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--brand-navy)] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-cream hover:file:opacity-90"
-              />
-              {dataFile && (
-                <p className="mt-2 truncate text-xs text-foreground">Selected: {dataFile.name}</p>
-              )}
-              <p className="mt-2 text-[11px] text-muted">
-                Upload a CSV or Excel roster (a Name column + metric columns like Submissions, Interviews,
-                Offers, Starts…), or a full <span className="font-medium text-foreground">award report</span>{" "}
-                workbook (an awards leaderboard tab + a raw deal sheet). We rank the team, feature the top
-                performers, and pull each person&apos;s photo from Folders by name.
-              </p>
-            </div>
+            <RosterDropzone file={dataFile} onFile={setDataFile} inputRef={fileInputRef} />
+            <p className="mt-2 text-[11px] text-muted">
+              Upload a CSV or Excel roster (a Name column + metric columns like Submissions, Interviews,
+              Offers, Starts…), or a full <span className="font-medium text-foreground">award report</span>{" "}
+              workbook (an awards leaderboard tab + a raw deal sheet). We rank the team, feature the top
+              performers, and pull each person&apos;s photo from Folders by name.
+            </p>
 
             <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
               <div>
@@ -481,6 +525,22 @@ export function MagazineView() {
                   placeholder="Diwali / Christmas / Cricket…"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
                 />
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {THEME_CHIPS.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setDataTheme(t)}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                        dataTheme.trim().toLowerCase() === t.toLowerCase()
+                          ? "border-transparent bg-[var(--brand-red)] text-cream"
+                          : "border-[var(--border)] text-muted hover:border-[var(--brand-red)] hover:text-foreground"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Title</label>
@@ -502,14 +562,23 @@ export function MagazineView() {
               </div>
               <div>
                 <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Feature count</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={dataFeatureCount}
-                  onChange={(e) => setDataFeatureCount(e.target.value)}
-                  placeholder="All"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
-                />
+                <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
+                  {FEATURE_OPTIONS.map(([label, val]) => {
+                    const active = dataFeatureCount.trim() === val;
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setDataFeatureCount(val)}
+                        className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition ${
+                          active ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-[11px] uppercase tracking-wide text-muted">Rank by (column, optional)</label>
