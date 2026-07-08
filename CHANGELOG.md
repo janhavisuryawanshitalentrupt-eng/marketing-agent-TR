@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Post copy now rotates when the LLM is down + an LLM self-test endpoint (2026-07-08)
+Two follow-ups after seeing a batch of posts read identically and edits erroring:
+
+- **Rotating fallback copy:** when there's no theme AND no LLM headline, generic posts used to ALL get
+  "Recruitment, Done Right / We build the teams that build your business" — so a batch looked identical apart
+  from the photo. Now the default draws at random from a **10-line bank** (`_DEFAULT_COPY_BANK`), so two
+  generic posts never read the same. (Themed + holiday copy already varied; this only touches the no-theme
+  default.)
+- **`GET /api/health/llm` (admin):** a live self-test that makes one tiny real OpenAI call and reports exactly
+  what comes back — `ok`, or `out_of_credits` (429 insufficient_quota) / `rate_limited` / `bad_key` /
+  `bad_model` with the provider's own message. This is how we tell whether "the assistant hit an error" is an
+  out-of-credits account vs a transient limit (the generic chat error can't distinguish them).
+
 ## Design variety — Magazines now rotate the 6 designer profiles too (part 2 of 2) (2026-07-08)
 Every magazine used to render in one fixed format (red spine, photo-right cover, sans masthead). Now
 `build_magazine` **auto-rotates a design profile per issue** (per owner, never repeats the last) — the same

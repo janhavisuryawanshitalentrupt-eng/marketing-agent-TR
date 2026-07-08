@@ -303,6 +303,37 @@ async def chat_json(messages: list[dict], temperature: float = 0.6) -> dict:
         return {}
 
 
+async def probe(model: str | None = None) -> dict:
+    """Make a TINY real chat call and report exactly what the provider says — so we can tell whether a
+    failing chat is out-of-credits (429 insufficient_quota), rate-limited (429 rate_limit_exceeded), a bad
+    key (401), a bad model (404), etc. No retries (we want the raw first response). Never raises."""
+    if not provider_available():
+        return {"ok": False, "reason": "no_provider", "detail": "No OpenAI key / provider configured."}
+    url = f"{settings.openai_base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
+    payload = {"model": model or settings.openai_model,
+               "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+    except Exception as e:
+        return {"ok": False, "reason": "network", "detail": str(e)[:300]}
+    if resp.status_code == 200:
+        return {"ok": True, "model": payload["model"]}
+    # Pull the provider's error type/code/message out of the body when present.
+    err_type = err_code = err_msg = ""
+    try:
+        err = (resp.json() or {}).get("error", {})
+        err_type, err_code, err_msg = err.get("type", ""), err.get("code", ""), err.get("message", "")
+    except Exception:
+        err_msg = resp.text[:300]
+    reason = {401: "bad_key", 404: "bad_model"}.get(resp.status_code, "")
+    if resp.status_code == 429:
+        reason = "out_of_credits" if "insufficient_quota" in f"{err_type}{err_code}" else "rate_limited"
+    return {"ok": False, "status": resp.status_code, "reason": reason or f"http_{resp.status_code}",
+            "error_type": err_type, "error_code": err_code, "detail": err_msg[:300], "model": payload["model"]}
+
+
 async def embed(texts: list[str]) -> list[list[float]]:
     """Return embedding vectors for the given texts. Requires a provider."""
     if not texts:

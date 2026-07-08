@@ -165,6 +165,15 @@ def _cutout_ready() -> bool:
         return False
 
 
+@app.get("/api/health/llm")
+async def health_llm(role: str = Depends(require_auth)) -> dict:
+    """Live LLM self-test: makes one tiny real call and reports exactly what OpenAI says (ok, or
+    out_of_credits / rate_limited / bad_key / bad_model + the provider's message). This is what tells us
+    whether 'the assistant hit an error' is an out-of-credits account vs a transient rate limit."""
+    chat = await llm.probe()
+    return {"chat": chat, "image_model": settings.openai_image_model}
+
+
 # --- Auth endpoints -------------------------------------------------------
 def _is_admin_email(email: str) -> bool:
     return (email or "").strip().lower() == settings.admin_username.strip().lower()

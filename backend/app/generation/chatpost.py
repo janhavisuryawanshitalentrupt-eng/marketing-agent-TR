@@ -162,6 +162,21 @@ _THEME_COPY = [
 
 _DEFAULT_COPY = ("Recruitment, Done Right", "We build the teams that build your business.", "LET'S TALK HIRING")
 
+# When there's no theme and no LLM headline, ROTATE across these so two generic posts never read the same
+# ("Recruitment, Done Right" on every card was the #1 reason a batch looked identical). Picked at random.
+_DEFAULT_COPY_BANK = [
+    ("Recruitment, Done Right", "We build the teams that build your business.", "LET'S TALK HIRING"),
+    ("Great Teams Start Here", "The right people, matched to your mission.", "HIRING PARTNERS"),
+    ("Hire Smarter, Grow Faster", "Talent that moves your business forward.", "LET'S TALK TALENT"),
+    ("Your Next Great Hire", "We find the people who make the difference.", "TALENT ON DEMAND"),
+    ("Building Winning Teams", "From first brief to final offer — done right.", "RPO DONE RIGHT"),
+    ("Talent That Delivers", "The people behind every great result.", "PEOPLE FIRST"),
+    ("Powering Your Growth", "Scale your team with confidence.", "READY TO SCALE"),
+    ("The Right People, Right Now", "Recruitment that keeps pace with you.", "LET'S TALK HIRING"),
+    ("Where Great Careers Begin", "Connecting the right talent with the right teams.", "NOW HIRING"),
+    ("Beyond the Resume", "We match on potential, not just paper.", "SMARTER HIRING"),
+]
+
 _WEAK_WORDS = {"on", "for", "of", "with", "to", "in", "and", "the", "a", "an", "at", "by", "about",
                "from", "as", "or", "but", "our", "your", "my", "this", "that", "it", "is", "are"}
 
@@ -181,7 +196,7 @@ def _meaningful_copy(concept: str) -> tuple[str, str, str]:
     for rx, h, s, k in _THEME_COPY:
         if rx.search(c):
             return h, s, k
-    return _DEFAULT_COPY
+    return random.choice(_DEFAULT_COPY_BANK)   # no theme -> rotate so a batch never repeats one line
 
 
 def _is_weak_headline(h: str) -> bool:
