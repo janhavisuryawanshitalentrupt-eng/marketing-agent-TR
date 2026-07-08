@@ -183,19 +183,22 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
 - **DESIGN VARIETY (`generation/designs.py`) — the app designs like a person, never stamps one look:** a
   `DesignProfile` bundles a palette (bg/ink/accent/card roles), a type pairing (`head_family`/`body_family`
   resolved by `common.font`), a layout signature (align, kicker style, divider, hero photo side), and a motif.
-  **6 profiles** — Classic Navy, Editorial Cream (serif, photo-left), Bold Red (display poster), Split Duotone,
-  Soft Neutral (centred), Midnight (dark+gold). `pick_profile(owner, surface)` **auto-rotates and never repeats
-  the last 3** (in-memory per owner+surface, like `teampost._SKIN_ROT`); `next_profile` powers a refine "use a
-  different style" swap. `chatpost.build_chat_post(profile=…, owner=…)` applies it to hero/statement/stat/
+  **9 profiles** — Classic Navy, Editorial Cream (serif, photo-left), Bold Red (display poster), Split Duotone,
+  Soft Neutral (centred), Midnight (dark+gold), Charcoal Editorial (dark centred serif), Cream Bold (light
+  display, photo-left), Warm Amber (warm espresso+gold). `pick_profile(owner, surface)` **auto-rotates and
+  never repeats the last 3** (in-memory per owner+surface, like `teampost._SKIN_ROT`); `next_profile` powers a
+  refine "use a different style" swap. `chatpost.build_chat_post(profile=…, owner=…)` applies it to hero/statement/stat/
   observance (mission keeps its own 6 backdrops); the chosen profile is stored in the asset meta. Fonts are
   bundled (Poppins/Playfair/Archivo Black, SIL OFL) so **dev == prod** — this also fixed a prod bug where the
   Linux droplet (no Windows fonts) fell back to Pillow's default font for all text. Headlines auto-shrink so a
   wide display face never breaks a word mid-line. Campaign (`teampost`) + decks keep their own variety.
   **Magazines use the SAME profiles:** `magazine.build_magazine(profile=…, owner=…)` auto-rotates a profile
   per issue and restyles the chrome only — page fill, spine (`_rail`), accent colour, masthead/title type
-  (Editorial Cream = Playfair serif masthead), and cover photo side — while ALL data (award ranks, medal
-  colours, stat values, category bands, real photos) and the festive garland on holiday themes stay identical
-  across profiles. Inner pages always stay light. Wired at both `/api/magazine/*` endpoints; profile saved in
+  (Editorial Cream = Playfair serif masthead), and **cover LAYOUT** (`cover_style` dispatches 4 real covers:
+  `framed_right`/`framed_left`/`split_panel` = full-height photo + navy sidebar / `band_bottom` = display
+  headline + bottom band), plus per-profile inner-page garlands (`_motif_band`) — while ALL data (award ranks,
+  medal colours, stat values, category bands, real photos) and the festive festoon on holiday themes stay
+  identical across profiles. Inner pages always stay light. Wired at both `/api/magazine/*` endpoints; profile saved in
   the asset meta. If the model
   takes the tool-loop path instead, `exec_regenerate_asset` **defaults to the most recent asset** when given
   no id/title — it never dead-ends asking the user for an internal asset title.

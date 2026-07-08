@@ -133,9 +133,39 @@ PROFILES: dict[str, DesignProfile] = {
         divider_color=GOLD, disc_color=GOLD,
         rail="left_red", cover_style="framed_right", page_bg=CREAM,
     ),
+    # 7 — Charcoal Editorial — dark, CENTRED, serif + a gold hairline frame (premium magazine feel).
+    "charcoal_editorial": DesignProfile(
+        key="charcoal_editorial", name="Charcoal Editorial",
+        bg=(0x22, 0x28, 0x2E), bg_alt=(0x2C, 0x34, 0x3B), ink=WHITE, sub=(0xC9, 0xCF, 0xD6),
+        accent=RED, accent2=GOLD, on_accent=WHITE, card_bg=(0x2C, 0x34, 0x3B), card_ink=WHITE, dark=True,
+        head_family="serif", body_family="sans_light",
+        align="center", kicker_style="rule", divider="dots", motif="hairline_frame", hero_photo_side="right",
+        divider_color=GOLD,
+        rail="thin_navy", cover_style="framed_right", page_bg=WARMWHITE,
+    ),
+    # 8 — Cream Bold — light page, heavy DISPLAY headline, photo LEFT (a loud light poster).
+    "cream_bold": DesignProfile(
+        key="cream_bold", name="Cream Bold",
+        bg=CREAM, bg_alt=(0xDD, 0xD8, 0xC8), ink=NAVY, sub=SUBINK, accent=RED, accent2=NAVY, on_accent=WHITE,
+        card_bg=NAVY, card_ink=WHITE, dark=False,
+        head_family="display", body_family="sans_light",
+        align="left", kicker_style="band", divider="bar", motif="arcs", hero_photo_side="left",
+        rail="left_red", cover_style="framed_left", page_bg=WARMWHITE,
+    ),
+    # 9 — Warm Amber — a WARM dark (espresso, not cool navy) with amber/gold — distinct from Midnight.
+    "warm_amber": DesignProfile(
+        key="warm_amber", name="Warm Amber",
+        bg=(0x2B, 0x20, 0x18), bg_alt=(0x3A, 0x2C, 0x20), ink=(0xF7, 0xF0, 0xE6), sub=(0xD8, 0xC5, 0xB0),
+        accent=RED, accent2=GOLD, on_accent=WHITE, card_bg=(0x3A, 0x2C, 0x20), card_ink=(0xF7, 0xF0, 0xE6),
+        dark=True, head_family="display", body_family="sans_light",
+        align="left", kicker_style="pill", divider="bar", motif="facets", hero_photo_side="right",
+        divider_color=GOLD, disc_color=GOLD,
+        rail="left_red", cover_style="framed_right", page_bg=WARMWHITE,
+    ),
 }
 
-PROFILE_ORDER = ["classic_navy", "editorial_cream", "bold_red", "split_duotone", "soft_neutral", "midnight"]
+PROFILE_ORDER = ["classic_navy", "editorial_cream", "bold_red", "split_duotone", "soft_neutral", "midnight",
+                 "charcoal_editorial", "cream_bold", "warm_amber"]
 DEFAULT_PROFILE = "classic_navy"
 
 

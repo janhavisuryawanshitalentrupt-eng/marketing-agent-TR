@@ -76,6 +76,24 @@ def _festive_palette(theme: str) -> list[tuple]:
     return [RED, GOLD, NAVY, ORANGE]
 
 
+def _is_festive(theme: str) -> bool:
+    t = (theme or "").lower()
+    return any(k in t for k in _FESTIVE)
+
+
+def _motif_band(canvas: Image.Image, prof, theme: str, y: int) -> None:
+    """The top-of-page decorative garland. A FESTIVE theme always keeps its festoon + festive palette (so
+    Diwali/Christmas issues are unchanged); otherwise the garland is tinted to the PROFILE's own colours so
+    each design's inner pages read as a set. Light accent2 (cream/white) falls back to navy so dots stay
+    visible on the light page."""
+    d = ImageDraw.Draw(canvas)
+    if _is_festive(theme):
+        _festoon(d, y, _festive_palette(theme))
+        return
+    second = prof.accent2 if sum(prof.accent2) < 620 else NAVY   # keep dots visible on a light page
+    _festoon(d, y, [prof.accent, second, NAVY, prof.accent])
+
+
 def _seed(text: str) -> int:
     # stable across process runs (builtin hash() is salted per-process) so the festive layout is deterministic
     return int(hashlib.md5((text or "tr").encode("utf-8")).hexdigest()[:8], 16)
@@ -240,8 +258,103 @@ def _masthead(canvas: Image.Image, edition: str, prof=None) -> None:
 
 
 # ---- page renderers ------------------------------------------------------------------------------
+def _cover_split_panel(issue: dict, prof) -> Image.Image:
+    """A full-height champion photo on the RIGHT ~54%; a dark left column holds a stacked masthead, the
+    champion's name (script), stat chips, and the headline. A magazine-cover look, not a poster."""
+    cover = issue.get("cover", {}) or {}
+    canvas = Image.new("RGBA", (MW, MH), (*NAVY, 255))
+    split = int(MW * 0.46)
+    photo = cover.get("photo")
+    if photo:
+        try:
+            src = _cover_fit(_open_photo(photo), MW - split, MH)
+            canvas.alpha_composite(src.convert("RGBA"), (split, 0))
+        except Exception as e:
+            log.warning("magazine split cover photo failed: %s", e)
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, 0, split, MH], fill=(*NAVY, 255))       # solid left column over any bleed
+    d.rectangle([split - 6, 0, split, MH], fill=(*prof.accent, 255))
+    # stacked masthead
+    if not paste_wordmark(canvas, 54, 92, split - 108, 52, dark_bg=True, align="left"):
+        d.text((54, 92), "TALENTRUPT", font=font(prof.head_family, 44), fill=WHITE)
+    d.text((54, 168), "TIMES", font=font(prof.head_family, 34), fill=prof.accent)
+    ed = (issue.get("edition") or "").strip()
+    if ed:
+        d.text((54, 226), ed.upper()[:24], font=body_font(22), fill=CREAM)
+    d.line([(54, 268), (split - 54, 268)], fill=(*prof.accent, 255), width=3)
+    name = (cover.get("name") or "").strip()
+    nf = script_font(76)
+    ny = 300
+    for ln in _wrap(d, name, nf, split - 84)[:2]:
+        d.text((54, ny), ln, font=nf, fill=WHITE)
+        ny += 86
+    stats = [s for s in (cover.get("stats") or []) if (s or {}).get("label")][:3]
+    sy = ny + 62
+    for s in stats:
+        _stat_chip(canvas, 54, sy, s.get("label", ""), s.get("value", ""))
+        sy += 132
+    hl = (cover.get("headline") or "In the Spotlight").strip()
+    hf = font(prof.head_family, 50)
+    hy = max(sy + 30, MH - 260)
+    for ln in _wrap(d, hl, hf, split - 90)[:3]:
+        d.text((54, hy), ln, font=hf, fill=WHITE)
+        hy += 58
+    return canvas.convert("RGB")
+
+
+def _cover_band_bottom(issue: dict, prof) -> Image.Image:
+    """A loud poster cover: an oversized DISPLAY headline top-left, a framed champion photo lower-right, and
+    a deep bottom band with the name + tagline. Distinct from the calm framed layout."""
+    cover = issue.get("cover", {}) or {}
+    canvas = Image.new("RGBA", (MW, MH), (*prof.bg, 255))
+    d = ImageDraw.Draw(canvas)
+    _rail(canvas, prof)
+    if not paste_wordmark(canvas, 54, 70, 260, 46, dark_bg=prof.dark, align="left"):
+        d.text((54, 74), "TALENTRUPT", font=font(prof.head_family, 40), fill=prof.ink)
+    hl = (cover.get("headline") or "Champions of the Month").strip()
+    hf = font("display", 92)
+    words = [w for w in hl.split()]
+    while hf.size > 48 and max((d.textlength(w, font=hf) for w in words), default=0) > MW - 108:
+        hf = font("display", hf.size - 6)
+    hy = 190
+    for ln in _wrap(d, hl, hf, MW - 108)[:3]:
+        d.text((54, hy), ln, font=hf, fill=prof.ink)
+        hy += int(hf.size * 1.06)
+    # framed photo lower-right
+    photo = cover.get("photo")
+    if photo:
+        try:
+            fw, fh = 470, 620
+            fx, fy = MW - fw - 44, MH - fh - 320
+            src = _cover_fit(_open_photo(photo), fw, fh)
+            sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            ImageDraw.Draw(sh).rounded_rectangle([fx + 8, fy + 12, fx + fw + 8, fy + fh + 12], radius=40,
+                                                 fill=(0, 0, 0, 90))
+            canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(16)))
+            canvas.alpha_composite(_rounded(src, 40), (fx, fy))
+            ImageDraw.Draw(canvas).rounded_rectangle([fx - 4, fy - 4, fx + fw + 4, fy + fh + 4], radius=44,
+                                                     outline=(*prof.on_accent, 255), width=6)
+        except Exception as e:
+            log.warning("magazine band cover photo failed: %s", e)
+    # bottom band: name + tagline
+    d = ImageDraw.Draw(canvas)
+    d.rectangle([0, MH - 250, MW, MH], fill=(*NAVY, 255))
+    d.rectangle([0, MH - 250, RAIL, MH], fill=(*prof.accent, 255))
+    name = (cover.get("name") or "").strip()
+    if name:
+        d.text((54, MH - 226), name, font=script_font(76), fill=WHITE)
+    tag = (cover.get("tagline") or "").strip()
+    if tag:
+        _para(d, 54, MH - 120, tag, body_font(28), CREAM, MW - 108, 38, max_lines=2)
+    return canvas.convert("RGB")
+
+
 def _render_cover(issue: dict) -> Image.Image:
     prof = _mprof(issue)
+    if prof.cover_style == "split_panel":
+        return _cover_split_panel(issue, prof)
+    if prof.cover_style == "band_bottom":
+        return _cover_band_bottom(issue, prof)
     palette = _festive_palette(issue.get("theme", ""))
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
@@ -319,7 +432,7 @@ def _render_editorial(issue: dict, editorial: str) -> Image.Image:
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
     _rail(canvas, prof)
-    _festoon(d, 96, palette)
+    _motif_band(canvas, prof, issue.get("theme", ""), 96)
     theme = (issue.get("theme") or "").strip()
     kicker = "EDITOR'S NOTE"
     d.text((60, 190), kicker, font=heading_font(26), fill=prof.accent)
@@ -416,7 +529,7 @@ def _render_spotlights(issue: dict, entries: list[dict]) -> list[Image.Image]:
         canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
         d = ImageDraw.Draw(canvas)
         _rail(canvas, prof)
-        _festoon(d, 90, palette)
+        _motif_band(canvas, prof, issue.get("theme", ""), 90)
         d.text((60, 150), "TEAM SPOTLIGHT", font=heading_font(30), fill=prof.accent)
         d.text((60, 192), "Champions of the Month", font=tf, fill=NAVY)
         d.line([(60, 270), (360, 270)], fill=(*prof.accent, 255), width=5)
@@ -470,7 +583,7 @@ def _render_award_podium(issue: dict, award: dict) -> Image.Image:
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
     _rail(canvas, prof)
-    _festoon(d, 92, palette)
+    _motif_band(canvas, prof, issue.get("theme", ""), 92)
     d.text((60, 150), "AWARD OF THE MONTH", font=heading_font(28), fill=prof.accent)
     title = (award.get("title") or "Champions").strip()
     tf = font(prof.head_family, 62)
@@ -525,7 +638,7 @@ def _render_category_champions(issue: dict, cat_awards: list[dict]) -> Image.Ima
     canvas = Image.new("RGBA", (MW, MH), (*prof.page_bg, 255))
     d = ImageDraw.Draw(canvas)
     _rail(canvas, prof)
-    _festoon(d, 92, palette)
+    _motif_band(canvas, prof, issue.get("theme", ""), 92)
     d.text((60, 150), "CATEGORY CHAMPIONS", font=heading_font(28), fill=prof.accent)
     d.text((60, 194), "Top of Their Field", font=font(prof.head_family, 62), fill=NAVY)
     d.line([(60, 268), (330, 268)], fill=(*prof.accent, 255), width=5)

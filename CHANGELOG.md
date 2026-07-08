@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Richer design variety — 9 profiles, 4 magazine cover layouts, per-profile motifs (2026-07-08)
+Deepened the variety so posts/magazines look even more "designed by a person," each unique:
+
+- **9 design profiles** (was 6): added **Charcoal Editorial** (dark, centred, serif + gold hairline frame),
+  **Cream Bold** (light display poster, photo-left), **Warm Amber** (warm espresso + gold). The auto-rotation
+  now cycles 9 distinct looks before any repeats — a longer, richer run.
+- **4 real magazine COVER layouts** (was 1 recolored): `framed_right`, `framed_left`, **`split_panel`**
+  (full-height champion photo + a navy sidebar with stacked masthead/name/stats/headline — a true magazine
+  cover), and **`band_bottom`** (oversized display headline, framed photo, deep bottom band). Each profile
+  maps to one, so covers differ in COMPOSITION, not just colour.
+- **Per-profile inner-page motifs:** the top garland is now tinted to each profile's palette (a festive
+  theme still keeps its festoon), so inner pages read as a set per issue.
+- All verified by rendering: 9 profiles × hero/statement, 9 magazines (6 pages each), the 2 new covers, and a
+  themed Diwali issue — legible, no clipping/overlap, and **award ranks/medals/stat values stay identical**
+  across every profile.
+
 ## The prompt is CONTEXT, never the drawn headline — echo guard + matched copy (2026-07-08)
 Follow-up so a post NEVER prints the user's raw words as the headline and a batch never looks templated:
 
