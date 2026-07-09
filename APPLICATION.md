@@ -252,6 +252,10 @@ like "not proper"/"doesn't look right", not just edit verbs) and routed to `refi
 Template: `backend/.env.example`. Must-sets for real AI: `LLM_PROVIDER=openai`, `IMAGE_PROVIDER=openai`,
 `OPENAI_API_KEY`. Accounts: `ADMIN_PASSWORD`/`MEMBER_PASSWORD`, `ADMIN_TOKEN`/`MEMBER_TOKEN` (random in
 prod). Also `CORS_ORIGINS`, `STORAGE_DIR`, `KNOWLEDGE_ZIP_PATH`/`BRAND_LOGO_PATH` (brand grounding).
+**Password reset email:** set `SMTP_HOST` + `SMTP_FROM` (+ `SMTP_USER`/`SMTP_PASSWORD`/`SMTP_PORT`/
+`SMTP_STARTTLS`) to email the "forgot password" code; the deploy injects these from GitHub secrets of the
+same names (same path as the OpenAI key). Until set, the code is only written to the server log, so the
+reset flow can't reach the user — the deploy leaves those `.env` lines untouched when the secrets are unset.
 
 ## 10. Run & deploy
 - **Dev:** backend `uvicorn app.main:app --port 8000` (in `backend/`, venv); frontend `npm run dev` (`frontend/`, :3000).

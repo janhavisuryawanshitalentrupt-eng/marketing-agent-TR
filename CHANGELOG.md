@@ -21,6 +21,18 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Wire SMTP into the deploy so password reset can email the code (2026-07-09)
+The "Forgot password?" flow was a dead end on prod: the reset code was generated and written to the server log,
+but never delivered (no SMTP configured, and the deploy didn't even plumb SMTP settings). The reset *logic* is
+sound (verified end-to-end: forgot → code → reset → sign-in), so the only gap was delivery.
+
+- `deploy.yml` now manages `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` /
+  `SMTP_STARTTLS` from GitHub secrets → droplet `.env`, exactly like the OpenAI key (creds stay in GitHub's
+  encrypted store, never the repo). Unset = safe no-op; the reset code keeps going to the server log.
+- Once the SMTP secrets are added and a deploy runs, `POST /api/auth/forgot` emails the 6-digit code to the
+  admin address, and the existing reset screen completes the flow.
+- APPLICATION.md documents the new secrets. (`AUTH_RESET_DEV_RETURN_CODE` stays off in prod for security.)
+
 ## Brighten the Campaigns rail controls (2026-07-09)
 Follow-up to the sidebar-readability work — the controls *above* the campaign list were still dim.
 

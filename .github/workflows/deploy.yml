@@ -85,11 +85,21 @@ jobs:
           FACESWAP_API_KEY: ${{ secrets.FACESWAP_API_KEY }}
           FACESWAP_PROVIDER: replicate
           FACESWAP_MODEL: cdingram/face-swap
+          # OPTIONAL: set SMTP_HOST + SMTP_FROM (+ SMTP_USER / SMTP_PASSWORD / SMTP_PORT / SMTP_STARTTLS) to
+          # deliver the 'forgot password' reset code by EMAIL. Unset = the reset code is only written to the
+          # server log (the reset flow then has no way to reach the user). Managed like the keys above: the
+          # creds live in GitHub's encrypted secret store, NEVER in the repo.
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_STARTTLS: ${{ secrets.SMTP_STARTTLS }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          envs: OPENAI_API_KEY,OPENAI_IMAGE_MODEL,BG_REMOVAL_API_KEY,BG_REMOVAL_PROVIDER,FACESWAP_API_KEY,FACESWAP_PROVIDER,FACESWAP_MODEL
+          envs: OPENAI_API_KEY,OPENAI_IMAGE_MODEL,BG_REMOVAL_API_KEY,BG_REMOVAL_PROVIDER,FACESWAP_API_KEY,FACESWAP_PROVIDER,FACESWAP_MODEL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASSWORD,SMTP_FROM,SMTP_STARTTLS
           script: |
             set -e
             # Rebuild the static UI dir from scratch so DELETED assets don't linger — `tar -x` overlays
@@ -124,11 +134,24 @@ jobs:
               grep -v '^FACESWAP_MODEL=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_MODEL=$FSM" >> "$E.t"; mv "$E.t" "$E"
               echo "backend/.env updated (FACESWAP_API_KEY hidden, provider=$FSP, model=$FSM)"
             fi
+            # Upsert the SMTP creds for the password-reset email (independent). Skipped if SMTP_HOST is unset.
+            if [ -n "$SMTP_HOST" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^SMTP_HOST=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_HOST=$SMTP_HOST" >> "$E.t"; mv "$E.t" "$E"
+              SPORT="${SMTP_PORT:-587}"
+              grep -v '^SMTP_PORT=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_PORT=$SPORT" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^SMTP_USER=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_USER=$SMTP_USER" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^SMTP_PASSWORD=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_PASSWORD=$SMTP_PASSWORD" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^SMTP_FROM=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_FROM=$SMTP_FROM" >> "$E.t"; mv "$E.t" "$E"
+              STLS="${SMTP_STARTTLS:-true}"
+              grep -v '^SMTP_STARTTLS=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_STARTTLS=$STLS" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (SMTP_HOST=$SMTP_HOST, SMTP_FROM=$SMTP_FROM, password hidden)"
+            fi
             # CRITICAL: .env is the single source of truth. The CI vars above were only used to
             # (optionally) WRITE .env. Now RE-EXPORT the real OPENAI_* values straight FROM .env so that
             # `pm2 --update-env` OVERWRITES any stale/blank value already stuck on the running process
             # (pm2 --update-env merges, so it won't drop a var on its own). Only export keys that exist.
-            unset OPENAI_API_KEY OPENAI_IMAGE_MODEL BG_REMOVAL_API_KEY BG_REMOVAL_PROVIDER FACESWAP_API_KEY FACESWAP_PROVIDER FACESWAP_MODEL
+            unset OPENAI_API_KEY OPENAI_IMAGE_MODEL BG_REMOVAL_API_KEY BG_REMOVAL_PROVIDER FACESWAP_API_KEY FACESWAP_PROVIDER FACESWAP_MODEL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM SMTP_STARTTLS
             ENVF=/root/talentrupt-agent/backend/.env
             # tr -d '\r' guards a CRLF .env: without it the value picks up a trailing \r (e.g.
             # "gpt-image-1\r"), which makes the model name invalid and forces a wasted fallback per image.
@@ -139,6 +162,12 @@ jobs:
             FK="$(grep -E '^FACESWAP_API_KEY=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FK" ] && export FACESWAP_API_KEY="${FK#FACESWAP_API_KEY=}"
             FP="$(grep -E '^FACESWAP_PROVIDER=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FP" ] && export FACESWAP_PROVIDER="${FP#FACESWAP_PROVIDER=}"
             FM="$(grep -E '^FACESWAP_MODEL=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FM" ] && export FACESWAP_MODEL="${FM#FACESWAP_MODEL=}"
+            SH="$(grep -E '^SMTP_HOST=' "$ENVF" | head -1 | tr -d '\r')";       [ -n "$SH" ]  && export SMTP_HOST="${SH#SMTP_HOST=}"
+            SPT="$(grep -E '^SMTP_PORT=' "$ENVF" | head -1 | tr -d '\r')";      [ -n "$SPT" ] && export SMTP_PORT="${SPT#SMTP_PORT=}"
+            SU="$(grep -E '^SMTP_USER=' "$ENVF" | head -1 | tr -d '\r')";       [ -n "$SU" ]  && export SMTP_USER="${SU#SMTP_USER=}"
+            SPW="$(grep -E '^SMTP_PASSWORD=' "$ENVF" | head -1 | tr -d '\r')";  [ -n "$SPW" ] && export SMTP_PASSWORD="${SPW#SMTP_PASSWORD=}"
+            SF="$(grep -E '^SMTP_FROM=' "$ENVF" | head -1 | tr -d '\r')";       [ -n "$SF" ]  && export SMTP_FROM="${SF#SMTP_FROM=}"
+            STL="$(grep -E '^SMTP_STARTTLS=' "$ENVF" | head -1 | tr -d '\r')";  [ -n "$STL" ] && export SMTP_STARTTLS="${STL#SMTP_STARTTLS=}"
             ./backend/.venv/bin/pip install -q -r backend/requirements.txt
             pm2 restart myra --update-env
             echo "post-restart health: $(curl -fsS http://127.0.0.1:8100/api/health 2>/dev/null || echo unavailable)"
