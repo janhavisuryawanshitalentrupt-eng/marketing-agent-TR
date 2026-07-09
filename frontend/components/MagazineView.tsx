@@ -398,6 +398,11 @@ export function MagazineView() {
   const [dataError, setDataError] = useState("");
   const [dataResult, setDataResult] = useState<MagazineDataResult | null>(null);
 
+  // --- Interrupt / refine-and-continue (shared across both modes) ---
+  const abortRef = useRef<AbortController | null>(null);
+  const [interrupted, setInterrupted] = useState(false); // a run was stopped mid-flight; show the refine panel
+  const [extraInfo, setExtraInfo] = useState(""); // extra notes to fold into the editorial on the next run
+
   useEffect(() => {
     getAllEmployees()
       .then(setEmployees)
@@ -422,15 +427,23 @@ export function MagazineView() {
     return stats.filter((s) => s.label.trim().length > 0).map((s) => ({ label: s.label.trim(), value: s.value.trim() }));
   }
 
+  // Fold any extra "refine" notes into the editorial so they reach the generated magazine.
+  function mergeEditorial(base: string): string {
+    return [base.trim(), extraInfo.trim()].filter(Boolean).join("\n\n");
+  }
+
   async function onGenerate() {
     if (busy || cover.employee_id == null) return;
     setBusy(true);
     setError("");
+    setInterrupted(false);
+    const ac = new AbortController();
+    abortRef.current = ac;
     const spec: MagazineSpec = {
       title: title.trim() || "Talentrupt Times",
       edition: edition.trim(),
       theme: theme.trim(),
-      editorial: editorial.trim(),
+      editorial: mergeEditorial(editorial),
       cover: {
         employee_id: cover.employee_id,
         headline: cover.headline.trim(),
@@ -445,14 +458,20 @@ export function MagazineView() {
       })),
     };
     try {
-      const asset = await generateMagazine(spec);
+      const asset = await generateMagazine(spec, ac.signal);
       setIssues((prev) => [asset, ...prev]);
+      setExtraInfo("");
       toast("Magazine generated", { kind: "success", action: { label: "View", onClick: () => setView("issues") } });
-    } catch {
-      setError("Couldn't generate the magazine — please try again.");
-      toast("Couldn't generate the magazine", { kind: "error" });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") {
+        setInterrupted(true); // stopped on purpose — offer the refine-and-continue panel
+      } else {
+        setError("Couldn't generate the magazine — please try again.");
+        toast("Couldn't generate the magazine", { kind: "error" });
+      }
     } finally {
       setBusy(false);
+      abortRef.current = null;
     }
   }
 
@@ -460,27 +479,54 @@ export function MagazineView() {
     if (dataBusy || !dataFile || !dataTheme.trim()) return;
     setDataBusy(true);
     setDataError("");
+    setInterrupted(false);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const result = await generateMagazineFromData(dataFile, {
-        theme: dataTheme.trim(),
-        title: dataTitle.trim() || "Talentrupt Times",
-        edition: dataEdition.trim(),
-        feature_count: dataFeatureCount.trim(),
-        editorial: dataEditorial.trim(),
-        rank_by: dataRankBy.trim(),
-      });
+      const result = await generateMagazineFromData(
+        dataFile,
+        {
+          theme: dataTheme.trim(),
+          title: dataTitle.trim() || "Talentrupt Times",
+          edition: dataEdition.trim(),
+          feature_count: dataFeatureCount.trim(),
+          editorial: mergeEditorial(dataEditorial),
+          rank_by: dataRankBy.trim(),
+        },
+        ac.signal,
+      );
       setIssues((prev) => [result.asset, ...prev]);
       setDataResult(result);
       setDataFile(null);
+      setExtraInfo("");
       if (fileInputRef.current) fileInputRef.current.value = "";
       toast(`Magazine built · ${result.featured?.length ?? 0} featured`, { kind: "success", action: { label: "View", onClick: () => setView("issues") } });
     } catch (e) {
-      const msg = (e as Error)?.message || "Couldn't generate the magazine — please try again.";
-      setDataError(msg);
-      toast("Couldn't build the magazine", { kind: "error" });
+      if ((e as Error)?.name === "AbortError") {
+        setInterrupted(true); // stopped on purpose — the roster file + fields are kept so you can continue
+      } else {
+        const msg = (e as Error)?.message || "Couldn't generate the magazine — please try again.";
+        setDataError(msg);
+        toast("Couldn't build the magazine", { kind: "error" });
+      }
     } finally {
       setDataBusy(false);
+      abortRef.current = null;
     }
+  }
+
+  // Stop the current build (client-side); the form + roster stay put so you can refine and relaunch.
+  function interruptGeneration() {
+    abortRef.current?.abort();
+  }
+  function continueGeneration() {
+    setInterrupted(false);
+    if (mode === "data") onGenerateFromData();
+    else onGenerate();
+  }
+  function discardInterrupt() {
+    setInterrupted(false);
+    setExtraInfo("");
   }
 
   // Past issues sorted + grouped by month (a shelf).
@@ -810,33 +856,72 @@ export function MagazineView() {
               }
             />
 
-            {mode === "data" ? (
-              <button
-                onClick={onGenerateFromData}
-                disabled={dataBusy || !dataFile || !dataTheme.trim()}
-                className="btn-primary mt-4 w-full"
-                title={!dataFile ? "Choose a roster file first" : !dataTheme.trim() ? "Enter a theme first" : undefined}
-              >
-                {dataBusy ? "Generating…" : "Generate magazine →"}
-              </button>
-            ) : (
-              <button
-                onClick={onGenerate}
-                disabled={busy || cover.employee_id == null}
-                className="btn-primary mt-4 w-full"
-                title={cover.employee_id == null ? "Select a cover champion first" : undefined}
-              >
-                {busy ? "Generating…" : "Generate magazine →"}
-              </button>
-            )}
-
             {(mode === "data" ? dataBusy : busy) ? (
-              <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
-                Building your magazine… this can take up to a minute.
+              // GENERATING — show progress + an Interrupt button to stop and refine
+              <>
+                <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+                  Building your magazine… this can take up to a minute.
+                </div>
+                <button
+                  onClick={interruptGeneration}
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--brand-red)] px-3 py-2 text-sm font-medium text-[var(--brand-red)] transition hover:bg-[var(--brand-red)]/10"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                  Interrupt
+                </button>
+              </>
+            ) : interrupted ? (
+              // PAUSED — add extra notes, then relaunch with them folded into the editorial
+              <div className="mt-4 rounded-xl border border-[var(--brand-red)]/40 bg-[var(--surface-2)] p-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-red)]" />
+                  Generation stopped
+                </div>
+                <p className="mt-1 text-[11px] text-muted">
+                  Tweak any field on the left, or add a note below — then continue and it relaunches with your notes in the editorial.
+                </p>
+                <textarea
+                  value={extraInfo}
+                  onChange={(e) => setExtraInfo(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. call out the record Q2 month; thank the Bangalore team by name…"
+                  className="mt-2 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+                />
+                <div className="mt-2 flex gap-2">
+                  <button onClick={continueGeneration} className="btn-primary flex-1">Continue →</button>
+                  <button
+                    onClick={discardInterrupt}
+                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+                  >
+                    Discard
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="mt-2 text-center text-[11px] text-muted">~40s · multi-page · PDF + web</div>
+              // IDLE — the generate button + hint
+              <>
+                {mode === "data" ? (
+                  <button
+                    onClick={onGenerateFromData}
+                    disabled={!dataFile || !dataTheme.trim()}
+                    className="btn-primary mt-4 w-full"
+                    title={!dataFile ? "Choose a roster file first" : !dataTheme.trim() ? "Enter a theme first" : undefined}
+                  >
+                    Generate magazine →
+                  </button>
+                ) : (
+                  <button
+                    onClick={onGenerate}
+                    disabled={cover.employee_id == null}
+                    className="btn-primary mt-4 w-full"
+                    title={cover.employee_id == null ? "Select a cover champion first" : undefined}
+                  >
+                    Generate magazine →
+                  </button>
+                )}
+                <div className="mt-2 text-center text-[11px] text-muted">~40s · multi-page · PDF + web</div>
+              </>
             )}
             {mode === "data"
               ? dataError && <p className="mt-2 text-center text-xs text-[var(--brand-red)]">{dataError}</p>

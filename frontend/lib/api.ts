@@ -777,11 +777,12 @@ export async function getKnowledgeStatus(): Promise<KnowledgeStatus> {
 }
 
 // --- Magazine ---------------------------------------------------------------
-export async function generateMagazine(spec: MagazineSpec): Promise<Asset> {
+export async function generateMagazine(spec: MagazineSpec, signal?: AbortSignal): Promise<Asset> {
   const res = await fetch(`${API_BASE}/api/magazine/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(spec),
+    signal,
   });
   if (!res.ok) throw new Error("Failed to generate the magazine");
   return res.json();
@@ -798,6 +799,7 @@ export async function getMagazines(): Promise<Asset[]> {
 export async function generateMagazineFromData(
   file: File,
   opts: { theme: string; title: string; edition: string; feature_count: string; editorial: string; rank_by: string },
+  signal?: AbortSignal,
 ): Promise<MagazineDataResult> {
   const fd = new FormData();
   fd.append("file", file);
@@ -812,6 +814,7 @@ export async function generateMagazineFromData(
     method: "POST",
     headers: authHeaders(),
     body: fd,
+    signal,
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));

@@ -21,6 +21,18 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Magazine: Interrupt a running build (stop → refine → continue), no stray drafts (2026-07-09)
+The magazine builder can now be stopped mid-generation and relaunched with extra notes.
+
+- **Interrupt button** during a build → a "Generation stopped" panel with a notes box + Continue / Discard.
+  Continue relaunches with your notes folded into the editorial; Discard returns to the form. (Front-end aborts
+  the request via `AbortController`.)
+- **Backend cancellation (the real fix):** the generate endpoints now check `request.is_disconnected()` right
+  before saving — if you interrupted, the built file is discarded and **no Asset row is written**, so an
+  abandoned run no longer leaves a stray issue in Past issues (and no orphan file in storage).
+- Verified deterministically: an interrupted run leaves the issue count unchanged (no stray); a full run saves
+  exactly one; the happy path is intact. Applies to both "From data file" and "Manual entry".
+
 ## Automated nightly backups of the DB + storage (2026-07-09)
 The app's data (SQLite DB + `storage/`) lived on a single droplet with no copy — one disk failure = total loss.
 

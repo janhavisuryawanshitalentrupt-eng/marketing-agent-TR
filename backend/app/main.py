@@ -2155,9 +2155,19 @@ def _magazine_photo(e: Employee | None) -> bytes | None:
         return None
 
 
+def _discard_generated_file(path: str | None) -> None:
+    """Remove a just-built file that we're NOT going to save a DB row for (e.g. the client interrupted),
+    so an abandoned generation doesn't leave an orphan file in storage."""
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
 @app.post("/api/magazine/generate")
 async def generate_magazine(
-    req: MagazineRequest, db: Session = Depends(get_db), role: str = Depends(require_auth)
+    req: MagazineRequest, request: Request, db: Session = Depends(get_db), role: str = Depends(require_auth)
 ):
     """Build a multi-page magazine PDF from the caller's real team photos + provided stats, save it as a
     'magazine' Asset, and return it. Faces are the REAL photos (never AI-generated)."""
@@ -2200,6 +2210,11 @@ async def generate_magazine(
     except Exception as e:
         log.warning("magazine build failed: %s", e)
         raise HTTPException(status_code=500, detail="Couldn't build the magazine — please try again.")
+    # If the client interrupted while we were building, don't persist the result — discard the file so
+    # an abandoned run doesn't leave a stray issue in Past issues.
+    if await request.is_disconnected():
+        _discard_generated_file(path)
+        raise HTTPException(status_code=499, detail="Generation cancelled")
     a = _save_asset(
         db, None, "magazine", (issue["title"] or "Magazine")[:380],
         body={"kind": "magazine", "edition": issue["edition"], "theme": issue["theme"],
@@ -2211,6 +2226,7 @@ async def generate_magazine(
 
 @app.post("/api/magazine/from-data")
 async def generate_magazine_from_data(
+    request: Request,
     file: UploadFile = File(...),
     theme: str = Form(""),
     title: str = Form("Talentrupt Times"),
@@ -2335,6 +2351,10 @@ async def generate_magazine_from_data(
     except Exception as e:
         log.warning("magazine (from data) build failed: %s", e)
         raise HTTPException(status_code=500, detail="Couldn't build the magazine — please try again.")
+    # Client interrupted mid-build? Discard the file and don't save a stray issue.
+    if await request.is_disconnected():
+        _discard_generated_file(path)
+        raise HTTPException(status_code=499, detail="Generation cancelled")
     a = _save_asset(
         db, None, "magazine", (issue["title"] or "Magazine")[:380],
         body={"kind": "magazine", "edition": issue["edition"], "theme": issue["theme"],
