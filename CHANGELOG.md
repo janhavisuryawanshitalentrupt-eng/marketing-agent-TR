@@ -21,6 +21,14 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Brighten the Campaigns rail controls (2026-07-09)
+Follow-up to the sidebar-readability work — the controls *above* the campaign list were still dim.
+
+- The **Internal/External** toggle (inactive side), the **Quick-start by sector** label, the **sector quick-pick
+  chips** (IT/Software, Non-IT/Corporate, Healthcare, Staffing & Recruiting), and **View archived** now render in
+  bright white with a medium/semibold weight instead of the dim `text-muted`.
+- Verified live: chips compute to `rgb(255,255,255)` / weight 500, no console errors.
+
 ## Brighten navy sidebar lists app-wide (Campaigns + Folders) (2026-07-08)
 Carried the Chat sidebar readability fix to every other navy `.rail` sidebar so the list text is consistent.
 

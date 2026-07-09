@@ -257,7 +257,7 @@ export function CampaignsView() {
                   key={t}
                   onClick={() => switchTab(t)}
                   className={`flex-1 rounded-md px-2 py-1.5 capitalize transition ${
-                    tab === t ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
+                    tab === t ? "bg-[var(--brand-navy)] text-cream" : "text-white/90 hover:text-white"
                   }`}
                 >
                   {t}
@@ -272,7 +272,7 @@ export function CampaignsView() {
             )}
             {!showArchived && tab === "external" && (
               <div>
-                <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-muted">
+                <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
                   Quick-start by sector
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
@@ -282,7 +282,7 @@ export function CampaignsView() {
                       onClick={() => startVertical(v)}
                       disabled={!!busyVertical}
                       title={`Build a campaign with real ${v.label} target clients`}
-                      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-50"
+                      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-white transition hover:border-[var(--brand-red)] hover:text-white disabled:opacity-50"
                     >
                       {busyVertical === v.label ? "Building…" : v.label}
                     </button>
@@ -294,8 +294,8 @@ export function CampaignsView() {
               onClick={toggleArchived}
               className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition ${
                 showArchived
-                  ? "border-[var(--brand-navy)] text-foreground"
-                  : "border-[var(--border)] text-muted hover:border-[var(--brand-red)] hover:text-foreground"
+                  ? "border-[var(--brand-navy)] text-white"
+                  : "border-[var(--border)] text-white/90 font-medium hover:border-[var(--brand-red)] hover:text-white"
               }`}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
