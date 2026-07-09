@@ -18,7 +18,8 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from collections import defaultdict, deque
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -187,8 +188,35 @@ def _is_member_login(username: str, password: str) -> bool:
     )
 
 
+# --- Auth rate limiting -------------------------------------------------------
+# In-memory sliding-window limiter keyed by (bucket, client IP). The app runs as a SINGLE pm2 process,
+# so a process-local dict is sufficient (no cross-worker sharing needed). Guards brute-forcing the login
+# password and the 6-digit reset code (which is also burned after N wrong tries in auth_reset).
+_RL_BUCKETS: dict[tuple[str, str], deque] = defaultdict(deque)
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit(request: Request, bucket: str, limit: int, window_s: float) -> None:
+    """Raise 429 if this IP has hit `bucket` more than `limit` times within `window_s` seconds."""
+    ip = _client_ip(request)
+    now = time.monotonic()
+    dq = _RL_BUCKETS[(bucket, ip)]
+    while dq and dq[0] <= now - window_s:
+        dq.popleft()
+    if len(dq) >= limit:
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait a minute and try again.")
+    dq.append(now)
+
+
 @app.post("/api/auth/login", response_model=LoginResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
+    _rate_limit(request, "login", limit=10, window_s=300)  # 10 tries / 5 min per IP
     # Password may have been changed via 'forgot password' (DB override); verify_password falls back
     # to the configured default until then, so existing credentials keep working.
     if _is_admin_email(req.username) and auth_reset.verify_password(db, req.password):
@@ -206,9 +234,10 @@ def whoami(role: str = Depends(require_auth)) -> dict:
 
 
 @app.post("/api/auth/forgot", response_model=ForgotResponse)
-def forgot_password(req: ForgotRequest, db: Session = Depends(get_db)) -> ForgotResponse:
+def forgot_password(req: ForgotRequest, request: Request, db: Session = Depends(get_db)) -> ForgotResponse:
     """Issue a reset code for the admin account. Always returns the same generic message (no account
     enumeration). The code is emailed when SMTP is configured, otherwise logged server-side."""
+    _rate_limit(request, "forgot", limit=5, window_s=900)  # 5 code requests / 15 min per IP
     generic = "If that email is registered, a reset code has been sent."
     if not _is_admin_email(req.email):
         return ForgotResponse(message=generic, dev_code=None)
@@ -225,8 +254,9 @@ def forgot_password(req: ForgotRequest, db: Session = Depends(get_db)) -> Forgot
 
 
 @app.post("/api/auth/reset", response_model=LoginResponse)
-def reset_password(req: ResetRequest, db: Session = Depends(get_db)) -> LoginResponse:
+def reset_password(req: ResetRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
     """Verify the reset code and set a new password (DB override), then sign the admin in."""
+    _rate_limit(request, "reset", limit=20, window_s=900)  # 20 code entries / 15 min per IP
     if not _is_admin_email(req.email) or not auth_reset.verify_reset_code(db, req.code):
         raise HTTPException(status_code=400, detail="Invalid or expired reset code")
     pw = (req.new_password or "").strip()

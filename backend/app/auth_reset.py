@@ -30,6 +30,7 @@ log = logging.getLogger("talentrupt")
 _PW_KEY = "admin_password_hash"
 _RESET_KEY = "pwreset"
 _CODE_TTL_MIN = 15
+_MAX_ATTEMPTS = 5  # wrong guesses before the code is burned (brute-force guard: 6-digit space)
 _ITER = 200_000
 
 
@@ -83,7 +84,7 @@ def create_reset_code(db: Session) -> str:
     code = f"{secrets.randbelow(1_000_000):06d}"
     salt = secrets.token_hex(8)
     exp = (datetime.now(timezone.utc) + timedelta(minutes=_CODE_TTL_MIN)).isoformat()
-    _set(db, _RESET_KEY, json.dumps({"salt": salt, "hash": _hash(code, salt), "exp": exp}))
+    _set(db, _RESET_KEY, json.dumps({"salt": salt, "hash": _hash(code, salt), "exp": exp, "attempts": 0}))
     return code
 
 
@@ -96,7 +97,16 @@ def verify_reset_code(db: Session, code: str) -> bool:
         if datetime.fromisoformat(d["exp"]) < datetime.now(timezone.utc):
             _del(db, _RESET_KEY)
             return False
-        return hmac.compare_digest(_hash(str(code).strip(), d["salt"]), d["hash"])
+        if hmac.compare_digest(_hash(str(code).strip(), d["salt"]), d["hash"]):
+            return True
+        # Wrong code — count the attempt and burn the code after too many tries, so a 6-digit code
+        # can't be brute-forced (at most _MAX_ATTEMPTS guesses per issued code).
+        d["attempts"] = int(d.get("attempts", 0)) + 1
+        if d["attempts"] >= _MAX_ATTEMPTS:
+            _del(db, _RESET_KEY)
+        else:
+            _set(db, _RESET_KEY, json.dumps(d))
+        return False
     except Exception:
         return False
 

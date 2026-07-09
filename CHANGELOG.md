@@ -21,6 +21,17 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Security: rate-limit auth + lock out reset-code brute force (2026-07-09)
+Closed an account-takeover path: the 6-digit reset code had no attempt limit and anyone could request one, so
+it was brute-forceable within its 15-minute window.
+
+- **Per-code lockout** (`auth_reset.verify_reset_code`): a reset code is now **burned after 5 wrong guesses**, so
+  an attacker gets at most 5 tries per issued code (out of 1,000,000).
+- **Per-IP rate limiting** (in-memory sliding window; single pm2 process) on the auth endpoints:
+  `login` 10/5 min, `forgot` **5/15 min** (stops mass code generation), `reset` 20/15 min. Excess → HTTP 429.
+- Verified end-to-end: legit reset still works; 5 wrong guesses burns the code (correct code then rejected);
+  the 6th forgot request in the window returns 429.
+
 ## Wire SMTP into the deploy so password reset can email the code (2026-07-09)
 The "Forgot password?" flow was a dead end on prod: the reset code was generated and written to the server log,
 but never delivered (no SMTP configured, and the deploy didn't even plumb SMTP settings). The reset *logic* is
