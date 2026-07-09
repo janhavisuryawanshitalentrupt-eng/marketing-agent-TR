@@ -21,6 +21,18 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Automated nightly backups of the DB + storage (2026-07-09)
+The app's data (SQLite DB + `storage/`) lived on a single droplet with no copy — one disk failure = total loss.
+
+- New `deploy/backup.sh`: takes a **consistent SQLite snapshot** (online backup API, safe while running) plus
+  the `storage/` tree into one `backup-<timestamp>.tar.gz`, and **rotates to the newest 7**. Reads the real DB /
+  storage paths from `.env` (falls back to defaults).
+- `deploy.yml` installs it as a **nightly cron** (`/etc/cron.d/myra-backup`, 02:30) under `/root/talentrupt-backups`,
+  normalizes line endings, and takes one snapshot immediately on deploy so there's always a fresh backup.
+- Verified locally end-to-end: snapshot + archive contents (DB + storage) correct, rotation keeps exactly N.
+- This is **local on-server** backup (guards accidental deletion / corruption). Off-site copy (survives total
+  droplet loss) is the planned follow-up — needs a remote bucket + keys.
+
 ## Security: rate-limit auth + lock out reset-code brute force (2026-07-09)
 Closed an account-takeover path: the 6-digit reset code had no attempt limit and anyone could request one, so
 it was brute-forceable within its 15-minute window.
