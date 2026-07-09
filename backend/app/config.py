@@ -111,6 +111,33 @@ class Settings(BaseSettings):
     member_username: str = "nishant@talentrupt.com"
     member_password: str = "NT@tr@2026"
     member_token: str = "dev-talentrupt-member-token"
+    # Additional (non-admin) member logins beyond the primary one, as "email:password,email2:pw2".
+    # Override via env EXTRA_MEMBER_LOGINS. Each extra member gets a stable, unforgeable session token
+    # derived (HMAC) from member_token — so it survives restarts and can't be guessed. (Internal-tool
+    # pattern: credentials live in config/.env; move to per-user hashing when hardening.)
+    extra_member_logins: str = "janhavisuryawanshi.talentrupt@gmail.com:janhavi123"
+
+    def member_accounts(self) -> list[tuple[str, str, str]]:
+        """(username, password, token) for every member login — the primary member plus any extras."""
+        import hashlib
+        import hmac
+
+        out: list[tuple[str, str, str]] = [
+            (self.member_username.strip(), self.member_password, self.member_token)
+        ]
+        for pair in (self.extra_member_logins or "").split(","):
+            pair = pair.strip()
+            if not pair or ":" not in pair:
+                continue
+            user, pw = pair.split(":", 1)
+            user = user.strip()
+            if not user:
+                continue
+            token = "m-" + hmac.new(
+                self.member_token.encode(), user.lower().encode(), hashlib.sha256
+            ).hexdigest()[:40]
+            out.append((user, pw, token))
+        return out
 
     # --- Email / password reset (optional) ------------------------------
     # SMTP is used to deliver the 'forgot password' reset code to the admin email. Until host+from are

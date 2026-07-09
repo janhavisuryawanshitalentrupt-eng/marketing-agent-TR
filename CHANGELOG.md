@@ -21,6 +21,18 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Add a second member login (Janhavi) (2026-07-09)
+- New member account `janhavisuryawanshi.talentrupt@gmail.com` (restricted, same as `nishant@…` — no
+  Tasks/Analytics). Added a general `EXTRA_MEMBER_LOGINS` mechanism (`email:password,…`) so more members can be
+  added via config/env without code changes.
+- Each member login now gets its **own stable, unforgeable session token** (HMAC of `MEMBER_TOKEN` + email), and
+  `/api/auth/me` derives **username from the token** — so a member sees *their own* email in the UI, not a
+  shared name. Admin + existing member logins unchanged.
+- Verified: new login works (shows her email, member role), wrong password → 401, nishant + admin still work,
+  tokens are distinct.
+- Note: credentials currently live in config/.env (existing pattern) — recommend moving all login passwords to
+  GitHub secrets when hardening.
+
 ## Magazine: Interrupt a running build (stop → refine → continue), no stray drafts (2026-07-09)
 The magazine builder can now be stopped mid-generation and relaunched with extra notes.
 

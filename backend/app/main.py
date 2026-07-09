@@ -103,13 +103,19 @@ def on_startup() -> None:
 
 
 # --- Auth -----------------------------------------------------------------
-def _role_for_token(token: str) -> str | None:
-    """Map a bearer token to its role. Admin and member each have a distinct token."""
+def _identity_for_token(token: str) -> tuple[str | None, str | None]:
+    """Map a bearer token to (role, username). Admin has one token; each member login has its own."""
     if token and secrets.compare_digest(token, settings.admin_token):
-        return "admin"
-    if token and secrets.compare_digest(token, settings.member_token):
-        return "member"
-    return None
+        return "admin", settings.admin_username
+    for user, _pw, tok in settings.member_accounts():
+        if token and secrets.compare_digest(token, tok):
+            return "member", user
+    return None, None
+
+
+def _role_for_token(token: str) -> str | None:
+    """Map a bearer token to its role. Admin and each member login each have a distinct token."""
+    return _identity_for_token(token)[0]
 
 
 def require_auth(authorization: str = Header(default="")) -> str:
@@ -180,12 +186,13 @@ def _is_admin_email(email: str) -> bool:
     return (email or "").strip().lower() == settings.admin_username.strip().lower()
 
 
-def _is_member_login(username: str, password: str) -> bool:
-    return (
-        (username or "").strip().lower() == settings.member_username.strip().lower()
-        and bool(password)
-        and secrets.compare_digest(password, settings.member_password)
-    )
+def _member_account_for(username: str, password: str) -> tuple[str, str, str] | None:
+    """Return the matching member account (username, password, token) for these creds, else None."""
+    key = (username or "").strip().lower()
+    for user, pw, tok in settings.member_accounts():
+        if key == user.strip().lower() and bool(password) and secrets.compare_digest(password, pw):
+            return user, pw, tok
+    return None
 
 
 # --- Auth rate limiting -------------------------------------------------------
@@ -221,15 +228,20 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)) ->
     # to the configured default until then, so existing credentials keep working.
     if _is_admin_email(req.username) and auth_reset.verify_password(db, req.password):
         return LoginResponse(token=settings.admin_token, username=settings.admin_username, role="admin")
-    if _is_member_login(req.username, req.password):
-        return LoginResponse(token=settings.member_token, username=settings.member_username, role="member")
+    acct = _member_account_for(req.username, req.password)
+    if acct:
+        user, _pw, tok = acct
+        return LoginResponse(token=tok, username=user, role="member")
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
 @app.get("/api/auth/me")
-def whoami(role: str = Depends(require_auth)) -> dict:
-    """The current session's identity — role is derived from the token (can't be spoofed client-side)."""
-    username = settings.admin_username if role == "admin" else settings.member_username
+def whoami(authorization: str = Header(default="")) -> dict:
+    """The current session's identity — role AND username are derived from the token (can't be spoofed)."""
+    token = authorization.replace("Bearer ", "").strip()
+    role, username = _identity_for_token(token)
+    if role is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     return {"username": username, "role": role}
 
 

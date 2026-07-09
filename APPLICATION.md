@@ -57,8 +57,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
 | **Analytics** | Pipeline/outreach/content rollup | **admin only** |
 
 ## 4. Accounts, roles & data isolation
-- Two logins (from `backend/.env`): **`Admin@talentrupt.com`** (admin) and **`nishant@talentrupt.com`**
-  (member). Role is derived server-side from the bearer token (`/api/auth/me`).
+- Logins (from `backend/.env`): **`Admin@talentrupt.com`** (admin) and one or more **members**
+  (`nishant@talentrupt.com`, plus any in `EXTRA_MEMBER_LOGINS` = `email:password,…`). Each member login gets a
+  stable, unforgeable session token derived (HMAC) from `MEMBER_TOKEN`. Role AND username are derived
+  server-side from the bearer token (`/api/auth/me`).
 - **Tasks & Analytics** are admin-only — hidden in the nav AND enforced 403 at the API.
 - **Per-account data isolation:** every owned record carries an `owner` column and is scoped to the
   logged-in account (conversations, campaigns, assets, opportunities, tasks, uploads). Cross-account
