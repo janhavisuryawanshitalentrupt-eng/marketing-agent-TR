@@ -172,9 +172,10 @@ jobs:
             pm2 restart myra --update-env
             echo "post-restart health: $(curl -fsS http://127.0.0.1:8100/api/health 2>/dev/null || echo unavailable)"
             pm2 save
-            # --- Nightly local backup cron (SQLite DB + storage/), installed idempotently ---
-            # Keeps 7 days of rotating snapshots under /root/talentrupt-backups. Guards against accidental
-            # deletion / DB corruption; NOT a substitute for an off-site copy (add that later).
+            # --- Nightly local backup cron (install only) ---
+            # The CRON creates snapshots (02:30 nightly), NOT the deploy — running a full storage snapshot on
+            # every deploy churned disk and could fill the droplet. The deploy only (re)installs the cron and
+            # prunes old archives to reclaim space.
             mkdir -p /root/talentrupt-backups
             sed -i 's/\r$//' /root/talentrupt-agent/deploy/backup.sh 2>/dev/null || true
             chmod +x /root/talentrupt-agent/deploy/backup.sh
@@ -183,9 +184,9 @@ jobs:
             30 2 * * * root /root/talentrupt-agent/deploy/backup.sh >> /root/talentrupt-backups/backup.log 2>&1
             CRON
             chmod 644 /etc/cron.d/myra-backup
-            # Take one snapshot now so there's an immediate backup and any error surfaces in the deploy log.
-            /root/talentrupt-agent/deploy/backup.sh >> /root/talentrupt-backups/backup.log 2>&1 || echo "initial backup failed (non-fatal)"
-            echo "backup cron installed; newest: $(ls -1t /root/talentrupt-backups/backup-*.tar.gz 2>/dev/null | head -1 || echo none)"
+            # Reclaim disk: keep only the newest 3 archives (do NOT snapshot on every deploy).
+            ls -1t /root/talentrupt-backups/backup-*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+            echo "backup cron installed; archives kept: $(ls -1 /root/talentrupt-backups/backup-*.tar.gz 2>/dev/null | wc -l); disk: $(df -h / | awk 'NR==2{print $4" free"}')"
             # Wait for uvicorn + DB migrations to come up (don't fail on a cold-start race).
             ok=0
             for i in $(seq 1 30); do

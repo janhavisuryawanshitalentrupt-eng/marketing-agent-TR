@@ -10,7 +10,7 @@ set -euo pipefail
 APP_ROOT="${APP_ROOT:-/root/talentrupt-agent}"
 BACKUP_DIR="${BACKUP_DIR:-/root/talentrupt-backups}"
 PYTHON="${PYTHON:-$APP_ROOT/backend/.venv/bin/python}"
-RETENTION="${RETENTION:-7}"
+RETENTION="${RETENTION:-3}"  # keep the newest 3 archives (bounds disk use: 3 x storage size)
 ENVF="$APP_ROOT/backend/.env"
 
 # Resolve the real DB path from .env DATABASE_URL (sqlite:///path) if set, else the default location.

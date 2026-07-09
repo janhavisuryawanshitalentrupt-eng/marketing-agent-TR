@@ -21,6 +21,15 @@ theme).
 - Verified live at desktop: preview updates from the fields (Diwali Edition, custom title, Top 5), both modes
   render their steps, no console errors, `next build` clean.
 
+## Fix: backups no longer snapshot on every deploy (disk-fill regression) (2026-07-09)
+The earlier backup step ran a FULL storage snapshot on every deploy, which — with several deploys — could fill
+the droplet disk and block further deploys (the copy/extract step runs out of space before the new code lands).
+
+- The deploy now only **installs the nightly cron** and **prunes to the newest 3 archives** (reclaiming disk);
+  it no longer takes a snapshot itself. `backup.sh` default retention lowered 7 → 3.
+- If the disk already filled, free it once on the droplet (e.g. `rm -f /root/talentrupt-backups/backup-*.tar.gz`)
+  and the next deploy lands normally; this change then prevents recurrence.
+
 ## Add a second member login (Janhavi) (2026-07-09)
 - New member account `janhavisuryawanshi.talentrupt@gmail.com` (restricted, same as `nishant@…` — no
   Tasks/Analytics). Added a general `EXTRA_MEMBER_LOGINS` mechanism (`email:password,…`) so more members can be
