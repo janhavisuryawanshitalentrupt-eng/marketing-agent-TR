@@ -3,6 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Premium pink→purple design system + light/dark themes (2026-07-11)
+A full visual refresh (UI-only — no flows changed), driven by design tokens so every page restyles at once.
+
+- **Brand + tokens**: primary gradient `#FF4F87 → #A855F7`, semantic colors (success/warning/error/info), and
+  slate light/dark palettes (light bg `#F8FAFC`, dark `#0B1220`). Buttons (scale-1.02 + glow), cards (`.lift`
+  hover), inputs (pink focus glow), and `.glass` (top nav + modals).
+- **Theme toggle**: animated sun/moon switch in the header — persists to `localStorage`, follows the OS
+  `prefers-color-scheme` when unset, 300ms cross-fade, no reload.
+- **Wallpapers**: a soft pink→peach wavy backdrop in light, a "Midnight Aurora" (blue→indigo→purple over navy)
+  in dark — subtle so cards/text stay crisp.
+- **Logo** recolored to a pink→purple gradient app-icon (white "M") so it reads on any surface; empty-state icon
+  made white on its gradient tile.
+- **Contrast fixes**: magazine masthead labels and active nav text are now bold white; sidebar/rail list text
+  reads correctly in both themes. Hero greets the user with the brand name in gradient text.
+- Chat attachments: the multi-file context cap raised from 5 → 10 files (each ~6000 chars).
+
 ## Magazine builder: two-column layout with a live cover preview (2026-07-09)
 Rebuilt the Magazine "Create" view to a designed two-column builder (matching the requested mockup, same color
 theme).

@@ -43,7 +43,8 @@ export function Shell() {
       | "dark"
       | "light"
       | null;
-    setTheme(saved || (document.documentElement.dataset.theme as "dark" | "light") || "light");
+    const system = window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    setTheme(saved || (document.documentElement.dataset.theme as "dark" | "light") || system);
   }, []);
 
   function toggleTheme() {
@@ -135,8 +136,8 @@ export function Shell() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      {/* Top nav bar */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-2.5">
+      {/* Top nav bar (glassmorphism) */}
+      <header className="glass sticky top-0 z-40 flex shrink-0 items-center gap-3 border-b px-5 py-2.5">
         {/* Brand (left) */}
         <div className="flex flex-1 items-center gap-3">
           <MyraMark className="h-9 w-9 shrink-0" />
@@ -146,7 +147,7 @@ export function Shell() {
           </div>
         </div>
 
-        {/* Primary nav (centered) */}
+        {/* Primary nav (centered, horizontal — pages stay on top) */}
         <nav className="flex items-center justify-center gap-1">
           {nav.map((item) => {
             const active =
@@ -155,17 +156,17 @@ export function Shell() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${
+                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
                   active
-                    ? "text-cream"
+                    ? "text-white"
                     : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
                 }`}
                 style={active ? { background: "var(--grad-navy)" } : undefined}
               >
                 <svg
                   width="18" height="18" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
-                  className={active ? "text-[var(--brand-red)]" : ""}
+                  stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"
+                  className={active ? "text-white" : ""}
                 >
                   <path d={item.icon} />
                 </svg>
@@ -175,8 +176,24 @@ export function Shell() {
           })}
         </nav>
 
-        {/* Right: AI status pill + account menu — avatar opens a dropdown (name, email, theme, sign out) */}
+        {/* Right: theme toggle + AI status + account menu */}
         <div className="flex flex-1 items-center justify-end gap-3">
+          {/* Animated theme switch — sun (light) / moon (dark), 300ms slide */}
+          <button
+            onClick={toggleTheme}
+            role="switch"
+            aria-checked={theme === "dark"}
+            aria-label="Toggle dark mode"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="relative inline-flex h-7 w-[52px] shrink-0 items-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] transition-colors duration-300"
+          >
+            <svg className="pointer-events-none absolute left-[7px] h-3.5 w-3.5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4" /></svg>
+            <svg className="pointer-events-none absolute right-[7px] h-3.5 w-3.5 text-[var(--brand-coral)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" /></svg>
+            <span
+              className="absolute h-5 w-5 rounded-full shadow-md transition-transform duration-300 ease-in-out"
+              style={{ background: theme === "dark" ? "var(--grad-red)" : "#ffffff", transform: theme === "dark" ? "translateX(27px)" : "translateX(3px)" }}
+            />
+          </button>
           <AiStatus />
           <div className="relative" ref={menuRef}>
             <button

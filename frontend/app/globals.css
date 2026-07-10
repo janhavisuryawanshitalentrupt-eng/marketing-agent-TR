@@ -2,40 +2,50 @@
 
 /* Talentrupt — premium dark workspace (navy / red / cream). Dark is default. */
 :root {
-  --background: #080d16;
-  --surface: #0f1828;
-  --surface-2: #16223a;
-  --surface-3: #1d2c46;
-  --border: rgba(235, 233, 223, 0.10);
-  --border-strong: rgba(235, 233, 223, 0.18);
-  --foreground: #eceadf;
+  /* Dark theme (slate) — the no-FOUC script picks light/dark from saved pref or system. */
+  --background: #0b1220;
+  --surface: #1e293b;
+  --surface-2: #111827;
+  --surface-3: #273449;
+  --border: #334155;
+  --border-strong: #3f4f66;
+  --foreground: #f8fafc;
   --muted: #94a3b8;
+  --sidebar: #0f172a;
 
-  --brand-navy: #0b3559;
-  --brand-navy-2: #0e4373;
-  --brand-red: #f6404c;
-  --brand-coral: #ff7a52;
-  --brand-cream: #ebe9df;
+  /* Brand — pink → purple gradient system */
+  --brand-navy: #ff4f87;   /* solid primary accent (active pills / selected rows) */
+  --brand-navy-2: #a855f7;
+  --brand-red: #ff4f87;    /* primary action / links / focus */
+  --brand-coral: #a855f7;  /* secondary accent (purple) */
+  --brand-cream: #ffffff;
 
-  --grad-red: linear-gradient(135deg, #f6404c 0%, #ff7a52 100%);
-  --grad-navy: linear-gradient(135deg, #0b3559 0%, #0e4373 100%);
-  --ring: rgba(246, 64, 76, 0.55);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
+  /* Semantic */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+
+  --grad-red: linear-gradient(135deg, #ff4f87 0%, #a855f7 100%);
+  --grad-navy: linear-gradient(135deg, #ff4f87 0%, #a855f7 100%);
+  --ring: rgba(255, 79, 135, 0.55);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 34px rgba(0, 0, 0, 0.38);
   --radius: 16px;
 }
 
 /* Light mode — cream/white surfaces, navy text, same red/coral accents. */
 :root[data-theme="light"] {
-  --background: #f3f1ea;
+  --background: #f8fafc;
   --surface: #ffffff;
-  --surface-2: #f2efe7;
-  --surface-3: #e7e3d8;
-  --border: rgba(11, 53, 89, 0.12);
-  --border-strong: rgba(11, 53, 89, 0.22);
-  --foreground: #15233b;
-  --muted: #5d6e84;
-  --ring: rgba(246, 64, 76, 0.40);
-  --shadow-card: 0 1px 2px rgba(11, 53, 89, 0.06), 0 10px 24px rgba(11, 53, 89, 0.08);
+  --surface-2: #f1f5f9;
+  --surface-3: #e5e7eb;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --foreground: #111827;
+  --muted: #6b7280;
+  --sidebar: #ffffff;
+  --ring: rgba(255, 79, 135, 0.40);
+  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.04), 0 10px 30px rgba(17, 24, 39, 0.06);
 }
 
 @theme inline {
@@ -63,18 +73,35 @@ body {
 body {
   color: var(--foreground);
   font-family: var(--font-montserrat), system-ui, sans-serif;
+  /* Dark "Midnight Aurora" wallpaper: blue → indigo → purple glows over deep navy, with a pink whisper
+     to tie back to the brand. Subtle so cards (#1E293B) + text stay crisp. */
   background:
-    radial-gradient(1100px 560px at 100% -8%, rgba(246, 64, 76, 0.07), transparent 60%),
-    radial-gradient(900px 520px at -10% 110%, rgba(14, 67, 115, 0.45), transparent 60%),
+    radial-gradient(60% 55% at 12% 8%, rgba(99, 102, 241, 0.22), transparent 55%),
+    radial-gradient(65% 60% at 92% 12%, rgba(59, 130, 246, 0.16), transparent 55%),
+    radial-gradient(72% 66% at 88% 96%, rgba(168, 85, 247, 0.22), transparent 55%),
+    radial-gradient(55% 55% at 6% 96%, rgba(255, 79, 135, 0.12), transparent 58%),
+    radial-gradient(85% 75% at 50% 50%, rgba(139, 92, 246, 0.06), transparent 72%),
     var(--background);
   background-attachment: fixed;
 }
 
+/* Premium soft pink → peach "wallpaper" behind the whole light UI: a diagonal pink-to-peach wash with
+   translucent light blooms that read like flowing waves. Subtle enough to keep cards/text crisp. */
 :root[data-theme="light"] body {
   background:
-    radial-gradient(1100px 560px at 100% -8%, rgba(246, 64, 76, 0.06), transparent 60%),
-    radial-gradient(900px 520px at -10% 110%, rgba(14, 67, 115, 0.10), transparent 60%),
+    radial-gradient(70% 85% at 80% 6%, rgba(255, 255, 255, 0.55), transparent 55%),
+    radial-gradient(62% 78% at 20% 94%, rgba(255, 255, 255, 0.45), transparent 55%),
+    radial-gradient(85% 120% at 4% 8%, rgba(255, 110, 165, 0.22), transparent 48%),
+    radial-gradient(95% 120% at 98% 98%, rgba(255, 196, 140, 0.24), transparent 50%),
+    radial-gradient(70% 60% at 58% 50%, rgba(255, 170, 200, 0.10), transparent 62%),
+    linear-gradient(120deg, rgba(255, 79, 135, 0.09) 0%, rgba(255, 176, 112, 0.09) 100%),
     var(--background);
+  background-attachment: fixed;
+}
+
+/* Smooth ~300ms cross-fade when the theme toggles (no reload). */
+body, .rail, .card, header {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
 /* Left navigation / history rails: the deep-navy chrome from the design.
@@ -82,17 +109,10 @@ body {
    (text-muted, hover surfaces, borders, and the active brand-navy highlight) automatically
    read light-on-navy with no per-element edits. Background is a literal navy because the block
    also remaps the brand-navy token (used for the active-row highlight). */
+/* Sidebar follows the theme: white in light, deep slate (#0f172a) in dark. Text inherits the theme
+   foreground, so no per-element color overrides are needed. Active rows use the solid pink accent. */
 .rail {
-  background: #0b3559;
-  color: #f4f6f9;
-  --surface: rgba(255, 255, 255, 0.10);
-  --surface-2: rgba(255, 255, 255, 0.09);
-  --surface-3: rgba(255, 255, 255, 0.14);
-  --foreground: #ffffff;
-  --muted: rgba(232, 238, 246, 0.62);
-  --border: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.24);
-  --brand-navy: rgba(255, 255, 255, 0.15); /* active row highlight → a soft white wash on the navy */
+  background: var(--sidebar);
 }
 :root[data-theme="light"] * { scrollbar-color: rgba(11, 53, 89, 0.25) transparent; }
 :root[data-theme="light"] *::-webkit-scrollbar-thumb { background: rgba(11, 53, 89, 0.25); }
@@ -114,11 +134,34 @@ h1, h2, h3, .font-heading {
   border-radius: 12px;
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
-  box-shadow: 0 6px 18px rgba(246, 64, 76, 0.28);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+  box-shadow: 0 6px 20px rgba(255, 79, 135, 0.30);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease, filter 0.25s ease;
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(246, 64, 76, 0.36); }
-.btn-primary:disabled { opacity: 0.5; box-shadow: none; transform: none; cursor: default; }
+.btn-primary:hover { transform: scale(1.02); box-shadow: 0 12px 30px rgba(255, 79, 135, 0.44); filter: brightness(1.05) saturate(1.05); }
+.btn-primary:active { transform: scale(0.99); }
+.btn-primary:disabled { opacity: 0.5; box-shadow: none; transform: none; filter: none; cursor: default; }
+
+/* Secondary button — surface + border, light pink tint on hover. */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  border-radius: 12px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+.btn-secondary:hover {
+  transform: scale(1.02);
+  border-color: rgba(255, 79, 135, 0.45);
+  background: color-mix(in srgb, var(--brand-red) 6%, var(--surface));
+  box-shadow: 0 6px 18px rgba(255, 79, 135, 0.14);
+}
 
 .btn-ghost {
   display: inline-flex;
@@ -130,9 +173,17 @@ h1, h2, h3, .font-heading {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   background: transparent;
-  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
 }
 .btn-ghost:hover { border-color: var(--border-strong); color: var(--foreground); background: var(--surface-2); }
+
+/* Glassmorphism — top nav, theme switcher, floating panels, modals. */
+.glass {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid var(--border);
+}
 
 .card {
   background: var(--surface);
@@ -141,9 +192,9 @@ h1, h2, h3, .font-heading {
   box-shadow: var(--shadow-card);
 }
 
-/* Subtle hover lift for interactive/stat cards and rows. */
-.lift { transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; }
-.lift:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26); }
+/* Card / row hover — lift 4px, thin pink border, soft pink-purple glow (spec). */
+.lift { transition: transform 0.25s ease-in-out, box-shadow 0.25s ease-in-out, border-color 0.25s ease-in-out; }
+.lift:hover { transform: translateY(-4px); border-color: rgba(255, 79, 135, 0.35); box-shadow: 0 16px 38px rgba(168, 85, 247, 0.16); }
 .hover-row { transition: background 0.12s ease, border-color 0.12s ease; }
 .hover-row:hover { background: var(--surface-2); border-color: var(--border-strong); }
 
@@ -168,7 +219,7 @@ h1, h2, h3, .font-heading {
   outline: none;
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.field:focus { border-color: var(--brand-red); box-shadow: 0 0 0 3px rgba(246, 64, 76, 0.15); }
+.field:focus { border-color: var(--brand-red); box-shadow: 0 0 0 3px rgba(255, 79, 135, 0.18); }
 .field::placeholder { color: var(--muted); }
 
 /* --- Toast + skeleton animations --------------------------------------- */

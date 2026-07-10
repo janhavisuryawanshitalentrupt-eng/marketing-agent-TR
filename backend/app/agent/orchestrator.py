@@ -259,9 +259,10 @@ async def run(
                 f"{desc or '(not specified yet — ask them)'}.\nGround EVERYTHING you generate in this "
                 "campaign's topic and brief — every post, image, deck and PDF must be about it."
             )
-    # Inject any attached files as primary context for this turn.
+    # Inject any attached files as primary context for this turn. Up to 10 files, ~6000 chars each,
+    # so a multi-file reference set all reaches the model (bounded to keep the prompt/token cost sane).
     blocks = []
-    for a in (attachments or [])[:5]:
+    for a in (attachments or [])[:10]:
         name = (a.get("name") or "attachment").strip()
         txt = (a.get("text") or "").strip()[:6000]
         if txt:

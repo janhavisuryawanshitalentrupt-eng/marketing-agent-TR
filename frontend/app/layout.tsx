@@ -30,10 +30,10 @@ export default function RootLayout({
       className={`${poppins.variable} ${montserrat.variable} h-full`}
     >
       <body className="min-h-full antialiased">
-        {/* Apply the theme before paint to avoid a flash. Default is LIGHT when nothing is saved. */}
+        {/* Apply the theme before paint to avoid a flash. Saved pref wins; else follow the OS scheme. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{document.documentElement.dataset.theme=localStorage.getItem('tr_theme')||'light';}catch(e){document.documentElement.dataset.theme='light';}`,
+            __html: `try{var t=localStorage.getItem('tr_theme');if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='light';}`,
           }}
         />
         <AuthGate>{children}</AuthGate>

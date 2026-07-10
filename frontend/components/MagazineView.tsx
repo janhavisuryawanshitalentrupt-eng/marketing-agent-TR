@@ -327,12 +327,12 @@ function CoverPreview({ title, edition, theme, featureLabel }: { title: string; 
     <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
       {/* Navy masthead */}
       <div className="px-4 pb-4 pt-3.5" style={{ background: "var(--grad-navy)" }}>
-        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[var(--brand-coral)]">
+        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-white">
           <span className="truncate">{th ? `${th} Edition` : "Special Edition"}</span>
           <span className="shrink-0 pl-2">Talentrupt</span>
         </div>
         <div className="mt-2 truncate font-serif text-2xl font-bold leading-tight text-white">{t}</div>
-        <div className="mt-1 text-[11px] text-cream/70">{ed}</div>
+        <div className="mt-1 text-[11px] font-medium text-white/85">{ed}</div>
       </div>
       {/* Hero photo placeholder (real team photo drops in on generate) */}
       <div className="relative h-40" style={{ backgroundImage: "repeating-linear-gradient(45deg, var(--surface-2) 0, var(--surface-2) 10px, var(--surface-3) 10px, var(--surface-3) 20px)" }}>

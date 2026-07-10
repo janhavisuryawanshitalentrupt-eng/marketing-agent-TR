@@ -257,7 +257,7 @@ export function CampaignsView() {
                   key={t}
                   onClick={() => switchTab(t)}
                   className={`flex-1 rounded-md px-2 py-1.5 capitalize transition ${
-                    tab === t ? "bg-[var(--brand-navy)] text-cream" : "text-white/90 hover:text-white"
+                    tab === t ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
                   }`}
                 >
                   {t}
@@ -272,7 +272,7 @@ export function CampaignsView() {
             )}
             {!showArchived && tab === "external" && (
               <div>
-                <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                   Quick-start by sector
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
@@ -282,7 +282,7 @@ export function CampaignsView() {
                       onClick={() => startVertical(v)}
                       disabled={!!busyVertical}
                       title={`Build a campaign with real ${v.label} target clients`}
-                      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-white transition hover:border-[var(--brand-red)] hover:text-white disabled:opacity-50"
+                      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-foreground transition hover:border-[var(--brand-red)] hover:text-[var(--brand-red)] disabled:opacity-50"
                     >
                       {busyVertical === v.label ? "Building…" : v.label}
                     </button>
@@ -294,8 +294,8 @@ export function CampaignsView() {
               onClick={toggleArchived}
               className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition ${
                 showArchived
-                  ? "border-[var(--brand-navy)] text-white"
-                  : "border-[var(--border)] text-white/90 font-medium hover:border-[var(--brand-red)] hover:text-white"
+                  ? "border-[var(--brand-navy)] text-foreground"
+                  : "border-[var(--border)] text-muted font-medium hover:border-[var(--brand-red)] hover:text-foreground"
               }`}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
@@ -310,7 +310,7 @@ export function CampaignsView() {
                   className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-14 text-left text-sm font-medium transition ${
                     selected === c.id
                       ? "bg-[var(--brand-navy)] text-white"
-                      : "text-white hover:bg-[var(--surface-2)]"
+                      : "text-foreground hover:bg-[var(--surface-2)]"
                   }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>

@@ -14,14 +14,14 @@ function Overlay({ onClose, children }: { onClose: () => void; children: React.R
   }, [onClose]);
   return (
     <div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl"
+        className="glass w-full max-w-sm rounded-2xl p-5 shadow-2xl"
         style={{ animation: "tr-toast-in .16s ease-out" }}
       >
         {children}

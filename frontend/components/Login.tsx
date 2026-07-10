@@ -138,8 +138,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <MyraMark className="mx-auto mb-4 h-16 w-16" />
-          <h1 className="font-heading text-2xl font-semibold">Myra</h1>
+          <MyraMark wordmark className="mx-auto mb-3 h-24 w-24" />
           <p className="mt-1 text-sm text-muted">Your internal marketing department</p>
         </div>
 

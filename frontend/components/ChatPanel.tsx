@@ -128,11 +128,11 @@ export function ChatPanel() {
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-3">
           <div className="flex items-center justify-between px-2 py-1">
-            <span className="text-[10px] uppercase tracking-wider text-white/60">Conversations</span>
+            <span className="text-[10px] uppercase tracking-wider text-muted">Conversations</span>
             {conversations.length > 0 && (
               <button
                 onClick={() => setConfirmClear(true)}
-                className="rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/60 transition hover:bg-white/10 hover:text-white"
+                className="rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
                 title="Delete all conversations"
               >
                 Clear all
@@ -140,7 +140,7 @@ export function ChatPanel() {
             )}
           </div>
           {conversations.length === 0 && (
-            <p className="px-2 py-2 text-xs text-white/60">No conversations yet.</p>
+            <p className="px-2 py-2 text-xs text-muted">No conversations yet.</p>
           )}
           {conversations.map((c) => (
             <div key={c.id} className="group relative">
@@ -149,7 +149,7 @@ export function ChatPanel() {
                 className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-8 text-left text-sm font-medium transition ${
                   conversationId === c.id
                     ? "bg-[var(--brand-navy)] text-white"
-                    : "text-white hover:bg-[var(--surface-2)]"
+                    : "text-foreground hover:bg-[var(--surface-2)]"
                 }`}
                 title={c.title}
               >
@@ -163,7 +163,7 @@ export function ChatPanel() {
                 }}
                 title="Delete conversation"
                 aria-label="Delete conversation"
-                className="absolute right-1.5 top-1.5 rounded-md p-1 text-white/70 opacity-0 transition hover:text-[var(--brand-red)] focus-visible:opacity-100 group-hover:opacity-100"
+                className="absolute right-1.5 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-[var(--brand-red)] focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" /></svg>
               </button>
@@ -205,8 +205,15 @@ export function ChatPanel() {
           <div className="mx-auto w-full max-w-3xl space-y-5">
             {empty && (
               <div className="pt-10 text-center">
-                <h2 className="font-heading text-2xl font-semibold">
-                  How can I help with {brand?.name ?? "Talentrupt"}&apos;s marketing?
+                <div className="mb-3 flex items-center justify-center gap-2 text-lg font-medium">
+                  <span className="text-[var(--brand-red)]">✨</span>
+                  <span>Hello, {displayName}! <span aria-hidden>👋</span></span>
+                </div>
+                <h2 className="font-heading text-3xl font-bold leading-tight">
+                  How can I help with{" "}
+                  <span className="bg-gradient-to-r from-[#ff4f87] to-[#a855f7] bg-clip-text text-transparent">
+                    {brand?.name ?? "Talentrupt"}&apos;s marketing?
+                  </span>
                 </h2>
                 <p className="mt-2 text-sm text-muted">
                   I find &amp; analyze prospects, generate images &amp; decks, search our brand library,
