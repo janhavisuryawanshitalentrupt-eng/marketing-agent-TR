@@ -135,8 +135,8 @@ export function GenerationsGallery() {
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`rounded-lg px-3 py-1.5 text-xs transition ${
-              filter === f.key ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:bg-[var(--surface-2)]"
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+              filter === f.key ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
             }`}
           >
             {f.label}
@@ -149,7 +149,7 @@ export function GenerationsGallery() {
               <button
                 key={s}
                 onClick={() => setSort(s)}
-                className={`rounded-md px-2.5 py-1 text-xs capitalize transition ${
+                className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition ${
                   sort === s ? "bg-[var(--surface-3)] text-foreground" : "text-muted hover:text-foreground"
                 }`}
               >
@@ -159,7 +159,7 @@ export function GenerationsGallery() {
           </div>
           <button
             onClick={load}
-            className="rounded-lg px-3 py-1.5 text-xs text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground"
             title="Refresh"
           >
             Refresh
