@@ -1,0 +1,205 @@
+# Auto-deploy to the droplet on every push.
+#
+# ONE-TIME SETUP (see APPLICATION.md / DEPLOY.md):
+#   1. On the droplet, authorize a deploy key:
+#        ssh-keygen -t ed25519 -f deploykey -N ""        # run on YOUR PC; creates deploykey + deploykey.pub
+#        # paste the contents of deploykey.pub into the droplet's /root/.ssh/authorized_keys
+#   2. In GitHub repo → Settings → Secrets and variables → Actions, add:
+#        DROPLET_HOST    = 206.189.132.167
+#        DROPLET_SSH_KEY = <the full contents of the PRIVATE key file `deploykey`>
+#        OPENAI_API_KEY  = <OPTIONAL — a key with gpt-4o-mini + gpt-image-2 access. When set, the deploy
+#                          writes it + OPENAI_IMAGE_MODEL=gpt-image-2 into the droplet's backend/.env, so
+#                          the key stays in GitHub's encrypted store (never the repo). Omit to manage .env by hand.>
+#
+# After that, every push to the branches below redeploys automatically. The frontend is built HERE
+# (GitHub's runner has plenty of RAM) so the 2 GB droplet never has to run `next build`. Only the
+# code + built UI are shipped; the droplet's .env, talentrupt.db and storage/ are never touched.
+
+name: Deploy
+
+on:
+  push:
+    branches: [feat/create-chip-brief-intake, main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-droplet
+  # Never kill a deploy mid-flight — queue the next one behind it instead.
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend (static export, relative API base)
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE: ""
+        run: |
+          npm ci
+          npm run build
+
+      - name: Stamp the deployed commit (surfaced at /api/health -> version)
+        run: echo "${GITHUB_SHA::7}" > backend/app/_version.txt
+
+      - name: Package code + built UI (no node_modules / venv / data)
+        # NOTE: write the tarball INTO the workspace — scp-action runs in a container that only
+        # mounts /github/workspace, so a /tmp path is invisible to it ("tar: empty archive").
+        run: |
+          tar --exclude='**/node_modules' --exclude='**/.next' --exclude='**/__pycache__' \
+              -czf deploy.tar.gz backend frontend ecosystem.config.js deploy
+
+      - name: Copy to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: root
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: deploy.tar.gz
+          target: /root/
+
+      - name: Extract, install deps, restart
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          # OPTIONAL: set the GitHub Actions secret OPENAI_API_KEY (a key with gpt-4o-mini + gpt-image-2
+          # access) to have the deploy manage the OpenAI key + image model in the server's .env — so the
+          # key lives in GitHub's encrypted secret store, NEVER in the repo. If the secret is unset, .env
+          # is left completely untouched (safe no-op).
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_IMAGE_MODEL: gpt-image-2
+          # OPTIONAL: set BG_REMOVAL_API_KEY (+ BG_REMOVAL_PROVIDER = removebg | photoroom) to enable clean
+          # employee CUT-OUTS (the real person floated on the designed layout). Unset = the designed
+          # framed-card fallback. Keeps heavy rembg OFF the droplet; the API only strips the background.
+          BG_REMOVAL_API_KEY: ${{ secrets.BG_REMOVAL_API_KEY }}
+          BG_REMOVAL_PROVIDER: ${{ secrets.BG_REMOVAL_PROVIDER }}
+          # OPTIONAL: set FACESWAP_API_KEY (a Replicate token) to enable AI portraits (blazer + polished
+          # scene) that KEEP the employee's EXACT real face — gpt-image makes the AI portrait, then a hosted
+          # face-swap model pastes the real face on. Unset = the plain real-photo composite (exact face, no
+          # AI clothes). Keeps heavy insightface/onnxruntime OFF the droplet.
+          FACESWAP_API_KEY: ${{ secrets.FACESWAP_API_KEY }}
+          FACESWAP_PROVIDER: replicate
+          FACESWAP_MODEL: cdingram/face-swap
+          # OPTIONAL: set SMTP_HOST + SMTP_FROM (+ SMTP_USER / SMTP_PASSWORD / SMTP_PORT / SMTP_STARTTLS) to
+          # deliver the 'forgot password' reset code by EMAIL. Unset = the reset code is only written to the
+          # server log (the reset flow then has no way to reach the user). Managed like the keys above: the
+          # creds live in GitHub's encrypted secret store, NEVER in the repo.
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_STARTTLS: ${{ secrets.SMTP_STARTTLS }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: root
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          envs: OPENAI_API_KEY,OPENAI_IMAGE_MODEL,BG_REMOVAL_API_KEY,BG_REMOVAL_PROVIDER,FACESWAP_API_KEY,FACESWAP_PROVIDER,FACESWAP_MODEL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASSWORD,SMTP_FROM,SMTP_STARTTLS
+          script: |
+            set -e
+            # SELF-HEAL disk FIRST: earlier per-deploy backup snapshots could fill the droplet and block the
+            # extract below. Delete the backup archives (regenerated by the nightly cron) to reclaim space
+            # before anything else, so a full disk can't stall the deploy.
+            rm -f /root/talentrupt-backups/backup-*.tar.gz 2>/dev/null || true
+            df -h / | awk 'NR==2{print "disk after backup prune: "$4" free"}'
+            # Rebuild the static UI dir from scratch so DELETED assets don't linger — `tar -x` overlays
+            # files but never removes ones dropped from the build (e.g. an old favicon.ico). `frontend/out`
+            # is fully regenerated every deploy and holds no runtime data (.env/db/storage live elsewhere).
+            rm -rf /root/talentrupt-agent/frontend/out
+            tar -xzf /root/deploy.tar.gz -C /root/talentrupt-agent
+            cd /root/talentrupt-agent
+            # Upsert ONLY the OpenAI key + image model into backend/.env from the CI secret (every other
+            # line is preserved). Skipped entirely when the OPENAI_API_KEY secret is not set.
+            if [ -n "$OPENAI_API_KEY" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^OPENAI_API_KEY=' "$E" > "$E.t" 2>/dev/null || true; echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^OPENAI_IMAGE_MODEL=' "$E" > "$E.t" 2>/dev/null || true; echo "OPENAI_IMAGE_MODEL=$OPENAI_IMAGE_MODEL" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (OPENAI_API_KEY hidden, OPENAI_IMAGE_MODEL=$OPENAI_IMAGE_MODEL)"
+            fi
+            # Upsert the background-removal creds too (independent of the OpenAI block). Skipped if unset.
+            if [ -n "$BG_REMOVAL_API_KEY" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^BG_REMOVAL_API_KEY=' "$E" > "$E.t" 2>/dev/null || true; echo "BG_REMOVAL_API_KEY=$BG_REMOVAL_API_KEY" >> "$E.t"; mv "$E.t" "$E"
+              PROV="${BG_REMOVAL_PROVIDER:-removebg}"
+              grep -v '^BG_REMOVAL_PROVIDER=' "$E" > "$E.t" 2>/dev/null || true; echo "BG_REMOVAL_PROVIDER=$PROV" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (BG_REMOVAL_API_KEY hidden, provider=$PROV)"
+            fi
+            # Upsert the face-swap creds too (independent). Skipped if the FACESWAP_API_KEY secret is unset.
+            if [ -n "$FACESWAP_API_KEY" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^FACESWAP_API_KEY=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_API_KEY=$FACESWAP_API_KEY" >> "$E.t"; mv "$E.t" "$E"
+              FSP="${FACESWAP_PROVIDER:-replicate}"
+              grep -v '^FACESWAP_PROVIDER=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_PROVIDER=$FSP" >> "$E.t"; mv "$E.t" "$E"
+              FSM="${FACESWAP_MODEL:-cdingram/face-swap}"
+              grep -v '^FACESWAP_MODEL=' "$E" > "$E.t" 2>/dev/null || true; echo "FACESWAP_MODEL=$FSM" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (FACESWAP_API_KEY hidden, provider=$FSP, model=$FSM)"
+            fi
+            # Upsert the SMTP creds for the password-reset email (independent). Skipped if SMTP_HOST is unset.
+            if [ -n "$SMTP_HOST" ]; then
+              E=/root/talentrupt-agent/backend/.env; touch "$E"
+              grep -v '^SMTP_HOST=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_HOST=$SMTP_HOST" >> "$E.t"; mv "$E.t" "$E"
+              SPORT="${SMTP_PORT:-587}"
+              grep -v '^SMTP_PORT=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_PORT=$SPORT" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^SMTP_USER=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_USER=$SMTP_USER" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^SMTP_PASSWORD=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_PASSWORD=$SMTP_PASSWORD" >> "$E.t"; mv "$E.t" "$E"
+              grep -v '^SMTP_FROM=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_FROM=$SMTP_FROM" >> "$E.t"; mv "$E.t" "$E"
+              STLS="${SMTP_STARTTLS:-true}"
+              grep -v '^SMTP_STARTTLS=' "$E" > "$E.t" 2>/dev/null || true; echo "SMTP_STARTTLS=$STLS" >> "$E.t"; mv "$E.t" "$E"
+              echo "backend/.env updated (SMTP_HOST=$SMTP_HOST, SMTP_FROM=$SMTP_FROM, password hidden)"
+            fi
+            # CRITICAL: .env is the single source of truth. The CI vars above were only used to
+            # (optionally) WRITE .env. Now RE-EXPORT the real OPENAI_* values straight FROM .env so that
+            # `pm2 --update-env` OVERWRITES any stale/blank value already stuck on the running process
+            # (pm2 --update-env merges, so it won't drop a var on its own). Only export keys that exist.
+            unset OPENAI_API_KEY OPENAI_IMAGE_MODEL BG_REMOVAL_API_KEY BG_REMOVAL_PROVIDER FACESWAP_API_KEY FACESWAP_PROVIDER FACESWAP_MODEL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM SMTP_STARTTLS
+            ENVF=/root/talentrupt-agent/backend/.env
+            # tr -d '\r' guards a CRLF .env: without it the value picks up a trailing \r (e.g.
+            # "gpt-image-1\r"), which makes the model name invalid and forces a wasted fallback per image.
+            KL="$(grep -E '^OPENAI_API_KEY=' "$ENVF" | head -1 | tr -d '\r')";    [ -n "$KL" ] && export OPENAI_API_KEY="${KL#OPENAI_API_KEY=}"
+            ML="$(grep -E '^OPENAI_IMAGE_MODEL=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$ML" ] && export OPENAI_IMAGE_MODEL="${ML#OPENAI_IMAGE_MODEL=}"
+            KR="$(grep -E '^BG_REMOVAL_API_KEY=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$KR" ] && export BG_REMOVAL_API_KEY="${KR#BG_REMOVAL_API_KEY=}"
+            PR="$(grep -E '^BG_REMOVAL_PROVIDER=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$PR" ] && export BG_REMOVAL_PROVIDER="${PR#BG_REMOVAL_PROVIDER=}"
+            FK="$(grep -E '^FACESWAP_API_KEY=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FK" ] && export FACESWAP_API_KEY="${FK#FACESWAP_API_KEY=}"
+            FP="$(grep -E '^FACESWAP_PROVIDER=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FP" ] && export FACESWAP_PROVIDER="${FP#FACESWAP_PROVIDER=}"
+            FM="$(grep -E '^FACESWAP_MODEL=' "$ENVF" | head -1 | tr -d '\r')"; [ -n "$FM" ] && export FACESWAP_MODEL="${FM#FACESWAP_MODEL=}"
+            SH="$(grep -E '^SMTP_HOST=' "$ENVF" | head -1 | tr -d '\r')";       [ -n "$SH" ]  && export SMTP_HOST="${SH#SMTP_HOST=}"
+            SPT="$(grep -E '^SMTP_PORT=' "$ENVF" | head -1 | tr -d '\r')";      [ -n "$SPT" ] && export SMTP_PORT="${SPT#SMTP_PORT=}"
+            SU="$(grep -E '^SMTP_USER=' "$ENVF" | head -1 | tr -d '\r')";       [ -n "$SU" ]  && export SMTP_USER="${SU#SMTP_USER=}"
+            SPW="$(grep -E '^SMTP_PASSWORD=' "$ENVF" | head -1 | tr -d '\r')";  [ -n "$SPW" ] && export SMTP_PASSWORD="${SPW#SMTP_PASSWORD=}"
+            SF="$(grep -E '^SMTP_FROM=' "$ENVF" | head -1 | tr -d '\r')";       [ -n "$SF" ]  && export SMTP_FROM="${SF#SMTP_FROM=}"
+            STL="$(grep -E '^SMTP_STARTTLS=' "$ENVF" | head -1 | tr -d '\r')";  [ -n "$STL" ] && export SMTP_STARTTLS="${STL#SMTP_STARTTLS=}"
+            ./backend/.venv/bin/pip install -q -r backend/requirements.txt
+            pm2 restart myra --update-env
+            echo "post-restart health: $(curl -fsS http://127.0.0.1:8100/api/health 2>/dev/null || echo unavailable)"
+            pm2 save
+            # --- Nightly local backup cron (install only) ---
+            # The CRON creates snapshots (02:30 nightly), NOT the deploy — running a full storage snapshot on
+            # every deploy churned disk and could fill the droplet. The deploy only (re)installs the cron and
+            # prunes old archives to reclaim space.
+            mkdir -p /root/talentrupt-backups
+            sed -i 's/\r$//' /root/talentrupt-agent/deploy/backup.sh 2>/dev/null || true
+            chmod +x /root/talentrupt-agent/deploy/backup.sh
+            cat > /etc/cron.d/myra-backup <<'CRON'
+            # Nightly Myra backup (DB + storage) at 02:30 server time. Managed by deploy.yml.
+            30 2 * * * root /root/talentrupt-agent/deploy/backup.sh >> /root/talentrupt-backups/backup.log 2>&1
+            CRON
+            chmod 644 /etc/cron.d/myra-backup
+            # Reclaim disk: keep only the newest 3 archives (do NOT snapshot on every deploy).
+            ls -1t /root/talentrupt-backups/backup-*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+            echo "backup cron installed; archives kept: $(ls -1 /root/talentrupt-backups/backup-*.tar.gz 2>/dev/null | wc -l); disk: $(df -h / | awk 'NR==2{print $4" free"}')"
+            # Wait for uvicorn + DB migrations to come up (don't fail on a cold-start race).
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8100/api/health >/dev/null 2>&1; then ok=1; break; fi
+              sleep 2
+            done
+            if [ "$ok" = 1 ]; then
+              echo "deploy OK: $(curl -fsS http://127.0.0.1:8100/api/health)"
+            else
+              echo "health check failed after ~60s"; pm2 logs myra --lines 30 --nostream; exit 1
+            fi

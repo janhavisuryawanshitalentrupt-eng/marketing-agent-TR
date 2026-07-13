@@ -7,6 +7,7 @@ import {
   clearOpportunities,
   deleteOpportunity,
   discoverProspects,
+  vibeDiscover,
   enrichContacts,
   exportOpportunities,
   generateOutreach,
@@ -37,6 +38,7 @@ export function BusinessView() {
   const { health } = useAuth();
   const enrichmentReady = !!health?.enrichment_ready;
   const [query, setQuery] = useState("");
+  const [icp, setIcp] = useState<Record<string, string> | null>(null); // how the last vibe was interpreted
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<BizTask[]>([]);
@@ -120,6 +122,20 @@ export function BusinessView() {
         8,
         Object.keys(filters).length ? filters : undefined,
       );
+      setOpps((prev) => mergeById(res.opportunities, prev));
+      if (res.opportunities[0]) setSelectedId(res.opportunities[0].id);
+    } finally {
+      setLoading("");
+    }
+  }
+
+  // VIBE match: interpret the freeform "ideal client" into a sharp ICP, then discover + rank real firms.
+  async function vibeFind() {
+    if (loading || !query.trim()) return;
+    setLoading("Reading your vibe, then finding companies that match…");
+    try {
+      const res = await vibeDiscover(query.trim(), 8);
+      setIcp(res.icp && Object.keys(res.icp).length ? res.icp : null);
       setOpps((prev) => mergeById(res.opportunities, prev));
       if (res.opportunities[0]) setSelectedId(res.opportunities[0].id);
     } finally {
@@ -255,13 +271,16 @@ export function BusinessView() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && find()}
-              placeholder="Describe who to find (e.g. healthcare, US, 50+ devs) — or enter one company name / website to analyze"
+              onKeyDown={(e) => e.key === "Enter" && vibeFind()}
+              placeholder="Describe your ideal client — the vibe (e.g. 'US healthcare groups scaling clinical hiring fast') — or a company name to analyze"
               className="field flex-1"
             />
             <div className="flex gap-2">
-              <button onClick={find} disabled={!!loading} className="btn-primary justify-center whitespace-nowrap">
-                Find prospects
+              <button onClick={vibeFind} disabled={!!loading || !query.trim()} className="btn-primary justify-center whitespace-nowrap">
+                ✨ Vibe match
+              </button>
+              <button onClick={find} disabled={!!loading} className="btn-ghost justify-center whitespace-nowrap">
+                Find
               </button>
               <button
                 onClick={analyze}
@@ -272,9 +291,23 @@ export function BusinessView() {
               </button>
             </div>
           </div>
+          {icp && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[11px]">
+              <span className="shrink-0 font-semibold text-foreground">Read your vibe as:</span>
+              {icp.summary ? (
+                <span className="text-muted">{icp.summary}</span>
+              ) : (
+                [icp.industry, icp.company_size, icp.location, icp.signal, icp.keywords]
+                  .filter(Boolean)
+                  .map((v, i) => (
+                    <span key={i} className="rounded-full bg-[var(--surface)] px-2 py-0.5 text-muted">{v}</span>
+                  ))
+              )}
+            </div>
+          )}
           <p className="mt-2 text-[11px] text-muted">
-            <span className="font-medium text-foreground">Find prospects</span> returns a scored list matching your focus + filters.{" "}
-            <span className="font-medium text-foreground">Analyze</span> evaluates the single company you typed — fit, decision-makers, and whether now is a good time to reach out.
+            <span className="font-medium text-foreground">✨ Vibe match</span> reads your description, sharpens it into a target profile, and returns a scored list of real companies.{" "}
+            <span className="font-medium text-foreground">Find</span> runs a plain search; <span className="font-medium text-foreground">Analyze</span> evaluates one named company.
           </p>
           {loading && (
             <p className="mt-2 flex items-center gap-2 text-xs text-muted">

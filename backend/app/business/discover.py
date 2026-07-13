@@ -81,7 +81,9 @@ def _search_phrase(company: str) -> str:
     core = company.split()
     while len(core) > 1 and core[-1].strip(".,").lower() in _STRIP_SUFFIXES:
         core.pop()
-    return " ".join(core)
+    # Drop any trailing punctuation left after popping a suffix (e.g. "VJ Technologies, Inc." ->
+    # "VJ Technologies", not "VJ Technologies,") so the exact-quoted people search stays precise.
+    return " ".join(core).strip(" ,.;")
 
 
 def _linkedin_search_url(company: str, role: str, website: str = "") -> str:
@@ -96,8 +98,14 @@ def _linkedin_search_url(company: str, role: str, website: str = "") -> str:
         return ""
     if not _company_is_distinctive(company):
         return ""  # e.g. "Stivers" (surname), "Apex" (common word), "Smith Group"
-    role_kw = f'"{role}"' if " " in role else role  # phrase-quote multi-word titles to cut noise
-    keywords = f'"{_search_phrase(company)}" {role_kw}'
+    # HIGH-RECALL query: exact-quoting BOTH the company AND the title and ANDing them is so strict
+    # LinkedIn returns "No results found" for many (esp. smaller) employers. Quote the company ONLY
+    # when it's multi-word (to hold the brand together for scoping) and leave the TITLE UNQUOTED so
+    # variants still match ("COO", "Chief Operating Officer & Co-Founder", "Interim CFO"). The rep
+    # still lands on LinkedIn scoped to the employer + role and picks the right profile.
+    phrase = _search_phrase(company)
+    company_kw = f'"{phrase}"' if " " in phrase else phrase
+    keywords = f"{company_kw} {role}"
     return "https://www.linkedin.com/search/results/people/?keywords=" + quote(keywords)
 
 
@@ -353,6 +361,42 @@ def _filters_clause(f: dict | None) -> str:
     if f.get("keywords"):
         parts.append(f"Keywords/focus: {f['keywords']}.")
     return ("ONLY include companies matching these filters — " + " ".join(parts) + "\n") if parts else ""
+
+
+async def vibe_to_icp(vibe: str) -> dict:
+    """VIBE PROSPECTING: parse a freeform 'ideal client' description into a structured search profile
+    that sharpens discovery. Returns any of: industry, company_size, location, signal, keywords,
+    refined_query, summary. Extracts ONLY what's stated or clearly implied — never invents specifics
+    (the no-fabrication rule). Best-effort: returns {} on error / no provider so discovery can still
+    run on the raw vibe text."""
+    v = (vibe or "").strip()
+    if not v or not llm.provider_available():
+        return {}
+    try:
+        out = await llm.chat_json([
+            {"role": "system", "content":
+             "You convert a freeform description of an IDEAL CLIENT for Talentrupt — an offshore RPO that "
+             "helps companies hire — into a structured company-search profile. Extract ONLY what the user "
+             "states or clearly implies; OMIT any field you're unsure about and NEVER invent specifics. "
+             "Reply as JSON with these optional keys: "
+             "industry (one short sector phrase, e.g. 'healthcare staffing'); "
+             "company_size (e.g. '50-500 employees', 'enterprise', 'startup'); "
+             "location (country / region / city); "
+             "signal (the buying signal implied, e.g. 'scaling hiring fast', 'recently funded', "
+             "'high open-role volume'); "
+             "keywords (comma-separated extra descriptors); "
+             "refined_query (a crisp one-line search query for companies matching the vibe); "
+             "summary (a short plain-English read-back of exactly who we'll target)."},
+            {"role": "user", "content": v},
+        ], temperature=0.3)
+        icp: dict = {}
+        for k in ("industry", "company_size", "location", "signal", "keywords", "refined_query", "summary"):
+            val = (out or {}).get(k)
+            if isinstance(val, str) and val.strip():
+                icp[k] = val.strip()[:200]
+        return icp
+    except Exception:
+        return {}
 
 
 async def discover(

@@ -1,0 +1,11 @@
+# OPTIONAL extras for the team-photo cut-out posts (generate_team_image):
+#   - pillow-heif: decode iPhone HEIC uploads
+#   - rembg + onnxruntime: offline background removal (rembg downloads a ~176MB model on first use)
+#
+# These are kept OUT of requirements.txt because they pin heavy versions that can conflict with Pillow
+# on some platforms (e.g. Python 3.12 on Linux), and the team-photo composer falls back gracefully to a
+# no-cutout cover-fit when they're absent. Install only if you want HEIC + background removal:
+#   pip install -r requirements-optional.txt
+pillow-heif==1.4.0
+rembg==2.0.76
+onnxruntime==1.27.0

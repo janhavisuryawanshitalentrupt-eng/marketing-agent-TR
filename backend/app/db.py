@@ -58,6 +58,27 @@ def _migrate_sqlite() -> None:
     from sqlalchemy import text
 
     with engine.begin() as conn:
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(conversations)"))}
-        if "kind" not in cols:
+        conv_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(conversations)"))}
+        if "kind" not in conv_cols:
             conn.execute(text("ALTER TABLE conversations ADD COLUMN kind VARCHAR DEFAULT 'chat'"))
+        if "campaign_id" not in conv_cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN campaign_id INTEGER"))
+        camp_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(campaigns)"))}
+        if "type" not in camp_cols:
+            conn.execute(text("ALTER TABLE campaigns ADD COLUMN type VARCHAR DEFAULT 'external'"))
+        # Per-account data isolation: every existing row belonged to the admin (the only prior user),
+        # so backfill owner='admin'. source_files default NULL = the SHARED brand library.
+        for tbl in ("conversations", "campaigns", "assets", "opportunities", "calendar_tasks"):
+            cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl})"))}
+            if "owner" not in cols:
+                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN owner VARCHAR DEFAULT 'admin'"))
+        sf_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(source_files)"))}
+        if "owner" not in sf_cols:
+            conn.execute(text("ALTER TABLE source_files ADD COLUMN owner VARCHAR"))
+        # Per-photo vision tags (attire/expression/…) so a feature picks the shot that fits the request.
+        emp_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(employees)"))}
+        if emp_cols and "photo_analysis" not in emp_cols:
+            conn.execute(text("ALTER TABLE employees ADD COLUMN photo_analysis JSON"))
+        ep_info = list(conn.execute(text("PRAGMA table_info(employee_photos)")))
+        if ep_info and "analysis" not in {row[1] for row in ep_info}:
+            conn.execute(text("ALTER TABLE employee_photos ADD COLUMN analysis JSON"))

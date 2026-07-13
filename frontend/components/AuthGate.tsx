@@ -7,15 +7,19 @@ import {
   useEffect,
   useState,
 } from "react";
-import { ApiError, clearToken, getBrand, getHealth, getToken } from "@/lib/api";
+import { ApiError, clearToken, getBrand, getHealth, getMe, getRole, getToken, getUsername } from "@/lib/api";
+import { MyraMark } from "./MyraLogo";
 import type { Brand, Health } from "@/lib/types";
 import { ChatProvider, CreateProvider } from "./ChatProvider";
 import { Login } from "./Login";
 import { Shell } from "./Shell";
+import { ToastProvider } from "./Toast";
 
 interface AuthState {
   brand: Brand | null;
   health: Health | null;
+  role: string;
+  username: string;
   logout: () => void;
   refreshHealth: () => void;
 }
@@ -33,6 +37,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [brand, setBrand] = useState<Brand | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
+  // Seed from the cached session so the nav renders correctly on first paint; /auth/me confirms it.
+  const [role, setRole] = useState<string>(getRole());
+  const [username, setUsername] = useState<string>(getUsername());
 
   const loadContext = useCallback(async () => {
     try {
@@ -48,6 +55,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       }
       setBrand(null); // transient/other error — keep the shell, don't force a logout
     }
+    // Authoritative identity from the token (a tampered localStorage role gets corrected here).
+    getMe().then((m) => { setRole(m.role); setUsername(m.username); }).catch(() => {});
     getHealth().then(setHealth).catch(() => {}); // public + non-critical
   }, []);
 
@@ -61,6 +70,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     clearToken();
     setAuthed(false);
     setBrand(null);
+    setRole("");
+    setUsername("");
   }, []);
 
   const refreshHealth = useCallback(() => {
@@ -70,13 +81,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   if (authed === null) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4">
-        <div
-          className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl"
-          style={{ background: "var(--grad-navy)" }}
-        >
-          <span className="font-heading text-sm font-bold text-[var(--brand-red)]">TR</span>
-        </div>
-        <div className="font-heading text-sm tracking-wide text-muted">Talentrupt AI</div>
+        <MyraMark className="h-12 w-12 animate-pulse" />
+        <div className="font-heading text-sm tracking-wide text-muted">Myra</div>
       </div>
     );
   }
@@ -93,15 +99,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ brand, health, logout, refreshHealth }}>
-      <ChatProvider>
-        <CreateProvider>
-          {/* Shell renders all section views (kept mounted so state survives navigation);
-              the route pages render null and only drive the URL. */}
-          <Shell />
-          {children}
-        </CreateProvider>
-      </ChatProvider>
+    <AuthContext.Provider value={{ brand, health, role, username, logout, refreshHealth }}>
+      <ToastProvider>
+        <ChatProvider>
+          <CreateProvider>
+            {/* Shell renders all section views (kept mounted so state survives navigation);
+                the route pages render null and only drive the URL. */}
+            <Shell />
+            {children}
+          </CreateProvider>
+        </ChatProvider>
+      </ToastProvider>
     </AuthContext.Provider>
   );
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -15,17 +16,50 @@ _LOGO_RED = (0xF6, 0x40, 0x4C)
 # The REAL logo, extracted from Talentrupt's brand guideline and bundled with the repo. Used by
 # default on every generated asset (overridable via settings.brand_logo_path).
 _BUNDLED_LOGO = Path(__file__).resolve().parent.parent / "brand" / "tr_logo.png"
+# The official TALENTRUPT WORDMARK (transparent PNG, true aspect ratio) — navy for light backgrounds,
+# white for dark. Composited into RESERVED clean space (never stamped over content). From the brand PDF.
+_BUNDLED_WORDMARK = Path(__file__).resolve().parent.parent / "brand" / "tr_wordmark.png"
+_BUNDLED_WORDMARK_WHITE = Path(__file__).resolve().parent.parent / "brand" / "tr_wordmark_white.png"
 
-# Windows font candidates (bold heading + regular body), with graceful fallback.
-_HEADING_CANDIDATES = [
-    "C:/Windows/Fonts/segoeuib.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-    "C:/Windows/Fonts/Poppins-SemiBold.ttf",
-]
-_BODY_CANDIDATES = [
-    "C:/Windows/Fonts/segoeui.ttf",
-    "C:/Windows/Fonts/arial.ttf",
-    "C:/Windows/Fonts/Montserrat-Regular.ttf",
+# Bundled OFL fonts (ship with the repo -> identical look on the dev box AND on Linux prod). These come
+# FIRST so dev == prod; OS fonts (Windows dev box, Linux DejaVu) are graceful fallbacks and Pillow's
+# built-in default is the last resort so a missing TTF can NEVER crash rendering. NOTE: before this,
+# the candidates were Windows-only paths, so on the Linux droplet EVERY renderer fell back to Pillow's
+# generic default font — bundling real fonts fixes that app-wide.
+_BUNDLED_FONTS = Path(__file__).resolve().parent.parent / "brand" / "fonts"
+
+# Design-system font FAMILIES. `font(family, size)` resolves the first existing path; a family may be a
+# variable font, in which case `_FAMILY_VARIATION` names the master to select (e.g. Playfair -> "Bold").
+_FAMILIES: dict[str, list[str]] = {
+    "sans": [                                                   # default heading (bold-ish)
+        str(_BUNDLED_FONTS / "Poppins-SemiBold.ttf"),
+        "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ],
+    "sans_light": [                                             # default body (regular)
+        str(_BUNDLED_FONTS / "Poppins-Regular.ttf"),
+        "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ],
+    "serif": [                                                  # editorial display serif (variable -> Bold)
+        str(_BUNDLED_FONTS / "PlayfairDisplay-VF.ttf"),
+        "C:/Windows/Fonts/georgiab.ttf", "C:/Windows/Fonts/timesbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    ],
+    "display": [                                                # heavy poster display
+        str(_BUNDLED_FONTS / "ArchivoBlack-Regular.ttf"),
+        "C:/Windows/Fonts/ariblk.ttf", "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ],
+}
+_FAMILY_VARIATION = {"serif": "Bold"}   # variable-font families -> named master to pick
+
+# Handwritten/script accent for "Featuring [Name]" & anniversary numbers (bundled Caveat, variable -> Bold).
+_SCRIPT_CANDIDATES = [
+    str(_BUNDLED_FONTS / "Caveat-Bold.ttf"),
+    "C:/Windows/Fonts/segoesc.ttf",   # Segoe Script (dev-box hand feel)
+    "C:/Windows/Fonts/segoeprb.ttf",  # Segoe Print Bold
+    "C:/Windows/Fonts/segoeuib.ttf",  # last resort: heading font (never crashes)
 ]
 
 
@@ -36,14 +70,50 @@ def _first_existing(candidates: list[str]) -> str | None:
     return None
 
 
+@lru_cache(maxsize=8)
+def _family_path(family: str) -> str | None:
+    return _first_existing(_FAMILIES.get(family) or _FAMILIES["sans"])
+
+
+def font(family: str, size: int) -> ImageFont.FreeTypeFont:
+    """Load a design-system font family at `size`. Bundled-first (dev==prod), graceful OS/default
+    fallback (never raises). Selects the correct master on variable-font families."""
+    path = _family_path(family)
+    if not path:
+        return ImageFont.load_default(size)
+    f = ImageFont.truetype(path, size)
+    var = _FAMILY_VARIATION.get(family)
+    if var and path.lower().endswith(".ttf"):
+        try:
+            f.set_variation_by_name(var)   # e.g. Playfair Display VF -> "Bold" master
+        except Exception:
+            pass
+    return f
+
+
 def heading_font(size: int) -> ImageFont.FreeTypeFont:
-    path = _first_existing(_HEADING_CANDIDATES)
-    return ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
+    """Default bold heading font — now the bundled 'sans' family (Poppins). Kept as an alias so EVERY
+    existing renderer (teampost, decks, pdf, posts) benefits with zero call-site edits."""
+    return font("sans", size)
 
 
 def body_font(size: int) -> ImageFont.FreeTypeFont:
-    path = _first_existing(_BODY_CANDIDATES)
-    return ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
+    """Default regular body font — the bundled 'sans_light' family (Poppins Regular)."""
+    return font("sans_light", size)
+
+
+def script_font(size: int) -> ImageFont.FreeTypeFont:
+    """Handwritten/script accent font (bundled Caveat). Best-effort selects the Bold master on the
+    variable font; falls back to an OS script font, then the heading font — never raises."""
+    path = _first_existing(_SCRIPT_CANDIDATES)
+    if not path:
+        return heading_font(size)
+    f = ImageFont.truetype(path, size)
+    try:
+        f.set_variation_by_name("Bold")  # Caveat is a variable font; pick the bold master when present
+    except Exception:
+        pass
+    return f
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -127,17 +197,44 @@ def paste_logo(img, x: int, y: int, size: int) -> bool:
         return False
 
 
-def composite_logo_bytes(png_bytes: bytes, corner: str = "bottom-right", frac: float = 0.17) -> bytes:
+def wordmark_path(dark_bg: bool = False) -> Path:
+    """Path to the official Talentrupt WORDMARK (a transparent, true-aspect PNG). White variant on a dark
+    background, navy on a light one. Falls back to the square logo if the wordmark asset is missing."""
+    p = _BUNDLED_WORDMARK_WHITE if dark_bg else _BUNDLED_WORDMARK
+    return p if p.exists() else logo_path()
+
+
+def paste_wordmark(img, x: int, y: int, max_w: int, max_h: int, dark_bg: bool = False, align: str = "left") -> bool:
+    """Fit the official wordmark into a (max_w x max_h) box at (x, y), preserving aspect ratio, on a
+    TRANSPARENT background — so it sits in reserved space and NEVER covers content with a chip/box.
+    `align` positions the (narrower) wordmark within the box: left | center | right. Best-effort."""
+    try:
+        wm = Image.open(str(wordmark_path(dark_bg))).convert("RGBA")
+        scale = min(max_w / wm.width, max_h / wm.height)
+        w, h = max(1, int(wm.width * scale)), max(1, int(wm.height * scale))
+        wm = wm.resize((w, h), Image.LANCZOS)
+        if align == "center":
+            x = int(x + (max_w - w) / 2)
+        elif align == "right":
+            x = int(x + (max_w - w))
+        img.paste(wm, (int(x), int(y)), wm)  # wm's own alpha is the mask -> no opaque box
+        return True
+    except Exception:
+        return False
+
+
+def composite_logo_bytes(png_bytes: bytes, corner: str = "bottom-right", frac: float = 0.10) -> bytes:
     """Overlay the brand logo onto an existing PNG (e.g. an AI-generated image) so the correct
-    Talentrupt mark is always present AND clearly visible. Sits the logo on an opaque white chip with
-    a soft drop shadow + subtle border so it lifts off ANY background. Returns bytes unchanged on failure."""
+    Talentrupt mark is always present. Kept SMALL with a TIGHT chip so it reads as a corner badge and
+    does not cover the image's headline or stat text. Sits on an opaque white chip with a soft drop
+    shadow + subtle border so it lifts off ANY background. Returns bytes unchanged on failure."""
     try:
         base = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-        s = max(64, int(min(base.size) * frac))  # logo edge in px (bigger + a higher floor than before)
-        pad = int(s * 0.42)
+        s = max(56, int(min(base.size) * frac))  # small logo edge in px
+        pad = int(s * 0.40)
         x = pad if "left" in corner else base.size[0] - s - pad
         y = pad if "top" in corner else base.size[1] - s - pad
-        m = int(s * 0.18)
+        m = int(s * 0.10)  # tight chip margin — minimal coverage of the underlying image
         chip = [x - m, y - m, x + s + m, y + s + m]
         rad = int(s * 0.22)
         # Soft drop shadow on its own layer so the chip reads on light AND dark/busy backgrounds.

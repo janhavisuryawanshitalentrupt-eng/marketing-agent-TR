@@ -11,8 +11,12 @@ import type {
   ChatMessage,
   ClientStrategy,
   Conversation,
+  Employee,
+  Folder,
   Health,
   KnowledgeStatus,
+  MagazineDataResult,
+  MagazineSpec,
   Opportunity,
 } from "./types";
 
@@ -29,6 +33,8 @@ export class ApiError extends Error {
 }
 
 const TOKEN_KEY = "tr_token";
+const ROLE_KEY = "tr_role";
+const USER_KEY = "tr_user";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -39,8 +45,39 @@ export function setToken(token: string): void {
   window.localStorage.setItem(TOKEN_KEY, token);
 }
 
+/** Cached role/username for an instant (flash-free) render; the server (/auth/me) is authoritative. */
+export function getRole(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(ROLE_KEY) || "";
+}
+
+export function getUsername(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(USER_KEY) || "";
+}
+
+/** Persist the full session (token + role + username) after a successful sign-in. */
+export function setSession(token: string, role: string, username: string): void {
+  setToken(token);
+  try {
+    window.localStorage.setItem(ROLE_KEY, role);
+    window.localStorage.setItem(USER_KEY, username);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function clearToken(): void {
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(ROLE_KEY);
+  window.localStorage.removeItem(USER_KEY);
+}
+
+/** The current session's identity — role is derived server-side from the token (can't be spoofed). */
+export async function getMe(): Promise<{ username: string; role: string }> {
+  const res = await fetchRetry(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, "Failed to load session");
+  return res.json();
 }
 
 function authHeaders(): Record<string, string> {
@@ -48,10 +85,28 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Retry an idempotent GET through a transient backend blip. A deploy restarts the server for ~2-4s and
+// returns 502/503/504 (or a network error) during that window. Without this, view loads (past
+// generations, history, campaigns) that fired during a deploy came back EMPTY and were silently
+// swallowed — looking like the data "vanished" after every deployment. Only use for GETs (never POSTs,
+// which could double-submit).
+async function fetchRetry(input: string, init: RequestInit = {}, tries = 4): Promise<Response> {
+  const TRANSIENT = new Set([502, 503, 504]);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(input, init);
+      if (res.ok || !TRANSIENT.has(res.status) || attempt >= tries) return res;
+    } catch (e) {
+      if (attempt >= tries) throw e;
+    }
+    await new Promise((r) => setTimeout(r, Math.min(1200, 500 * (attempt + 1))));
+  }
+}
+
 export async function login(
   username: string,
   password: string,
-): Promise<{ token: string; username: string }> {
+): Promise<{ token: string; username: string; role: string }> {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -64,21 +119,65 @@ export async function login(
   return res.json();
 }
 
+export async function forgotPassword(
+  email: string,
+): Promise<{ message: string; dev_code: string | null }> {
+  const res = await fetch(`${API_BASE}/api/auth/forgot`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error("Couldn't send a reset code — please try again.");
+  return res.json();
+}
+
+export async function resetPassword(
+  email: string,
+  code: string,
+  new_password: string,
+): Promise<{ token: string; username: string; role: string }> {
+  const res = await fetch(`${API_BASE}/api/auth/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, new_password }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail ?? "Invalid or expired reset code");
+  }
+  return res.json();
+}
+
 export async function getHealth(): Promise<Health> {
-  const res = await fetch(`${API_BASE}/api/health`);
+  const res = await fetchRetry(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error("Backend unavailable");
   return res.json();
 }
 
+/** Live AI (LLM) self-test — read-only. Powers the header status pill so a credit lapse / rate-limit is
+ * visible instead of a cryptic per-turn error. Does not affect any generation flow. */
+export interface LlmHealth {
+  ok: boolean;
+  reason?: string; // out_of_credits | rate_limited | bad_key | bad_model | network | ...
+  detail?: string;
+}
+export async function getLlmHealth(): Promise<LlmHealth> {
+  const res = await fetchRetry(`${API_BASE}/api/health/llm`, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, "AI health check failed");
+  const data = await res.json().catch(() => ({}));
+  const chat = (data && data.chat) || {};
+  return { ok: !!chat.ok, reason: chat.reason, detail: chat.detail };
+}
+
 export async function getBrand(): Promise<Brand> {
-  const res = await fetch(`${API_BASE}/api/brand`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/brand`, { headers: authHeaders() });
   if (!res.ok) throw new ApiError(res.status, "Failed to load brand");
   return res.json();
 }
 
 export async function getConversations(kind?: string): Promise<Conversation[]> {
   const q = kind ? `?kind=${encodeURIComponent(kind)}` : "";
-  const res = await fetch(`${API_BASE}/api/conversations${q}`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/conversations${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load conversations");
   return res.json();
 }
@@ -99,6 +198,20 @@ export async function getMessages(id: number): Promise<ChatMessage[]> {
   return res.json();
 }
 
+/**
+ * Drop the last `drop` messages of a conversation — used by the transcript's "edit message" action, which
+ * removes the edited turn + everything after it before re-sending the edited prompt (so persisted history
+ * matches the on-screen edit). Best-effort: a null conversation id (turn not yet persisted) is a no-op.
+ */
+export async function truncateConversation(id: number | null, drop: number): Promise<void> {
+  if (!id || drop <= 0) return;
+  await fetch(`${API_BASE}/api/conversations/${id}/truncate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ drop }),
+  }).catch(() => {});
+}
+
 export async function renameCampaign(id: number, name: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/campaigns/${id}`, {
     method: "PATCH",
@@ -106,6 +219,17 @@ export async function renameCampaign(id: number, name: string): Promise<void> {
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error("Rename failed");
+}
+
+/** Update an internal campaign's brief/description (the context that grounds all generation). */
+export async function updateCampaignBrief(id: number, goal: string): Promise<CampaignDetail> {
+  const res = await fetch(`${API_BASE}/api/campaigns/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ goal }),
+  });
+  if (!res.ok) throw new Error("Failed to update the brief");
+  return res.json();
 }
 
 export async function setCampaignSector(id: number, sector: string): Promise<CampaignDetail> {
@@ -250,9 +374,12 @@ export async function planCampaignChat(
   return res.json();
 }
 
-export async function getCampaigns(status?: string): Promise<CampaignSummary[]> {
-  const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await fetch(`${API_BASE}/api/campaigns${q}`, { headers: authHeaders() });
+export async function getCampaigns(status?: string, type?: string): Promise<CampaignSummary[]> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (type) params.set("type", type);
+  const q = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetchRetry(`${API_BASE}/api/campaigns${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load campaigns");
   return res.json();
 }
@@ -265,12 +392,33 @@ export async function getCampaign(id: number): Promise<CampaignDetail> {
   return res.json();
 }
 
+/** Create an INTERNAL campaign shell (folder + its chat thread). The description is the brief that
+ * grounds everything generated in that folder. */
+export async function createInternalCampaign(name: string, description: string): Promise<CampaignDetail> {
+  const res = await fetch(`${API_BASE}/api/campaigns`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name, description, type: "internal" }),
+  });
+  if (!res.ok) throw new Error("Failed to create campaign");
+  return res.json();
+}
+
+/** The internal campaign's chat thread (restores the conversation when reopening the folder). */
+export async function getCampaignMessages(
+  id: number,
+): Promise<{ conversation_id: number | null; messages: { role: string; content: string; assets: Asset[] }[] }> {
+  const res = await fetch(`${API_BASE}/api/campaigns/${id}/messages`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load campaign chat");
+  return res.json();
+}
+
 export async function getCampaignProspects(
   campaignId: number,
   status?: string,
 ): Promise<CampaignProspect[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await fetch(`${API_BASE}/api/campaigns/${campaignId}/prospects${q}`, {
+  const res = await fetchRetry(`${API_BASE}/api/campaigns/${campaignId}/prospects${q}`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error("Failed to load target clients");
@@ -316,10 +464,101 @@ export async function revokeCampaignProspect(id: number): Promise<CampaignProspe
   return res.json();
 }
 
+// The Chat / Create "Your generations" gallery — general (non-campaign) assets only, so campaign-specific
+// images (e.g. a Football campaign banner) stay in that campaign's Generated content tab, not the chat area.
 export async function getAssets(type?: string): Promise<Asset[]> {
-  const q = type ? `?type=${encodeURIComponent(type)}` : "";
-  const res = await fetch(`${API_BASE}/api/assets${q}`, { headers: authHeaders() });
+  const params = new URLSearchParams({ general: "true" });
+  if (type) params.set("type", type);
+  const res = await fetchRetry(`${API_BASE}/api/assets?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load assets");
+  return res.json();
+}
+
+// --- Folders (employee photo libraries) -----------------------------------
+export async function getFolders(): Promise<Folder[]> {
+  const res = await fetchRetry(`${API_BASE}/api/folders`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load folders");
+  return res.json();
+}
+
+export async function createFolder(name: string): Promise<Folder> {
+  const res = await fetch(`${API_BASE}/api/folders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to create folder");
+  return res.json();
+}
+
+export async function deleteFolder(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/folders/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error("Delete failed");
+}
+
+export async function getEmployees(folderId: number): Promise<Employee[]> {
+  const res = await fetchRetry(`${API_BASE}/api/folders/${folderId}/employees`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load employees");
+  return res.json();
+}
+
+// Flat list of ALL the account's employees across folders — for the @ mention picker in Create/Chat.
+export async function getAllEmployees(): Promise<Employee[]> {
+  const res = await fetchRetry(`${API_BASE}/api/employees`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load employees");
+  return res.json();
+}
+
+export async function addEmployee(folderId: number, name: string, role: string, files: File[]): Promise<Employee> {
+  const fd = new FormData();
+  fd.append("name", name);
+  fd.append("role_title", role);
+  for (const f of files) fd.append("files", f); // one or more photos; first becomes the cover
+  // No Content-Type — the browser sets the multipart boundary.
+  const res = await fetch(`${API_BASE}/api/folders/${folderId}/employees`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: fd,
+  });
+  if (!res.ok) throw new Error("Failed to add employee");
+  return res.json();
+}
+
+// Add one or more EXTRA photos to an existing employee (same person, different shots).
+export async function addEmployeePhotos(empId: number, files: File[]): Promise<Employee> {
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  const res = await fetch(`${API_BASE}/api/employees/${empId}/photos`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: fd,
+  });
+  if (!res.ok) throw new Error("Failed to add photos");
+  return res.json();
+}
+
+// Delete ONE extra photo (not the cover). Returns the updated employee.
+export async function deleteEmployeePhoto(empId: number, photoId: number): Promise<Employee> {
+  const res = await fetch(`${API_BASE}/api/employees/${empId}/photos/${photoId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Delete failed");
+  return res.json();
+}
+
+export async function deleteEmployee(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/employees/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error("Delete failed");
+}
+
+export async function generateEmployeePost(empId: number, topic: string): Promise<Asset> {
+  const res = await fetch(`${API_BASE}/api/employees/${empId}/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ topic }),
+  });
+  if (!res.ok) throw new Error("Generation failed");
   return res.json();
 }
 
@@ -345,6 +584,21 @@ export async function discoverProspects(
   return res.json();
 }
 
+// VIBE PROSPECTING: describe the ideal client in natural language → the backend interprets it into a
+// sharp ICP, finds REAL matching companies (fit-scored), and returns the interpretation + the list.
+export async function vibeDiscover(
+  vibe: string,
+  count = 8,
+): Promise<{ icp: Record<string, string>; count: number; opportunities: Opportunity[] }> {
+  const res = await fetch(`${API_BASE}/api/business/vibe-discover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ vibe, count }),
+  });
+  if (!res.ok) throw new Error("Vibe discovery failed");
+  return res.json();
+}
+
 export async function intakeCompany(
   company: string,
   website = "",
@@ -360,7 +614,7 @@ export async function intakeCompany(
 
 export async function getOpportunities(status?: string): Promise<Opportunity[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await fetch(`${API_BASE}/api/opportunities${q}`, { headers: authHeaders() });
+  const res = await fetchRetry(`${API_BASE}/api/opportunities${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load opportunities");
   return res.json();
 }
@@ -522,10 +776,63 @@ export async function getKnowledgeStatus(): Promise<KnowledgeStatus> {
   return res.json();
 }
 
+// --- Magazine ---------------------------------------------------------------
+export async function generateMagazine(spec: MagazineSpec, signal?: AbortSignal): Promise<Asset> {
+  const res = await fetch(`${API_BASE}/api/magazine/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(spec),
+    signal,
+  });
+  if (!res.ok) throw new Error("Failed to generate the magazine");
+  return res.json();
+}
+
+export async function getMagazines(): Promise<Asset[]> {
+  const res = await fetchRetry(`${API_BASE}/api/magazine/issues`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load past issues");
+  return res.json();
+}
+
+/** Upload a roster CSV/XLSX — the backend ranks employees, picks a champion + spotlights, matches each
+ * name to a Folders photo, and returns the generated magazine PDF asset. */
+export async function generateMagazineFromData(
+  file: File,
+  opts: { theme: string; title: string; edition: string; feature_count: string; editorial: string; rank_by: string },
+  signal?: AbortSignal,
+): Promise<MagazineDataResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("theme", opts.theme);
+  fd.append("title", opts.title);
+  fd.append("edition", opts.edition);
+  fd.append("feature_count", opts.feature_count);
+  fd.append("editorial", opts.editorial);
+  fd.append("rank_by", opts.rank_by);
+  // No Content-Type — the browser sets the multipart boundary.
+  const res = await fetch(`${API_BASE}/api/magazine/from-data`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: fd,
+    signal,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail ?? "Failed to generate the magazine");
+  }
+  return res.json();
+}
+
 /** Resolve a relative backend file path (e.g. /api/files/...) to an absolute URL. */
 export function fileUrl(path: string | null | undefined): string {
   if (!path) return "";
   return path.startsWith("http") ? path : `${API_BASE}${path}`;
+}
+
+/** Full URL of a PDF's rasterized first-page cover thumbnail (for magazine cards). null if no file. */
+export function pdfCoverUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return `${fileUrl(path)}/preview`;
 }
 
 export interface AttachmentMeta {
@@ -559,6 +866,7 @@ export interface ChatHandlers {
   onStatus?: (text: string) => void;
   onToken?: (text: string) => void;
   onAsset?: (asset: Asset) => void;
+  onChips?: (items: string[]) => void;
   onDone?: (text: string) => void;
   onError?: (text: string) => void;
 }
@@ -573,30 +881,45 @@ export async function streamChat(
   conversationId: number | null,
   handlers: ChatHandlers,
   endpoint: string = "/api/chat/stream",
-  attachments?: { name: string; text: string }[],
+  attachments?: { name: string; text: string; id?: number; kind?: string }[],
   signal?: AbortSignal,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({
-        message,
-        conversation_id: conversationId,
-        attachments: attachments && attachments.length ? attachments : undefined,
-      }),
-      signal,
-    });
-  } catch (e) {
-    if ((e as Error)?.name === "AbortError") return; // superseded by a newer turn — silent
-    // network/DNS/CORS failure before any response — route through onError, never throw.
-    handlers.onError?.((e as Error)?.message || "Connection failed");
-    return;
+  const payload = JSON.stringify({
+    message,
+    conversation_id: conversationId,
+    attachments: attachments && attachments.length ? attachments : undefined,
+  });
+  // Transient gateway errors (502/503/504) and pre-response network blips happen when the backend is
+  // briefly restarting (e.g. a deploy). Retry the INITIAL connection a couple times before surfacing
+  // an error so a short blip doesn't dump the user to "network error". We only retry before any data
+  // has streamed — never mid-stream, which would duplicate a partial reply.
+  const TRANSIENT = new Set([502, 503, 504]);
+  const MAX_RETRY = 4; // up to 5 attempts (~4s total) — rides through a backend restart during a deploy
+  const wait = (a: number) => new Promise((r) => setTimeout(r, Math.min(1200, 600 * (a + 1))));
+  let res: Response | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: payload,
+        signal,
+      });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") return; // superseded by a newer turn — silent
+      if (attempt < MAX_RETRY) {
+        await wait(attempt);
+        continue; // network blip before any response — retry
+      }
+      handlers.onError?.("Couldn’t reach the server — please try again in a moment.");
+      return;
+    }
+    if (res.ok || !TRANSIENT.has(res.status) || attempt >= MAX_RETRY) break;
+    await wait(attempt); // backend restarting (e.g. a deploy) — retry
   }
 
-  if (!res.ok || !res.body) {
-    handlers.onError?.(`Request failed (${res.status})`);
+  if (!res || !res.ok || !res.body) {
+    handlers.onError?.(res ? `Request failed (${res.status})` : "Connection failed");
     return;
   }
 
@@ -648,6 +971,9 @@ export async function streamChat(
           break;
         case "asset":
           handlers.onAsset?.(data as unknown as Asset);
+          break;
+        case "chips":
+          handlers.onChips?.((data as { items?: string[] }).items ?? []);
           break;
         case "done":
           handlers.onDone?.(data.text ?? "");

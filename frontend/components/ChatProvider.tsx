@@ -13,6 +13,7 @@ import {
   getConversations,
   getMessages,
   streamChat,
+  truncateConversation,
   uploadAttachment,
 } from "@/lib/api";
 import type { Asset, Attachment, ChatMessage, Conversation } from "@/lib/types";
@@ -26,11 +27,15 @@ export interface ChatState {
   attachments: Attachment[];
   attaching: boolean;
   send: (text: string) => void;
+  stop: () => void;
   attach: (file: File) => Promise<void>;
   removeAttachment: (id: number) => void;
+  editMessage: (index: number, text: string) => void;
+  regenerate: () => void;
   newChat: () => void;
   openConversation: (id: number) => void;
   deleteConversation: (id: number) => void;
+  clearConversations: () => Promise<void>;
 }
 
 /**
@@ -61,6 +66,20 @@ export function makeChatStore(endpoint: string, kind: string) {
       genRef.current += 1;
     }, []);
 
+    // User-facing Stop: abort the in-flight turn, drop the busy/typing state, and finalize the pending
+    // assistant bubble — keep whatever it had already produced (text/assets), or drop it if still empty.
+    const stop = useCallback(() => {
+      cancelStream();
+      setBusy(false);
+      setStatus("");
+      setMessages((m) => {
+        const last = m[m.length - 1];
+        if (last?.role !== "assistant" || !last.pending) return m;
+        if (!last.content && !(last.assets && last.assets.length)) return m.slice(0, -1);
+        return [...m.slice(0, -1), { ...last, pending: false }];
+      });
+    }, [cancelStream]);
+
     const refresh = useCallback(() => {
       getConversations(kind).then(setConversations).catch(() => {});
     }, []);
@@ -80,11 +99,17 @@ export function makeChatStore(endpoint: string, kind: string) {
         const live = () => genRef.current === myGen;
         setBusy(true);
         setStatus("");
+        // Snapshot the attachments (by value) onto the user message so the transcript shows the file(s)
+        // next to the prompt, then CLEAR the composer immediately — the moment you hit send the file
+        // belongs to the message, not the input box. `atts` (captured below) still carries them to the
+        // backend, so clearing the state here doesn't drop them from this turn.
+        const sentAttachments = attachments.length ? [...attachments] : undefined;
         setMessages((m) => [
           ...m,
-          { role: "user", content: trimmed },
+          { role: "user", content: trimmed, attachments: sentAttachments },
           { role: "assistant", content: "", pending: true },
         ]);
+        setAttachments([]);
 
         try {
         await streamChat(
@@ -112,6 +137,16 @@ export function makeChatStore(endpoint: string, kind: string) {
                 ];
               });
             },
+            onChips: (items) => {
+              // Tappable quick-pick replies to show under the agent's question; clear typing state.
+              if (!live()) return;
+              setStatus("");
+              setMessages((m) => {
+                const last = m[m.length - 1];
+                if (last?.role !== "assistant") return m;
+                return [...m.slice(0, -1), { ...last, chips: items, pending: false }];
+              });
+            },
             onDone: (final) => {
               if (!live()) return;
               setStatus("");
@@ -137,7 +172,7 @@ export function makeChatStore(endpoint: string, kind: string) {
             },
           },
           endpoint,
-          attachments.map((a) => ({ name: a.name, text: a.text })),
+          attachments.map((a) => ({ name: a.name, text: a.text, id: a.id, kind: a.kind })),
           ac.signal,
         );
         } catch (e) {
@@ -164,7 +199,6 @@ export function makeChatStore(endpoint: string, kind: string) {
           if (live()) {
             setStatus("");
             setBusy(false);
-            setAttachments([]); // each file rides one message; saved to the library for later turns
             refresh();
           }
         }
@@ -172,17 +206,48 @@ export function makeChatStore(endpoint: string, kind: string) {
       [busy, attaching, conversationId, refresh, attachments],
     );
 
+    // Edit a prior USER message (ChatGPT-style): drop that turn + everything after it from BOTH the persisted
+    // history (truncate — counted from the back, so it's index-safe) and the on-screen transcript, then
+    // re-send the edited text so it re-runs cleanly with the corrected prompt.
+    const editMessage = useCallback(
+      async (index: number, text: string) => {
+        const t = text.trim();
+        if (!t || busy || attaching) return;
+        const drop = messages.length - index;
+        if (drop > 0) await truncateConversation(conversationId, drop);
+        setMessages((m) => m.slice(0, index));
+        send(t);
+      },
+      [messages, busy, attaching, conversationId, send],
+    );
+
+    // Regenerate the LAST request from scratch: drop the most recent user turn + its response, then
+    // re-run that same prompt for a fresh result (like ChatGPT's "regenerate").
+    const regenerate = useCallback(async () => {
+      if (busy || attaching) return;
+      let idx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user" && (messages[i].content || "").trim()) { idx = i; break; }
+      }
+      if (idx < 0) return;
+      await editMessage(idx, messages[idx].content);
+    }, [messages, busy, attaching, editMessage]);
+
     const attach = useCallback(async (file: File) => {
       setInFlight((n) => n + 1);
       setStatus("");
+      // Capture a local object URL up-front so an IMAGE attachment can show a real thumbnail in the
+      // transcript immediately (the backend upload returns no servable URL). Live-session only.
+      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
       try {
         const meta = await uploadAttachment(file);
         setAttachments((a) =>
           a.some((x) => x.name === meta.filename)
             ? a
-            : [...a, { id: meta.id, name: meta.filename, text: meta.text, kind: meta.kind, chars: meta.chars }],
+            : [...a, { id: meta.id, name: meta.filename, text: meta.text, kind: meta.kind, chars: meta.chars, previewUrl }],
         );
       } catch (e) {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
         setStatus(`⚠️ ${(e as Error).message}`);
       } finally {
         setInFlight((n) => n - 1);
@@ -223,6 +288,19 @@ export function makeChatStore(endpoint: string, kind: string) {
       [conversationId, cancelStream],
     );
 
+    const clearConversations = useCallback(async () => {
+      const ids = conversations.map((c) => c.id);
+      // Optimistically clear the list + reset to a fresh chat, then delete each on the server.
+      setConversations([]);
+      cancelStream();
+      setConversationId(null);
+      setMessages([]);
+      setStatus("");
+      setBusy(false);
+      setAttachments([]);
+      await Promise.allSettled(ids.map((id) => deleteConversationApi(id)));
+    }, [conversations, cancelStream]);
+
     const openConversation = useCallback((id: number) => {
       cancelStream(); // stop any in-flight stream before loading the opened conversation
       setStatus("");
@@ -246,8 +324,8 @@ export function makeChatStore(endpoint: string, kind: string) {
       <Ctx.Provider
         value={{
           messages, status, busy, conversationId, conversations,
-          attachments, attaching, send, attach, removeAttachment, newChat, openConversation,
-          deleteConversation,
+          attachments, attaching, send, stop, attach, removeAttachment, editMessage, regenerate, newChat,
+          openConversation, deleteConversation, clearConversations,
         }}
       >
         {children}

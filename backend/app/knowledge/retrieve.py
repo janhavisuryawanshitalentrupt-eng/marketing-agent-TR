@@ -7,14 +7,23 @@ from __future__ import annotations
 
 import math
 import os
+import re
+import zipfile
 
+from ..config import settings
 from ..db import SessionLocal
 from ..models import BrandChunk, SourceFile
 from ..providers import llm
+from .ingest import _clean_name
 
 # Relevance floors so off-topic queries return nothing rather than confident noise.
 MIN_TEXT_SCORE = 0.18
 MIN_IMAGE_SCORE = 0.24
+
+# Folders whose images must NEVER be used as visual STYLE references for generation: Uploads (one-off
+# chat attachments) and Team (real people's photos — feeding a face into a normal post would leak a
+# real likeness into an unrelated image).
+EXCLUDED_REF_FOLDERS = {"Uploads", "Team"}
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -90,8 +99,8 @@ async def image_references(query: str, n: int = 3, min_score: float = MIN_IMAGE_
             return []
         sources = db.query(SourceFile).all()
         paths = {sf.id: sf.path for sf in sources}
-        upload_ids = {sf.id for sf in sources if (sf.folder or "") == "Uploads"}
-        rows = [r for r in rows if r.source_file_id not in upload_ids]
+        excluded_ids = {sf.id for sf in sources if (sf.folder or "") in EXCLUDED_REF_FOLDERS}
+        rows = [r for r in rows if r.source_file_id not in excluded_ids]
         if not rows:
             return []
         scored = [(_cosine(qvec, r.embedding or []), r) for r in rows]
@@ -107,6 +116,70 @@ async def image_references(query: str, n: int = 3, min_score: float = MIN_IMAGE_
         return out
     finally:
         db.close()
+
+
+# --- Team photos (real people, composited into branded posts — never AI-synthesized) ---------------
+_GROUP_CUES = {"team", "leadership", "everyone", "group", "all", "staff", "crew", "founders", "leaders",
+               "whole", "company", "office", "department"}
+
+
+def list_team_photos() -> list[dict]:
+    """Every photo under the brand ZIP's Team/ folder, as {path, label, caption}. The label is the
+    descriptive filename (e.g. 'Team/rushikesh-founder.jpg' -> 'rushikesh founder'), which is the only
+    way to identify WHO is in a shot (vision captions can't name individuals)."""
+    db = SessionLocal()
+    try:
+        rows = db.query(SourceFile).filter(SourceFile.folder == "Team").all()
+        return [{"path": sf.path, "label": _clean_name(sf.path),
+                 "caption": (sf.analysis or {}).get("caption", "")} for sf in rows]
+    finally:
+        db.close()
+
+
+def _team_score(query: str, item: dict) -> float:
+    """Keyword overlap of the request against the filename label (weighted) + caption, with a boost
+    when the request asks for a group and the photo reads as a group."""
+    q = {w for w in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(w) > 1}
+    if not q:
+        return 0.0
+    label = set(re.findall(r"[a-z0-9]+", item["label"].lower()))
+    cap = set(re.findall(r"[a-z0-9]+", (item.get("caption") or "").lower()))
+    score = 2.0 * len(q & label) + 0.5 * len(q & cap)
+    if (q & _GROUP_CUES) and ({"team", "group", "people", "leadership"} & (label | cap | _GROUP_CUES & q)):
+        score += 1.5
+    return score
+
+
+def match_team_photos(query: str, n: int = 1) -> list[dict]:
+    """Best-matching Team/ photo(s) for a user's request (e.g. 'the founder', 'leadership team').
+    Returns [] when nothing scores — the caller then lists options instead of inventing a face."""
+    items = list_team_photos()
+    scored = sorted(((_team_score(query, it), it) for it in items), key=lambda t: t[0], reverse=True)
+    return [it for s, it in scored if s > 0][:n]
+
+
+def person_photos(query: str, limit: int = 12) -> list[dict]:
+    """ALL Team/ photos of the same person/group the query names — the rotation set, so repeated
+    'feature X' requests can cycle through different shots instead of reusing one. Keeps the photos
+    that score near the top match (same person; extra shots are named '<base>-2.jpg', '-3.jpg', …).
+    [] when nothing matches — caller lists options rather than inventing a face."""
+    items = list_team_photos()
+    scored = sorted(((_team_score(query, it), it) for it in items), key=lambda t: t[0], reverse=True)
+    scored = [(s, it) for s, it in scored if s > 0]
+    if not scored:
+        return []
+    top = scored[0][0]
+    return [it for s, it in scored if s >= max(0.1, top * 0.5)][:limit]
+
+
+def team_reference_bytes(path: str) -> bytes | None:
+    """Full-resolution bytes of one Team/ photo straight from the brand ZIP (no downscale, so the face
+    stays crisp). Returns None on any read failure."""
+    try:
+        with zipfile.ZipFile(settings.knowledge_zip_path) as zf:
+            return zf.read(path)
+    except Exception:
+        return None
 
 
 async def brand_context(query: str, k: int = 8, max_chars: int = 700) -> str:

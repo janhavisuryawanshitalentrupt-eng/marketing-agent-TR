@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  createInternalCampaign,
   deleteCampaign,
   deleteCampaignProspect,
   exportCampaignProspects,
-  fileUrl,
-  generateCampaignItem,
+  deleteAsset,
   getCampaign,
+  getCampaignMessages,
   getCampaignProspects,
   getCampaignProspectStrategy,
   getCampaigns,
@@ -18,17 +19,34 @@ import {
   revokeCampaignProspect,
   setCampaignSector,
   setCampaignStatus,
+  streamChat,
+  truncateConversation,
+  updateCampaignBrief,
   updateCampaignItem,
+  uploadAttachment,
 } from "@/lib/api";
 import type {
+  Asset,
+  Attachment,
   CampaignDetail,
   CampaignItem,
   CampaignProspect,
   CampaignSummary,
+  ChatMessage,
   ClientStrategy,
 } from "@/lib/types";
+import { AssetCard } from "./AssetCard";
+import { useAuth } from "./AuthGate";
 import { Avatar } from "./Avatar";
+import { MyraAvatar } from "./MyraLogo";
+import { ReplyActions } from "./ReplyActions";
+import { UserMessage } from "./UserMessage";
 import { EmptyState } from "./EmptyState";
+import { ImageLightbox } from "./ImageLightbox";
+import { Markdown } from "./Markdown";
+import { useAtMentions, AtMenu, CAMPAIGN_AT_COMMANDS } from "@/lib/atMentions";
+
+type CampaignTab = "internal" | "external";
 
 // Real-time campaign quick-starts by sector — each builds a context-grounded campaign whose
 // Target clients are real companies discovered for that vertical.
@@ -73,21 +91,65 @@ const VERTICALS = [
 ];
 
 export function CampaignsView() {
+  const [tab, setTab] = useState<CampaignTab>("internal");
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
   const [creating, setCreating] = useState(false);
   const [busyVertical, setBusyVertical] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadList = useCallback(async () => {
-    const c = await getCampaigns("planning"); // only real planned campaigns in the rail
+    // Active: Internal = promote-Talentrupt folders; External = the planned client campaigns.
+    // Archived view: archived campaigns of the current type (restorable).
+    const c = showArchived
+      ? await getCampaigns("archived", tab)
+      : tab === "internal"
+        ? await getCampaigns(undefined, "internal")
+        : await getCampaigns("planning", "external");
     setCampaigns(c);
     return c;
-  }, []);
+  }, [tab, showArchived]);
 
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  function switchTab(next: CampaignTab) {
+    if (next === tab) return;
+    setTab(next);
+    setSelected(null);
+    setDetail(null);
+    setCreating(false);
+    setShowArchived(false);
+  }
+
+  function toggleArchived() {
+    setShowArchived((v) => !v);
+    setSelected(null);
+    setDetail(null);
+    setCreating(false);
+  }
+
+  async function restore(id: number) {
+    try {
+      await setCampaignStatus(id, "planning");
+    } catch {
+      /* ignore — still refresh the list */
+    }
+    if (selected === id) {
+      setSelected(null);
+      setDetail(null);
+    }
+    await loadList();
+  }
+
+  async function onInternalCreated(c: CampaignDetail) {
+    setCreating(false);
+    await loadList();
+    setSelected(c.id);
+    setDetail(c);
+  }
 
   useEffect(() => {
     if (selected == null) {
@@ -186,53 +248,93 @@ export function CampaignsView() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
         {/* Rail */}
-        <div className="flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
+        <div className="rail flex w-60 shrink-0 flex-col border-r border-[var(--border)]">
           <div className="space-y-3 p-3">
-            <button onClick={openNew} className="btn-primary w-full">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-              New campaign
-            </button>
-            <div>
-              <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-muted">
-                Quick-start by sector
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {VERTICALS.map((v) => (
-                  <button
-                    key={v.label}
-                    onClick={() => startVertical(v)}
-                    disabled={!!busyVertical}
-                    title={`Build a campaign with real ${v.label} target clients`}
-                    className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground disabled:opacity-50"
-                  >
-                    {busyVertical === v.label ? "Building…" : v.label}
-                  </button>
-                ))}
-              </div>
+            {/* Internal (promote Talentrupt) vs External (client-targeting) folders */}
+            <div className="flex rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+              {(["internal", "external"] as CampaignTab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => switchTab(t)}
+                  className={`flex-1 rounded-md px-2 py-1.5 capitalize transition ${
+                    tab === t ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
             </div>
+            {!showArchived && (
+              <button onClick={openNew} className="btn-primary w-full">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                New campaign
+              </button>
+            )}
+            {!showArchived && tab === "external" && (
+              <div>
+                <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                  Quick-start by sector
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {VERTICALS.map((v) => (
+                    <button
+                      key={v.label}
+                      onClick={() => startVertical(v)}
+                      disabled={!!busyVertical}
+                      title={`Build a campaign with real ${v.label} target clients`}
+                      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-foreground transition hover:border-[var(--brand-red)] hover:text-[var(--brand-red)] disabled:opacity-50"
+                    >
+                      {busyVertical === v.label ? "Building…" : v.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button
+              onClick={toggleArchived}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition ${
+                showArchived
+                  ? "border-[var(--brand-navy)] text-foreground"
+                  : "border-[var(--border)] text-muted font-medium hover:border-[var(--brand-red)] hover:text-foreground"
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
+              {showArchived ? "← Back to active" : "View archived"}
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto px-2 pb-3">
             {campaigns.map((c) => (
               <div key={c.id} className="group relative">
                 <button
                   onClick={() => { setCreating(false); setSelected(c.id); }}
-                  className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-14 text-left text-sm transition ${
+                  className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-14 text-left text-sm font-medium transition ${
                     selected === c.id
-                      ? "bg-[var(--brand-navy)] text-cream"
-                      : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
+                      ? "bg-[var(--brand-navy)] text-white"
+                      : "text-foreground hover:bg-[var(--surface-2)]"
                   }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>
                   <span className="truncate">{c.name}</span>
                 </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); archive(c.id); }}
-                  title="Archive campaign (recoverable)"
-                  aria-label={`Archive ${c.name}`}
-                  className="absolute right-7 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
-                </button>
+                {showArchived ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); restore(c.id); }}
+                    title="Restore campaign"
+                    aria-label={`Restore ${c.name}`}
+                    className="absolute right-7 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.36 2.64L3 8M3 3v5h5" /></svg>
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); archive(c.id); }}
+                    title="Archive campaign (recoverable)"
+                    aria-label={`Archive ${c.name}`}
+                    className="absolute right-7 top-1.5 rounded-md p-1 text-muted opacity-0 transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" /></svg>
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); removeCampaign(c.id); }}
                   title="Delete campaign"
@@ -249,12 +351,28 @@ export function CampaignsView() {
         {/* Main */}
         <div className="min-w-0 flex-1 overflow-y-auto p-6">
           {creating ? (
-            <NewCampaignChat onPlanned={onPlanned} />
+            tab === "internal" ? (
+              <NewInternalCampaign onCreated={onInternalCreated} />
+            ) : (
+              <NewCampaignChat onPlanned={onPlanned} />
+            )
           ) : detail ? (
-            <CampaignDetailView
-              detail={detail}
-              onSectorChange={(s) => onSectorChange(detail.id, s)}
-            />
+            detail.type === "internal" ? (
+              <InternalCampaignView key={detail.id} detail={detail} />
+            ) : (
+              <CampaignDetailView
+                detail={detail}
+                onSectorChange={(s) => onSectorChange(detail.id, s)}
+              />
+            )
+          ) : tab === "internal" ? (
+            <EmptyState
+              title="Start an internal campaign"
+              subtitle="Promote Talentrupt itself — a magazine launch, an announcement, a LinkedIn series. Name it, then describe it in chat and I'll generate the posts, visuals, decks and PDFs into its folder."
+              icon={<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18M7 3v3M17 3v3M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>}
+            >
+              <button onClick={openNew} className="btn-primary mx-auto">New campaign</button>
+            </EmptyState>
           ) : (
             <EmptyState
               title="Start a campaign by sector"
@@ -287,6 +405,8 @@ function NewCampaignChat({ onPlanned }: { onPlanned: (c: CampaignDetail) => void
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { username } = useAuth();
+  const displayName = (username.split("@")[0] || "You").replace(/^\w/, (c) => c.toUpperCase());
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -324,12 +444,17 @@ function NewCampaignChat({ onPlanned }: { onPlanned: (c: CampaignDetail) => void
       <div ref={scrollRef} className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
         {messages.map((m, i) =>
           m.role === "user" ? (
-            <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl bg-[var(--brand-navy)] px-4 py-2.5 text-sm text-cream">{m.content}</div>
+            <div key={i} className="flex items-start justify-end gap-2.5">
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-[var(--brand-navy)] px-4 py-2.5 text-sm text-cream">{m.content}</div>
+              <Avatar name={displayName} size={30} self />
             </div>
           ) : (
-            <div key={i} className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm">{m.content}</div>
+            <div key={i} className="flex items-start gap-2.5">
+              <MyraAvatar />
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+                <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm shadow-sm">{m.content}</div>
+                {!busy && <ReplyActions text={m.content} />}
+              </div>
             </div>
           ),
         )}
@@ -429,7 +554,7 @@ function CampaignDetailView({
       {/* View toggle: scored target clients vs the content calendar */}
       <div className="mb-3 mt-6 flex items-center gap-1">
         <button onClick={() => setView("clients")} className={segCls(view === "clients")}>Target clients</button>
-        <button onClick={() => setView("calendar")} className={segCls(view === "calendar")}>Content calendar</button>
+        <button onClick={() => setView("calendar")} className={segCls(view === "calendar")}>Content ideas</button>
       </div>
       {view === "calendar" ? (
         // Keyed by campaign id so switching folders remounts the calendar with THIS campaign's
@@ -590,9 +715,10 @@ function CampaignClients({ campaignId, campaignName }: { campaignId: number; cam
   );
 }
 
+// Content IDEAS for an external campaign — a dated plan of post/image/deck ideas the user can take into
+// Chat or Create to actually generate. (No generate/open here; this is an inspiration board.)
 function CampaignCalendar({ items: initial }: { items: CampaignItem[] }) {
   const [items, setItems] = useState<CampaignItem[]>(initial);
-  const [busyId, setBusyId] = useState<number | null>(null);
 
   async function reschedule(id: number, date: string) {
     if (!date) return;
@@ -604,22 +730,11 @@ function CampaignCalendar({ items: initial }: { items: CampaignItem[] }) {
       /* leave the optimistic value; a reopen re-syncs */
     }
   }
-  async function generate(id: number) {
-    setBusyId(id);
-    try {
-      const up = await generateCampaignItem(id);
-      setItems((prev) => prev.map((i) => (i.id === id ? up : i)));
-    } catch {
-      /* ignore */
-    } finally {
-      setBusyId(null);
-    }
-  }
 
   if (!items.length) {
     return (
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-sm text-muted">
-        No scheduled content for this campaign yet.
+        No content ideas for this campaign yet.
       </div>
     );
   }
@@ -632,34 +747,24 @@ function CampaignCalendar({ items: initial }: { items: CampaignItem[] }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted">
+        Content ideas for this campaign — take any idea into <span className="text-foreground">Chat</span> or{" "}
+        <span className="text-foreground">Create</span> to generate the post, image, or deck.
+      </p>
       {Object.entries(groups).map(([date, its]) => (
         <div key={date}>
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{date}</div>
           <div className="space-y-1.5">
             {its.map((it) => (
-              <div key={it.id} className="hover-row flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+              <div key={it.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
                 <span className="chip bg-[var(--surface-2)]">{it.channel}</span>
                 <span className="chip bg-[var(--surface-2)]">{it.format}</span>
                 <span className="min-w-0 flex-1 truncate">{it.topic || it.hook}</span>
-                {it.status === "generated" ? (
-                  <span className="chip bg-emerald-400/10 text-emerald-300">generated</span>
-                ) : (
-                  <button
-                    onClick={() => generate(it.id)}
-                    disabled={busyId === it.id}
-                    className="text-[11px] text-[var(--brand-red)] hover:underline disabled:opacity-50"
-                  >
-                    {busyId === it.id ? "Generating…" : "Generate"}
-                  </button>
-                )}
-                {it.status === "generated" && it.asset?.file_url ? (
-                  <a href={fileUrl(it.asset.file_url)} target="_blank" rel="noreferrer" className="text-[11px] text-[var(--brand-red)] hover:underline">Open</a>
-                ) : null}
                 <input
                   type="date"
                   value={(it.scheduled_date || "").slice(0, 10)}
                   onChange={(e) => reschedule(it.id, e.target.value)}
-                  title="Reschedule"
+                  title="Reschedule this idea"
                   className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px]"
                 />
               </div>
@@ -891,5 +996,643 @@ function StratBullets({ items }: { items: string[] }) {
     <ul className="ml-4 list-disc space-y-1 text-muted">
       {items.map((t, i) => <li key={i}>{t}</li>)}
     </ul>
+  );
+}
+
+// --- Internal campaign: name it, then chat to generate the content folder -------------------------
+function NewInternalCampaign({ onCreated }: { onCreated: (c: CampaignDetail) => void }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function create() {
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
+    try {
+      onCreated(await createInternalCampaign(n, description.trim()));
+    } catch {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mx-auto max-w-xl pt-12">
+      <h2 className="text-center font-heading text-2xl font-semibold">New internal campaign</h2>
+      <p className="mt-2 text-center text-sm text-muted">
+        Name it and describe what it&apos;s about. That brief grounds everything you generate in this
+        folder — posts, visuals, decks and PDFs.
+      </p>
+      <div className="mt-6 space-y-3">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+          placeholder="Campaign name (e.g. Cricket Tournament, Magazine Launch)"
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+        />
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={12}
+          placeholder="What's this campaign about? Paste the full brief — theme, objectives, content pillars, tone, hashtags. e.g. “Promote Talentrupt's internal cricket tournament — fun, team-spirited posts for LinkedIn & Instagram celebrating our culture.”"
+          className="min-h-[260px] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+        />
+        <button onClick={create} disabled={busy || !name.trim()} className="btn-primary w-full">
+          {busy ? "Creating…" : "Create campaign"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const CAMPAIGN_GREETING: ChatMessage = {
+  role: "assistant",
+  content:
+    "I've got this campaign's brief. Tell me what to make — a post image, captions, a deck, a PDF — one thing at a time, and it lands in this folder. Tap a starter or just ask.",
+};
+
+const CAMPAIGN_STARTERS = [
+  "An on-brand post image",
+  "A social post caption",
+  "An announcement graphic",
+  "A short deck",
+  "A one-page teaser PDF",
+];
+
+// On a NEW campaign we auto-generate a starter pack FROM THE BRIEF; the chat is then for edits.
+const CAMPAIGN_SEED =
+  "Create a starter set of on-brand posts for this campaign — an image and a caption for each, all on the campaign's theme. Your call on the style.";
+// Campaign ids already auto-seeded this session (module-level so a dev remount can't double-fire it).
+const _seededCampaigns = new Set<number>();
+
+// Campaigns with a generation running RIGHT NOW. Module-level so it SURVIVES this view unmounting when the
+// user switches campaigns/tabs: the backend keeps generating and saving the asset regardless (the SSE turn
+// runs detached), so instead of the work looking "stopped" we mark it here and, on return, poll the saved
+// thread until the result lands. Cleared when the turn's stream finishes (even if the view is gone).
+const _generatingCampaigns = new Set<number>();
+
+// Map the persisted-thread payload into chat messages (shared by the initial restore + the resume poll).
+function _threadToMessages(d: { messages?: { role: string; content: string; assets?: Asset[] }[] }): ChatMessage[] {
+  return (d.messages || []).map((m) => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.content,
+    assets: m.assets || [],
+  }));
+}
+
+// An AssetCard with a small delete (trash) control overlaid in the corner — used in the campaign folder.
+function DeletableAsset({ asset, onDelete }: { asset: Asset; onDelete: (a: Asset) => void }) {
+  return (
+    <div className="relative min-w-0">
+      <button
+        onClick={() => onDelete(asset)}
+        type="button"
+        title="Delete"
+        aria-label="Delete"
+        className="absolute right-2 top-2 z-10 rounded-lg border border-[var(--border)] bg-[var(--surface)]/90 p-1.5 text-muted shadow-sm backdrop-blur transition hover:border-[var(--brand-red)] hover:text-[var(--brand-red)]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6" />
+        </svg>
+      </button>
+      <AssetCard asset={asset} />
+    </div>
+  );
+}
+
+// Edit the campaign brief (the context that grounds generation). Saving updates Campaign.goal so every
+// future post/image/deck/PDF is generated from the new description.
+function BriefEditor({
+  initial,
+  onSave,
+  onClose,
+}: {
+  initial: string;
+  onSave: (text: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
+          <span className="font-heading text-sm font-semibold">Campaign brief</span>
+          <button onClick={onClose} type="button" aria-label="Close" className="rounded-lg p-1.5 text-muted transition hover:text-foreground">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <p className="mb-2 text-xs text-muted">
+            This brief grounds everything generated in this folder. Edit it and save — future posts,
+            images, decks and PDFs will use the updated description.
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={16}
+            autoFocus
+            placeholder="Describe the campaign — theme, objectives, content pillars, tone, hashtags…"
+            className="min-h-[320px] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted focus:border-[var(--brand-red)]"
+          />
+        </div>
+        <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-3">
+          <button onClick={onClose} type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-muted transition hover:text-foreground">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave(text.trim());
+                onClose();
+              } catch {
+                setSaving(false);
+              }
+            }}
+            className="btn-primary px-4 py-2 text-sm disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save brief"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InternalCampaignView({ detail }: { detail: CampaignDetail }) {
+  const campaignId = detail.id;
+  const [tab, setTab] = useState<"chat" | "gallery">("chat");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<number | null>(detail.conversation_id ?? null);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [assets, setAssets] = useState<Asset[]>(detail.assets ?? []);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attaching, setAttaching] = useState(0);
+  const [attPreview, setAttPreview] = useState<{ url: string; name: string } | null>(null); // attachment lightbox
+  const [brief, setBrief] = useState(detail.goal ?? "");
+  const [editingBrief, setEditingBrief] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const genRef = useRef(0);
+  const streamRef = useRef<AbortController | null>(null); // in-flight turn, so Stop can abort it
+
+  // User-facing Stop: abort the in-flight turn, clear busy/typing, and finalize the pending reply (keep
+  // whatever it already produced, or drop it if still empty).
+  function stop() {
+    streamRef.current?.abort();
+    streamRef.current = null;
+    genRef.current += 1;
+    setBusy(false);
+    setStatus("");
+    setMessages((m) => {
+      const last = m[m.length - 1];
+      if (last?.role !== "assistant" || !last.pending) return m;
+      if (!last.content && !(last.assets && last.assets.length)) return m.slice(0, -1);
+      return [...m.slice(0, -1), { ...last, pending: false }];
+    });
+  }
+
+  // "@" palette (people from Folders + quick actions) — same behavior as the Chat/Create boxes.
+  const { atMenu, showAtMenu, menuSel, setMenuSel, pickCommand, handleAtKey, onInputChange } =
+    useAtMentions(input, setInput, busy, taRef, CAMPAIGN_AT_COMMANDS);
+  const { username } = useAuth();
+  const displayName = (username.split("@")[0] || "You").replace(/^\w/, (c) => c.toUpperCase());
+
+  // Restore the saved thread (with its asset cards). On a brand-new campaign with a brief, AUTO-GENERATE
+  // the starter pack from that brief (chat is then for edits); otherwise greet.
+  useEffect(() => {
+    let live = true;
+    let poll: ReturnType<typeof setInterval> | null = null;
+
+    // A generation kicked off in this campaign is still running (the user left and came back). Keep the
+    // "working" state and POLL the saved thread until the turn's stream finishes and its assistant reply +
+    // asset cards are persisted — so switching tabs never loses the in-progress work.
+    const resumeIfGenerating = () => {
+      if (!live || !_generatingCampaigns.has(campaignId)) return;
+      setBusy(true);
+      setStatus("Still generating — this kept running while you were away…");
+      poll = setInterval(async () => {
+        if (!live) return;
+        const finished = !_generatingCampaigns.has(campaignId);
+        try {
+          const d = await getCampaignMessages(campaignId);
+          if (!live) return;
+          const msgs = _threadToMessages(d);
+          if (finished) {                 // the turn's stream closed -> its reply + assets are saved now
+            if (msgs.length) setMessages(msgs);
+            refreshGallery();
+            setBusy(false);
+            setStatus("");
+            if (poll) clearInterval(poll);
+            poll = null;
+          }
+        } catch { /* transient — keep polling */ }
+      }, 2500);
+    };
+
+    getCampaignMessages(campaignId)
+      .then((d) => {
+        if (!live) return;
+        if (d.conversation_id) setConversationId(d.conversation_id);
+        const msgs = _threadToMessages(d);
+        if (msgs.length) {
+          setMessages(msgs);
+          resumeIfGenerating(); // returning mid-generation -> show "working" + poll for the result
+        } else if ((detail.goal || "").trim() && !_seededCampaigns.has(campaignId)) {
+          _seededCampaigns.add(campaignId);
+          setMessages([]);
+          send(CAMPAIGN_SEED); // generate from the description at creation
+        } else {
+          setMessages([CAMPAIGN_GREETING]);
+        }
+      })
+      .catch(() => setMessages([CAMPAIGN_GREETING]));
+    return () => { live = false; if (poll) clearInterval(poll); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages, status]);
+
+  function refreshGallery() {
+    getCampaign(campaignId).then((d) => setAssets(d.assets ?? [])).catch(() => {});
+  }
+
+  async function handleDeleteAsset(a: Asset) {
+    if (!window.confirm("Delete this from the campaign? This can't be undone.")) return;
+    try {
+      await deleteAsset(a.id);
+    } catch {
+      return; // leave it in place if the delete failed
+    }
+    // Drop it from the folder AND from any chat message that showed it.
+    setAssets((prev) => prev.filter((x) => x.id !== a.id));
+    setMessages((prev) =>
+      prev.map((m) => (m.assets ? { ...m, assets: m.assets.filter((x) => x.id !== a.id) } : m)),
+    );
+  }
+
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    const seen = new Set(attachments.map((a) => a.name));
+    for (const f of files) {
+      if (seen.has(f.name)) continue;
+      seen.add(f.name);
+      setAttaching((n) => n + 1);
+      // Local object URL so an IMAGE attachment shows a real thumbnail in the transcript (live session).
+      const previewUrl = f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined;
+      try {
+        const meta = await uploadAttachment(f);
+        setAttachments((a) =>
+          a.some((x) => x.name === meta.filename)
+            ? a
+            : [...a, { id: meta.id, name: meta.filename, text: meta.text, kind: meta.kind, chars: meta.chars, previewUrl }],
+        );
+      } catch {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        /* ignore one bad file */
+      } finally {
+        setAttaching((n) => n - 1);
+      }
+    }
+    e.target.value = "";
+  }
+
+  async function send(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || busy || attaching > 0) return;
+    const myGen = (genRef.current += 1);
+    const live = () => genRef.current === myGen;
+    const ac = new AbortController();
+    streamRef.current = ac;
+    const atts = attachments.map((a) => ({ name: a.name, text: a.text, id: a.id, kind: a.kind }));
+    // Snapshot the attachments (by value) onto the user message so the transcript shows the file next to
+    // the prompt — the composer's `attachments` state is cleared after the turn.
+    const sentAttachments = attachments.length ? [...attachments] : undefined;
+    let gotAsset = false;
+    _generatingCampaigns.add(campaignId); // survives an unmount so a tab switch doesn't look like it stopped
+    setBusy(true);
+    setStatus("");
+    setInput("");
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: trimmed, attachments: sentAttachments },
+      { role: "assistant", content: "", pending: true },
+    ]);
+    setAttachments([]); // the file now belongs to the message — clear the composer right away
+    try {
+      await streamChat(
+        trimmed,
+        conversationId,
+        {
+          onMeta: (meta) => { if (live()) setConversationId((id) => id ?? meta.conversation_id); },
+          onStatus: (t) => { if (live()) setStatus(t); },
+          onToken: (tok) => {
+            if (!live()) return;
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              return [...m.slice(0, -1), { ...last, content: last.content + tok }];
+            });
+          },
+          onAsset: (a: Asset) => {
+            if (!live()) return;
+            gotAsset = true;
+            setAssets((prev) => [a, ...prev.filter((x) => x.id !== a.id)]);
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              return [...m.slice(0, -1), { ...last, assets: [...(last.assets ?? []), a] }];
+            });
+          },
+          onChips: (items) => {
+            if (!live()) return;
+            setStatus("");
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              return [...m.slice(0, -1), { ...last, chips: items, pending: false }];
+            });
+          },
+          onDone: (final) => {
+            if (!live()) return;
+            setStatus("");
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (!last) return m;
+              return [...m.slice(0, -1), { ...last, content: final || last.content, pending: false }];
+            });
+          },
+          onError: (err) => {
+            if (!live()) return;
+            setStatus("");
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last?.role !== "assistant") return m;
+              const content = last.content ? `${last.content}\n\n⚠️ ${err}` : `⚠️ ${err}`;
+              return [...m.slice(0, -1), { ...last, content, pending: false }];
+            });
+          },
+        },
+        `/api/campaigns/${campaignId}/stream`,
+        atts,
+        ac.signal,
+      );
+    } finally {
+      // Clear the module-level flag REGARDLESS of whether this view is still mounted — this runs in the
+      // detached turn too, so a resumed view knows the work is done and can stop polling.
+      _generatingCampaigns.delete(campaignId);
+      if (live()) {
+        setBusy(false);
+        setStatus("");
+        setAttachments([]);
+        if (gotAsset) refreshGallery();
+      }
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (handleAtKey(e)) return; // "@" menu handled navigation/selection
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send(input);
+    }
+  }
+
+  // Edit a prior USER message (ChatGPT-style): drop that turn + everything after it from the persisted
+  // history (truncate — counted from the back, so the synthetic greeting at the front doesn't shift it) and
+  // the on-screen transcript, then re-send the edited text so it re-runs with the corrected prompt.
+  async function editMessage(index: number, text: string) {
+    const t = text.trim();
+    if (!t || busy || attaching > 0) return;
+    const drop = messages.length - index;
+    if (drop > 0) await truncateConversation(conversationId, drop);
+    setMessages((m) => m.slice(0, index));
+    send(t);
+  }
+
+  // Regenerate the last request from scratch: re-run the most recent user prompt for a fresh result.
+  async function regenerate() {
+    if (busy || attaching > 0) return;
+    let idx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user" && (messages[i].content || "").trim()) { idx = i; break; }
+    }
+    if (idx < 0) return;
+    await editMessage(idx, messages[idx].content);
+  }
+
+  const onlyGreeting = messages.length === 1 && messages[0] === CAMPAIGN_GREETING;
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Header: campaign name + brief + Chat / Generated content tabs */}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="truncate font-heading text-lg font-semibold">{detail.name}</h2>
+          <button
+            onClick={() => setEditingBrief(true)}
+            type="button"
+            title="View / edit the campaign brief"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-muted transition hover:border-[var(--brand-red)] hover:text-foreground"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </svg>
+            Brief
+          </button>
+        </div>
+        <div className="flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+          <button
+            onClick={() => setTab("chat")}
+            className={`rounded-md px-3 py-1.5 transition ${tab === "chat" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+          >
+            Create
+          </button>
+          <button
+            onClick={() => { setTab("gallery"); refreshGallery(); }}
+            className={`rounded-md px-3 py-1.5 transition ${tab === "gallery" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+          >
+            Generated content{assets.length ? ` (${assets.length})` : ""}
+          </button>
+        </div>
+      </div>
+
+      {tab === "gallery" ? (
+        <div className="flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          {assets.length === 0 ? (
+            <p className="pt-10 text-center text-sm text-muted">
+              Nothing generated yet — switch to Create and describe what you want.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {assets.map((a) => (
+                <DeletableAsset key={`${a.type}-${a.id}`} asset={a} onDelete={handleDeleteAsset} />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto py-6">
+            <div className="mx-auto w-full min-w-0 max-w-3xl space-y-5 px-1">
+              {messages.map((m, i) =>
+                m.role === "user" ? (
+                  <UserMessage
+                    key={i}
+                    content={m.content}
+                    attachments={m.attachments}
+                    displayName={displayName}
+                    busy={busy}
+                    onEdit={(text) => editMessage(i, text)}
+                    onPreviewAttachment={setAttPreview}
+                  />
+                ) : (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <MyraAvatar />
+                    <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+                      {(m.content || m.pending) && (
+                        <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm shadow-sm">
+                          {m.content ? <Markdown content={m.content} /> : <span className="text-muted">…</span>}
+                        </div>
+                      )}
+                      {m.content && !m.pending && (
+                        <ReplyActions
+                          text={m.content}
+                          onRegenerate={(() => {
+                            for (let k = i - 1; k >= 0; k--) {
+                              if (messages[k].role === "user" && messages[k].content) {
+                                const prompt = messages[k].content;
+                                return () => send(prompt); // re-run the same prompt for a fresh result
+                              }
+                            }
+                            return undefined;
+                          })()}
+                          regenerating={busy}
+                        />
+                      )}
+                      {m.chips && m.chips.length > 0 && !busy && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {m.chips.map((c) => (
+                            <button key={c} onClick={() => send(c)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {m.assets && m.assets.length > 0 && (
+                        <div className="grid w-full max-w-2xl gap-2">
+                          {m.assets.map((a, j) => (
+                            <DeletableAsset key={`${a.type}-${a.id}-${j}`} asset={a} onDelete={handleDeleteAsset} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ),
+              )}
+              {onlyGreeting && (
+                <div className="flex flex-wrap gap-1.5 pl-1">
+                  {CAMPAIGN_STARTERS.map((s) => (
+                    <button key={s} onClick={() => send(s)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-muted transition hover:border-[var(--brand-red)] hover:text-foreground">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {status && (
+                <div className="flex items-center gap-2 px-1 text-xs text-muted">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--brand-red)]" />
+                  {status}…
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-[var(--border)] px-1 pt-4">
+            <div className="mx-auto w-full max-w-3xl">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 focus-within:border-[var(--brand-red)]">
+                {(attachments.length > 0 || attaching > 0) && (
+                  <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+                    {attachments.map((a) => (
+                      <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-[11px]" title={a.name}>
+                        <span className="max-w-[160px] truncate">{a.name}</span>
+                        <button onClick={() => setAttachments((x) => x.filter((y) => y.id !== a.id))} className="text-muted hover:text-[var(--brand-red)]" aria-label={`Remove ${a.name}`}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                        </button>
+                      </span>
+                    ))}
+                    {attaching > 0 && <span className="text-[11px] text-muted">Reading file…</span>}
+                  </div>
+                )}
+                <div className="relative flex items-end gap-2">
+                  {showAtMenu && (
+                    <AtMenu atMenu={atMenu} menuSel={menuSel} setMenuSel={setMenuSel} pickCommand={pickCommand} />
+                  )}
+                  <input ref={fileRef} type="file" multiple onChange={onPickFiles} className="hidden" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json" />
+                  <button onClick={() => fileRef.current?.click()} disabled={attaching > 0} className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-foreground disabled:opacity-50" aria-label="Attach a photo" title="Attach a photo (to feature a real person)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.2 9.19a1 1 0 01-1.41-1.41l8.49-8.49" /></svg>
+                  </button>
+                  <textarea
+                    ref={taRef}
+                    value={input}
+                    onChange={(e) => { setInput(e.target.value); onInputChange(); }}
+                    onKeyDown={onKeyDown}
+                    rows={1}
+                    placeholder="Refine the content — type / to create, @ for teammates…"
+                    className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+                  />
+                  {!busy && messages.some((m) => m.role === "user") && (
+                    <button onClick={regenerate} disabled={attaching > 0} className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-[var(--surface-2)] hover:text-[var(--brand-red)] disabled:opacity-50" aria-label="Regenerate last request" title="Regenerate the last request from scratch">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                      </svg>
+                    </button>
+                  )}
+                  {busy ? (
+                    <button onClick={stop} className="btn-primary !bg-[var(--brand-red)] !px-3 !py-2" aria-label="Stop generating" title="Stop">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5" /></svg>
+                    </button>
+                  ) : (
+                    <button onClick={() => send(input)} disabled={attaching > 0 || !input.trim()} className="btn-primary !px-3 !py-2" aria-label="Send">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="mt-2 text-center text-[11px] text-muted">
+                Enter to send · Shift+Enter for a new line · type / to create, @ for teammates
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+      {editingBrief && (
+        <BriefEditor
+          initial={brief}
+          onClose={() => setEditingBrief(false)}
+          onSave={async (text) => {
+            await updateCampaignBrief(campaignId, text);
+            setBrief(text);
+          }}
+        />
+      )}
+      {attPreview && (
+        <ImageLightbox url={attPreview.url} title={attPreview.name} onClose={() => setAttPreview(null)} />
+      )}
+    </div>
   );
 }

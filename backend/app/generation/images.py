@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import io
+import random
 import re
 import zipfile
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageStat
 
 from ..brand.brand_kit import CREAM, NAVY, RED, WHITE
 from ..config import settings
@@ -62,7 +63,7 @@ def _wrap(draw, text, font, max_width):
 
 # --- Content planning -----------------------------------------------------
 async def _plan(brand: Brand | None, concept: str, count: int, context: str = "",
-                force_style: str | None = None) -> list[dict]:
+                force_style: str | None = None, brief: str = "") -> list[dict]:
     proof = ", ".join(brand.proof_points) if brand and brand.proof_points else ""
     # Per-variation style: an explicit user choice applies to all; for MULTIPLE options with no chosen
     # style, spread DISTINCT styles so the variations look genuinely different (not the same archetype);
@@ -74,9 +75,20 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
     else:
         assigned = [None]
     if llm.provider_available():
+        ident = (
+            (
+                "You are an art director for a TALENTRUPT INTERNAL CAMPAIGN. Talentrupt's brand look is "
+                "navy/red/cream, modern and premium. THIS content is for the campaign brief below — the "
+                "headline, subtext, subject and visual MUST be about THAT theme. Do NOT use 'RPO Done "
+                "Right', recruiting / offshore-staffing copy, or any recruiting metric UNLESS the brief "
+                f"is itself about recruiting.\nCAMPAIGN BRIEF (authoritative topic): {brief[:700]}\n\n"
+            )
+            if brief else
+            "You are an art director for Talentrupt (offshore RPO, 'RPO Done Right'; navy/red/cream brand). "
+        )
         sys = (
-            "You are an art director for Talentrupt (offshore RPO, 'RPO Done Right'; "
-            "navy/red/cream brand). Return ONLY JSON: {\"variations\": [...]} with EXACTLY "
+            ident
+            + "Return ONLY JSON: {\"variations\": [...]} with EXACTLY "
             f"{count} variation(s). Each variation object:\n"
             '- "layout": one of "metric","statement","steps","comparison"\n'
             '- "style": one of "photographic" (a cinematic real-world photo hero), '
@@ -86,7 +98,15 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             '"typographic" (atmospheric photo + elegant condensed type)\n'
             '- "composition": one of "full_bleed_photo","split_panel","centered_type","grid",'
             '"cards","collage" — the overall arrangement\n'
+            '- "scene": 1-2 SHORT sentences naming the SPECIFIC imagery to depict for THIS topic — the '
+            'concrete subject, key objects and setting drawn from the topic itself (e.g. a DATA/analytics '
+            'topic -> dashboards, charts, a recruiter reading hiring metrics on a screen; a YOGA/wellness '
+            'topic -> a calm figure mid-pose at sunrise; a FOOTBALL topic -> players/ball/pitch). It MUST '
+            'be on-topic and literal; NEVER generic office filler or an unrelated/off-theme scene.\n'
             '- "bg": "navy" or "cream"\n'
+            '- "has_people": true if the image would DEPICT one or more human figures/people (a portrait, a '
+            'team, players on a pitch, a person at a desk); false for pure object, scenery, data, UI or '
+            'illustration images with no human subject\n'
             '- "headline": <= 10 words, punchy, matches the topic\n'
             '- "subtext": one short supporting line (<= 14 words)\n'
             '- "metric": a number/percent string for layout "metric" ONLY, and ONLY if a real '
@@ -131,7 +151,7 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             "or estimate a statistic to fill a card. Do NOT default to a 'hand holding a card/phone' "
             "image or a plain cream card with a navy heading. Match the topic; NEVER force healthcare/"
             "recruiting metrics onto unrelated topics (holidays, culture); do NOT invent statistics.\n"
-            + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if proof else "")
+            + (f"Real Talentrupt proof points (use only if relevant): {proof}\n" if (proof and not brief) else "")
             + (f"\n{context}\n" if context else "")
         )
         diversity = ""
@@ -145,7 +165,10 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
                          f"Use these styles IN ORDER: {spread}. Give each a different scene, composition, "
                          "framing and bg, and write its content to suit its style. They must look like "
                          "genuinely different options to choose from — NOT the same image reworded.")
-        usr = f"Topic/concept: {concept}\nProduce {count} variation(s).{diversity}"
+        usr = (
+            (f"Campaign theme (what every variation must be about): {brief[:700]}\n" if brief else "")
+            + f"Topic/concept: {concept}\nProduce {count} variation(s).{diversity}"
+        )
         try:
             data = await llm.chat_json(
                 [{"role": "system", "content": sys}, {"role": "user", "content": usr}]
@@ -160,10 +183,12 @@ async def _plan(brand: Brand | None, concept: str, count: int, context: str = ""
             pass  # transient provider/parse error -> degrade to the deterministic fallback below
 
     # Fallback: distinct styles + alternating bg so multiple options still differ (no fabricated metric).
+    # Brief-aware fallback: a campaign image must never fall back to the RPO tagline.
+    fb_sub = "" if brief else (brand.tagline if brand else "RPO Done Right")
     return [
         _coerce(
             {"layout": "statement", "bg": "navy" if i % 2 == 0 else "cream",
-             "headline": concept, "subtext": brand.tagline if brand else "RPO Done Right"},
+             "headline": concept, "subtext": fb_sub},
             concept, brand, force_style=assigned[i],
         )
         for i in range(count)
@@ -223,6 +248,7 @@ def _coerce(v: dict, concept: str, brand: Brand | None, force_style: str | None 
         "layout": layout,
         "style": style,
         "composition": v.get("composition", ""),
+        "scene": (v.get("scene") or concept or "").strip(),  # topic-specific imagery to depict
         "bg": "cream" if v.get("bg") == "cream" else "navy",
         "headline": (v.get("headline") or concept or "RPO Done Right").strip(),
         "subtext": (v.get("subtext") or (brand.tagline if brand else "RPO Done Right")).strip(),
@@ -232,6 +258,9 @@ def _coerce(v: dict, concept: str, brand: Brand | None, force_style: str | None 
         "left": v.get("left") if layout == "comparison" else None,
         "right": v.get("right") if layout == "comparison" else None,
         "cta": (v.get("cta") or "See Talentrupt in action  →").strip(),
+        # True if the image depicts human figures — lets a campaign swap in a REAL employee (never a random
+        # AI face). editorial_collage always centres a person; otherwise trust the planner's flag.
+        "has_people": bool(v.get("has_people", style == "editorial_collage")),
     }
 
 
@@ -440,10 +469,45 @@ _COMPOSITION_DIRECTION = {
 }
 
 
-def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> str:
+# --- Per-image visual VARIETY (palette + decoration) ----------------------
+# Breaks the "every post looks identical" problem WITHOUT changing what makes generation work: the
+# official logo is overlaid afterward, so it always carries the brand and the image palette can flex.
+# "signature" is the classic Talentrupt look, weighted heavily for RPO content so the trusted design
+# still shows up often; internal campaigns roam all palettes for genuinely different looks.
+_PALETTES = {
+    "signature": "deep navy #0B3559, coral red #F6404C as the accent, warm cream #EBE9DF background, white",
+    "mono_navy": "deep navy #0B3559 with white and soft cool greys, plus ONE restrained coral #F6404C accent — minimal and clean",
+    "navy_gold": "deep navy #0B3559 with warm gold/amber accents on a soft ivory background — understated and premium",
+    "coral_warm": "warm coral-to-terracotta tones (#F6404C, #E8744C) with deep-navy type on soft off-white — energetic",
+    "light_airy": "airy off-white with soft pastel tints, deep-navy type and one small coral accent — bright and modern",
+    "dark_premium": "a deep navy/charcoal background (#0B2238) with warm cream type and a coral #F6404C accent — sleek and premium",
+    "teal_calm": "deep navy with muted teal/sage accents on warm cream — calm, modern, professional",
+}
+# RPO / sales content stays close to brand (signature weighted); internal campaigns may use any palette.
+# NOTE: bright/clean palettes only here — no dark/moody skins (they were producing dim, hazy frames).
+_RPO_PALETTES = ("signature", "signature", "signature", "mono_navy", "navy_gold", "coral_warm")
+_EXPRESSIVE_PALETTES = tuple(_PALETTES)
+# Decoration is deliberately CLEAN — NO starburst/asterisk/sparkle/squiggle/swoosh/scribble/dotted-grid
+# motifs (users asked for these removed). Let the type, color and imagery carry the design.
+_DECORATION = (
+    "NO decorative motifs at all — clean and uncluttered; let the type, color and imagery carry it",
+    "at most one quiet solid geometric block or a clean flat tonal area for subtle structure — and NOTHING else: no starbursts, sparkles, asterisks, squiggles, swooshes, scribbles or dotted grids",
+)
+
+
+def _variety(brief: str) -> tuple[str, str]:
+    """Pick a color palette + decoration treatment for ONE image so successive / parallel images don't
+    all share the same skin. Internal campaigns (a brief is present) roam every palette; RPO content
+    stays closer to brand. Independent picks => a large combinatorial space."""
+    palettes = _EXPRESSIVE_PALETTES if brief else _RPO_PALETTES
+    return _PALETTES[random.choice(palettes)], random.choice(_DECORATION)
+
+
+def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool, brief: str = "") -> str:
     metric_line = f'Feature this statistic prominently: "{plan["metric"]}" ({plan.get("metric_label") or ""}).' if plan.get("metric") else ""
     extra = "Steps to show: " + "; ".join(plan["points"]) + "." if (plan["layout"] == "steps" and plan.get("points")) else ""
     comp = _COMPOSITION_DIRECTION.get(plan.get("composition", ""), _LAYOUT_DIRECTION.get(plan["layout"], _LAYOUT_DIRECTION["statement"]))
+    palette, decoration = _variety(brief)
     ref_line = (
         "Attached image(s) are Talentrupt's OWN past posts. Study them closely to ABSORB the brand's "
         "craft — its warm-cream paper texture, the subtle navy/cream/coral color grading, the "
@@ -456,30 +520,44 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
         "framing, props, or wording. Reach their finish, invent your own picture.\n"
         if has_refs else ""
     )
+    if brief:
+        subject_line = (
+            "A polished, premium SQUARE (1:1) social-media marketing graphic for a TALENTRUPT INTERNAL "
+            "CAMPAIGN. THE SUBJECT of this graphic is the campaign described below — depict ONLY that. "
+            "It is NOT about RPO / recruitment / offshore staffing, and must NOT show the tagline 'RPO "
+            "Done Right' or any recruiting copy, metrics, or messaging UNLESS the campaign brief itself "
+            "is about recruiting. Stay strictly on the campaign's theme.\n"
+            f"CAMPAIGN BRIEF (authoritative — the image MUST be about this): {brief[:700]}\n\n"
+        )
+    else:
+        subject_line = (
+            "A polished, premium SQUARE (1:1) social-media marketing graphic for Talentrupt, an "
+            "offshore RPO (recruitment process outsourcing) company; tagline 'RPO Done Right'.\n\n"
+        )
     return (
-        "A polished, premium SQUARE (1:1) social-media marketing graphic for Talentrupt, an "
-        "offshore RPO (recruitment process outsourcing) company; tagline 'RPO Done Right'.\n\n"
+        subject_line
         + ref_line
-        + "BRAND SYSTEM — follow precisely:\n"
-        "- Colors: deep navy #0B3559, coral red #F6404C (accent), warm cream #EBE9DF, white.\n"
-        "- Typography: bold modern geometric sans-serif headings, strong hierarchy.\n"
-        "- BRAND MOTIFS: Where it suits the style, weave in Talentrupt's signature ACCENT MOTIFS in "
-        "coral red (and sometimes navy) — a hand-drawn 8-POINT STARBURST behind or beside the focal "
-        "element, loose hand-drawn SQUIGGLES, a faint DOTTED GRID, and CONCENTRIC LINE ARCS / "
-        "half-circles drifting into the corners — over a textured warm-cream 'paper' background for "
-        "collage, decorative, and infographic posts; for cut-out-subject collages give the single "
-        "cut-out person a clean edge with a faint paper drop-shadow, surround them with neatly floating "
-        "work objects/icon tiles at varied sizes each casting a soft shadow, and set the headline in "
-        "bold geometric navy with exactly ONE word in coral red beside a solid navy rounded subtext "
-        "pill. For data graphics, render stat figures as solid, fully-opaque rounded navy and coral-red "
-        "CARDS, each one big number above a short label, aligned in a clean row. These motifs are "
-        "SPARSE accents only (corners and behind the subject) and must NEVER become a flat full-color "
-        "wash; for full-bleed photographic and atmospheric posters keep them minimal or absent so the "
-        "photo and type stay clean.\n"
+        + "SUBJECT — AUTHORITATIVE: the image MUST depict, specifically and literally, "
+        f"{plan.get('scene') or concept}. Build the whole scene around THIS topic; every visual element "
+        "should reinforce it. Do NOT use generic office filler, stock 'handshake / laptop' clichés, or ANY "
+        "unrelated / off-theme imagery. If the VISUAL STYLE note below lists example subjects, treat those "
+        "as STYLE guidance only and depict the subject above instead.\n\n"
+        + "DESIGN SYSTEM for THIS image (sets the LOOK and deliberately VARIES image-to-image — the "
+        "official logo is overlaid afterward, so the brand stays present whatever the palette):\n"
+        f"- COLOR PALETTE — AUTHORITATIVE: use {palette}. If the VISUAL STYLE note below names other "
+        "colors, ADAPT them to this palette.\n"
+        "- TYPOGRAPHY: clean modern type with strong hierarchy — a clear headline plus a short supporting "
+        "line; any single accent word uses the palette's accent color.\n"
+        f"- DECORATION: {decoration}.\n"
+        "- For data graphics, render any REAL supplied stat as a solid, fully-opaque rounded card (one "
+        "big number above a short label), aligned cleanly; invent NO numbers.\n"
         "- CRITICAL: do NOT render the word 'Talentrupt', the tagline 'RPO Done Right', or ANY company "
-        "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image — the official logo is "
-        "overlaid afterward. Keep the BOTTOM-RIGHT corner empty and uncluttered for it. Premium B2B, "
-        "magazine-quality finish.\n\n"
+        "name, wordmark, logo, monogram, or 'TR' mark ANYWHERE in the image.\n"
+        "- CRITICAL: do NOT add ANY decorative motif or symbol — no starburst, asterisk, sparkle, sun/rays, "
+        "squiggle, swoosh, scribble, hand-drawn doodle, or dotted-grid. Keep it clean and typographic.\n"
+        "- Compose within the TOP ~88% of the canvas; keep the BOTTOM ~12% as clean, simple background "
+        "(no headline, stat, or key subject there) — a slim brand footer strip is added in that space. "
+        "Premium B2B, magazine-quality finish.\n\n"
         f"VISUAL STYLE: {_STYLE_DIRECTION.get(plan.get('style', 'photographic'), _STYLE_DIRECTION['photographic'])}\n"
         f"COMPOSITION: {comp}\n"
         f'The ONLY text rendered in the image is the headline (spell EXACTLY): "{plan["headline"]}"'
@@ -487,11 +565,14 @@ def _openai_prompt(plan: dict, concept: str, context: str, has_refs: bool) -> st
         f"Supporting line: {plan.get('subtext','')}\n{metric_line}\n{extra}\n"
         f"Topic: {concept}\n\n"
         + (f"Brand voice/themes to echo:\n{context}\n" if context else "")
-        + "\nRENDER QUALITY: tack-sharp focus, high detail, crisp edges; professional editorial/studio "
-        "photography quality; vivid yet brand-accurate color with strong contrast and clean lighting. "
-        "Any panel or card behind text must be SOLID and fully opaque (never translucent). STRICTLY "
-        "AVOID: blur, soft focus, low contrast, faded/washed-out tones, muddy gradients, haze, or noise.\n"
-        + "Output one finished, high-end, photorealistic 1:1 graphic with crisp, correctly-spelled text."
+        + "\nRENDER QUALITY: BRIGHT, clean, well-lit and HIGH-CONTRAST with fully legible text. Tack-sharp "
+        "focus, high detail, crisp edges; professional editorial/studio quality; vivid yet brand-accurate "
+        "color with strong contrast and clean, even lighting. Any panel or card behind text must be SOLID "
+        "and fully opaque (never translucent), and the text on it must read clearly. STRICTLY AVOID: blur, "
+        "soft focus, low contrast, dim/dark/underexposed renders, fog, haze, mist, smoke, a grey wash or "
+        "dark overlay, faded/washed-out/muddy tones, muddy gradients, or noise.\n"
+        + "Output one finished, high-end, BRIGHT, high-contrast, photorealistic 1:1 graphic with crisp, "
+        "correctly-spelled, fully-legible text."
     )
 
 
@@ -503,6 +584,81 @@ def _downscale_jpeg(data: bytes, max_side: int = 1024) -> bytes:
     buf = io.BytesIO()
     im.save(buf, format="JPEG", quality=82)
     return buf.getvalue()
+
+
+# A frame this soft is visibly blurry and must NOT ship — regenerate instead. Calibrated on real
+# gpt-image-1 output (variance-of-Laplacian, normalized to a 640px long edge): sharp frames score
+# ~1000-1300; a clearly blurry frame (Gaussian blur radius >= ~1.8) drops below ~220. Tunable.
+_SHARP_MIN = 220.0
+# A frame this flat is washed-out / foggy / dim (everything mid-tone) and must NOT ship — regenerate.
+# Grayscale std-dev: a clean bright design clears ~50-75; a hazy grey-wash frame falls well below ~40.
+_CONTRAST_MIN = 40.0
+
+
+def _contrast(data: bytes) -> float:
+    """Global contrast = std-dev of luminance (0-255). A foggy / washed-out / dim frame scores low; a
+    clean high-contrast design scores high. Best-effort: returns a high value on any error so a
+    measurement hiccup never blocks generation."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("L")
+        return ImageStat.Stat(im).stddev[0]
+    except Exception:
+        return 1e9
+
+
+def _sharpness(data: bytes) -> float:
+    """Variance-of-Laplacian sharpness (higher = crisper), scale-normalized so the threshold holds
+    across image sizes. Best-effort: returns a high value on any error so a measurement hiccup never
+    blocks generation."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("L")
+        w, h = im.size
+        s = 640.0 / max(w, h)
+        if s < 1:
+            im = im.resize((max(1, int(w * s)), max(1, int(h * s))))
+        lap = im.filter(ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1, offset=128))
+        return ImageStat.Stat(lap).var[0]
+    except Exception:
+        return 1e9
+
+
+def _crispen(data: bytes) -> bytes:
+    """gpt-image-1 sometimes returns a soft / hazy frame. Apply a GENTLE unsharp pass to recover edges
+    without making already-crisp renders look over-processed (the threshold means flat areas are left
+    alone). Deliberately light — strong sharpening reads as harsh/crunchy. Best-effort; never blocks."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.6, percent=85, threshold=3))
+        im = ImageEnhance.Contrast(im).enhance(1.02)
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return data
+
+
+def _brand_footer(data: bytes) -> bytes:
+    """Add a clean brand FOOTER BAND with the official wordmark BENEATH the artwork. The band is a solid
+    brand-cream strip (thin coral keyline + navy wordmark), so the logo lives in its OWN reserved space
+    and never floats over / covers the image's content. Best-effort; returns input unchanged on error."""
+    try:
+        from PIL import ImageDraw
+        from .common import paste_wordmark
+        art = Image.open(io.BytesIO(data)).convert("RGB")
+        W, Ht = art.size
+        band_h = max(104, int(Ht * 0.11))
+        y0 = Ht - band_h
+        d = ImageDraw.Draw(art)
+        d.rectangle([0, y0, W, Ht], fill=(0xEB, 0xE9, 0xDF))                                # cream band
+        d.rectangle([0, y0, W, y0 + max(4, int(band_h * 0.05))], fill=(0xF6, 0x40, 0x4C))   # coral keyline
+        box_h = int(band_h * 0.48)
+        paste_wordmark(art, int(W * 0.045), y0 + (band_h - box_h) // 2 + int(band_h * 0.04),
+                       int(W * 0.46), box_h, dark_bg=False, align="left")
+        buf = io.BytesIO()
+        art.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return data
 
 
 def _load_references(paths: list[str]) -> list[bytes]:
@@ -522,17 +678,34 @@ def _load_references(paths: list[str]) -> list[bytes]:
 
 
 async def _openai_image(
-    plan: dict, concept: str, context: str, refs: list[bytes]
+    plan: dict, concept: str, context: str, refs: list[bytes], brief: str = ""
 ) -> tuple[str, str, dict] | None:
-    prompt = _openai_prompt(plan, concept, context, bool(refs))
-    try:
-        if refs:
-            data = await llm.generate_image_edit(prompt, refs)
-        else:
-            data = await llm.generate_image_bytes(prompt)
-    except Exception:
+    prompt = _openai_prompt(plan, concept, context, bool(refs), brief=brief)
+    # Never ship a blurry OR washed-out frame: generate up to N times and KEEP THE BEST. gpt-image-1 is
+    # crisp & bright on the first try the vast majority of the time, so the extra calls only happen when a
+    # frame actually comes back soft (low _sharpness) or hazy/dim (low _contrast). We keep the frame that's
+    # best on its WEAKEST axis (normalized), so a retry can only help, never hurt.
+    max_tries = 2 if refs else 3
+    best: bytes | None = None
+    best_score = -1.0
+    for _ in range(max_tries):
+        try:
+            data = await (
+                llm.generate_image_edit(prompt, refs) if refs else llm.generate_image_bytes(prompt)
+            )
+        except Exception:
+            if best is not None:
+                break  # a retry failed — keep the best frame we already have
+            return None  # the very first call failed — nothing to ship
+        score = min(_sharpness(data) / _SHARP_MIN, _contrast(data) / _CONTRAST_MIN)
+        if score > best_score:
+            best, best_score = data, score
+        if score >= 1.0:
+            break  # crisp AND high-contrast — stop early
+    if best is None:
         return None
-    data = composite_logo_bytes(data)  # stamp the real Talentrupt logo so it's always present & correct
+    data = _crispen(best)  # gentle final pass on the sharpest frame
+    data = _brand_footer(data)  # clean brand footer band w/ the official wordmark (reserved, never over content)
     file_name = unique_name("tr-image", "png")
     path = storage_subdir("images") / file_name
     with open(path, "wb") as f:
@@ -541,30 +714,73 @@ async def _openai_image(
         "url": public_url("images", file_name), "layout": plan["layout"],
         "style": plan.get("style"), "renderer": "openai_gpt_image_ref" if refs else "openai_gpt_image",
         "size": settings.openai_image_size,
+        "model": getattr(llm, "LAST_IMAGE_MODEL", settings.openai_image_model),  # which model actually ran
     }
 
 
 # --- Public API -----------------------------------------------------------
 async def build_images(
     brand: Brand | None, campaign: Campaign | None, concept: str, count: int = 1,
-    style: str | None = None,
+    style: str | None = None, brief: str = "", team_photos: list[bytes] | None = None, theme: str = "",
 ) -> list[tuple[str, str, dict]]:
+    # HARD FACE GUARD (single chokepoint for every image path — generate/refine/campaign): if the
+    # concept names a real Talentrupt person, render their REAL photo and NEVER reach gpt-image-1.
+    from . import teampost
+    guarded = teampost.render_if_person(brand, concept, count)
+    if guarded is not None:
+        return guarded
     count = max(1, min(count, 4))
-    context = await retrieve.brand_context(concept, k=3)
+    brief = (brief or "").strip()
+    # In a campaign, any variation that would show PEOPLE is rendered as a REAL employee (rotating through
+    # the roster) placed in the campaign-themed scene — never a random AI face, and with no name label.
+    team_photos = list(team_photos or [])
+    # The SCENE theme (the background an employee is staged in) comes ONLY from an explicit campaign
+    # theme/brief — NEVER from the free-text concept. In Chat/Create there is no campaign theme, so this is
+    # empty and people are staged on the generic Talentrupt BRAND backdrop; only a campaign's brief themes the
+    # scene (football pitch, festive decor, …). This stops a campaign topic from bleeding into general Chat.
+    scene_theme = (theme or brief or "").strip()
+    # CAMPAIGN images must be grounded in the campaign BRIEF — NOT Talentrupt's generic RPO corpus.
+    # retrieve.brand_context/image_references pull from one shared RPO/holiday past-post library, so
+    # for a non-RPO campaign (cricket, football) they bleed "RPO Done Right" taglines and cross-topic
+    # imagery (cricket bats, an Independence-Day team shot) into the picture. With a brief present we
+    # ground in the brief and skip that retrieval entirely; the brand look still comes from the prompt.
+    context = "" if brief else await retrieve.brand_context(concept, k=3)
     # `style`, when set (e.g. an explicit Create-intake choice), forces the visual style.
-    plans = await _plan(brand, concept, count, context, force_style=style)
+    plans = await _plan(brand, concept, count, context, force_style=style, brief=brief)
 
     use_openai = llm.image_provider_available()
     results: list[tuple[str, str, dict]] = []
 
-    if use_openai:
-        # References only help the rich styles; they flatten clean infographic/typographic.
-        needs_refs = any(p.get("style") in RICH_STYLES for p in plans)
-        refs = _load_references(await retrieve.image_references(concept, n=3)) if needs_refs else []
+    # Pre-assign a real employee photo to each people-variation (rotating), so the substitution is stable
+    # across the parallel gather below.
+    emp_for: dict[int, bytes] = {}
+    if team_photos:
+        pi = 0
+        for i, p in enumerate(plans):
+            if p.get("has_people"):
+                emp_for[i] = team_photos[pi % len(team_photos)]
+                pi += 1
 
-        async def one(p: dict):
+    async def _employee_scene(i: int, p: dict):
+        """Render a real employee into the campaign-themed scene (no name label)."""
+        return await teampost.build_ai_scene(
+            brand, emp_for[i], name="", role="", headline=p.get("headline", ""),
+            question=p.get("subtext", ""), variant=random.randint(0, 5), theme=scene_theme)
+
+    if use_openai:
+        # References only help the rich styles; they flatten clean infographic/typographic. NEVER attach
+        # past-post images for a campaign image (they leak off-theme/RPO subjects).
+        needs_refs = any(p.get("style") in RICH_STYLES for p in plans)
+        refs = [] if brief else (_load_references(await retrieve.image_references(concept, n=3)) if needs_refs else [])
+
+        async def one(i: int, p: dict):
+            if i in emp_for:  # people-scene -> real employee, themed, no name
+                try:
+                    return await _employee_scene(i, p)
+                except Exception:
+                    pass  # fall through to the normal AI scene on any failure
             use_refs = refs if p.get("style") in RICH_STYLES else []
-            res = await _openai_image(p, concept, context, use_refs)
+            res = await _openai_image(p, concept, context, use_refs, brief=brief)
             if res is None:  # API failed -> compositor fallback (never fake)
                 try:
                     return _render(p)
@@ -572,11 +788,14 @@ async def build_images(
                     return None
             return res
 
-        results = [r for r in await asyncio.gather(*[one(p) for p in plans]) if r]
+        results = [r for r in await asyncio.gather(*[one(i, p) for i, p in enumerate(plans)]) if r]
     else:
-        for p in plans:
+        for i, p in enumerate(plans):
             try:
-                results.append(_render(p))
+                if i in emp_for:  # real employee composite still works offline (graphic plate + real cut-out)
+                    results.append(await _employee_scene(i, p))
+                else:
+                    results.append(_render(p))
             except Exception:
                 continue
     return results

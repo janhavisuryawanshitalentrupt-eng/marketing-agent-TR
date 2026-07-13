@@ -16,6 +16,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class AppSetting(Base):
+    """Tiny key-value store for mutable runtime settings (e.g. the admin password override set via
+    'forgot password', and the active password-reset code). Created by init_db()'s create_all — no
+    migration needed. The config defaults still apply until a key is written here."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class Brand(Base):
     __tablename__ = "brands"
 
@@ -34,8 +45,11 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     title: Mapped[str] = mapped_column(String(300), default="New conversation")
-    kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | create
+    kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | create | campaign
+    # When this thread belongs to an (internal) campaign, link it so the folder restores its chat.
+    campaign_id: Mapped[int | None] = mapped_column(ForeignKey("campaigns.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     messages: Mapped[list["Message"]] = relationship(
@@ -60,7 +74,11 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     name: Mapped[str] = mapped_column(String(300))
+    # external = client-targeting (sector + prospects + calendar); internal = promote Talentrupt
+    # itself via a chat-driven content folder.
+    type: Mapped[str] = mapped_column(String(20), default="external")
     goal: Mapped[str] = mapped_column(Text, default="")
     audience: Mapped[str] = mapped_column(Text, default="")
     pillar: Mapped[str] = mapped_column(String(200), default="")
@@ -86,6 +104,7 @@ class Asset(Base):
     __tablename__ = "assets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     campaign_id: Mapped[int | None] = mapped_column(ForeignKey("campaigns.id"), nullable=True)
     type: Mapped[str] = mapped_column(String(40))  # post | image | deck | pdf | outreach
     title: Mapped[str] = mapped_column(String(400), default="")
@@ -96,6 +115,59 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     campaign: Mapped["Campaign | None"] = relationship(back_populates="assets")
+
+
+class Folder(Base):
+    """A user-managed folder of employees — upload their REAL photos + name/role, then generate branded
+    posts that feature them. Their actual photo is used; the face is never AI-generated."""
+    __tablename__ = "folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    employees: Mapped[list["Employee"]] = relationship(
+        cascade="all, delete-orphan", order_by="Employee.id"
+    )
+
+
+class Employee(Base):
+    """One person in a Folder: their real photo + name + role. The ACTUAL photo is composited into
+    generated posts; the face is never AI-generated."""
+    __tablename__ = "employees"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
+    folder_id: Mapped[int] = mapped_column(ForeignKey("folders.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(200), default="")
+    photo_path: Mapped[str] = mapped_column(String(600))  # on-disk path to the real COVER photo
+    file_url: Mapped[str | None] = mapped_column(String(600), nullable=True)  # served URL for the thumbnail
+    # Vision tags of the COVER photo (attire/expression/setting/framing/caption) so a feature can pick the
+    # shot that best FITS the request. Filled lazily on first feature; the face is never altered.
+    photo_analysis: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    # Additional real photos of the SAME person (the cover above is photo #1). Multiple shots let a
+    # feature pick the one that best fits the request; deleting the employee removes them all.
+    photos: Mapped[list["EmployeePhoto"]] = relationship(
+        cascade="all, delete-orphan", order_by="EmployeePhoto.id"
+    )
+
+
+class EmployeePhoto(Base):
+    """An extra real photo attached to an Employee (beyond their cover `photo_path`). Same person,
+    different shot — used to give featured-employee posts photo variety. Face is never AI-generated."""
+    __tablename__ = "employee_photos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    photo_path: Mapped[str] = mapped_column(String(600))
+    file_url: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    analysis: Mapped[dict] = mapped_column(JSON, default=dict)  # vision tags (see Employee.photo_analysis)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class CampaignItem(Base):
@@ -132,6 +204,7 @@ class Opportunity(Base):
     __tablename__ = "opportunities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     company: Mapped[str] = mapped_column(String(300))
     segment: Mapped[str] = mapped_column(String(200), default="")
     fit_score: Mapped[float] = mapped_column(Float, default=0.0)
@@ -149,6 +222,8 @@ class SourceFile(Base):
     __tablename__ = "source_files"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL = shared brand library (TR ZIP ingest); a role = a user's private upload.
+    owner: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     path: Mapped[str] = mapped_column(String(700))
     folder: Mapped[str] = mapped_column(String(200), default="")
     file_type: Mapped[str] = mapped_column(String(20), default="")  # image | pdf
@@ -177,6 +252,7 @@ class CalendarTask(Base):
     __tablename__ = "calendar_tasks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(20), default="admin", index=True)  # account that owns it
     opportunity_id: Mapped[int | None] = mapped_column(
         ForeignKey("opportunities.id"), nullable=True
     )

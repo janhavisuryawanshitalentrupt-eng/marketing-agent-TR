@@ -1,6 +1,6 @@
 export type Role = "user" | "assistant";
 
-export type AssetType = "post" | "image" | "deck" | "pdf" | "campaign";
+export type AssetType = "post" | "image" | "deck" | "pdf" | "campaign" | "video" | "magazine";
 
 export interface Asset {
   id: number;
@@ -10,6 +10,31 @@ export interface Asset {
   body: Record<string, unknown>;
   file_url: string | null;
   meta: Record<string, unknown>;
+  created_at?: string | null;
+}
+
+export interface Folder {
+  id: number;
+  name: string;
+  employee_count: number;
+  created_at?: string | null;
+}
+
+export interface EmployeePhotoRef {
+  id: number | null; // null = the cover photo (delete the whole employee to remove it)
+  file_url?: string | null;
+  primary?: boolean;
+}
+
+export interface Employee {
+  id: number;
+  folder_id: number;
+  name: string;
+  role: string;
+  file_url?: string | null;
+  photos?: EmployeePhotoRef[];
+  photo_count?: number;
+  created_at?: string | null;
 }
 
 export interface ChatMessage {
@@ -17,6 +42,11 @@ export interface ChatMessage {
   content: string;
   pending?: boolean;
   assets?: Asset[];
+  // Tappable quick-pick replies the Create agent offers under a conversational question.
+  chips?: string[];
+  // Files the user attached on THIS turn — snapshotted onto the message so the transcript shows them
+  // next to the prompt (live-session only; not persisted with the conversation).
+  attachments?: Attachment[];
 }
 
 export interface Attachment {
@@ -25,6 +55,9 @@ export interface Attachment {
   text: string;
   kind: string; // image | pdf | text
   chars: number;
+  // Client-side object URL for an image attachment, captured at attach time so the transcript can show
+  // a real thumbnail instantly (live session only — blob URLs don't survive a reload).
+  previewUrl?: string;
 }
 
 export interface Conversation {
@@ -36,6 +69,7 @@ export interface Conversation {
 export interface CampaignSummary {
   id: number;
   name: string;
+  type?: string; // "internal" (promote Talentrupt) | "external" (client-targeting)
   created_at: string | null;
   sector?: string; // resolved target sector — used to avoid creating a duplicate same-sector folder
 }
@@ -88,6 +122,7 @@ export interface CampaignDetail extends CampaignSummary {
   strategy: Record<string, unknown>;
   status: string;
   resolved_sector?: string;
+  conversation_id?: number | null; // the internal campaign's chat thread
   items?: CampaignItem[];
   assets: Asset[];
 }
@@ -207,4 +242,46 @@ export interface KnowledgeStatus {
   by_folder: Record<string, number>;
   vision_enabled: boolean;
   zip_present: boolean;
+}
+
+// --- Magazine ---------------------------------------------------------------
+export interface MagStat {
+  label: string;
+  value: string;
+}
+
+export interface MagSpotlight {
+  employee_id: number | null;
+  office: string;
+  blurb: string;
+  stats: MagStat[];
+}
+
+export interface MagazineSpec {
+  title: string;
+  edition: string;
+  theme: string;
+  editorial: string;
+  cover: {
+    employee_id: number | null;
+    headline: string;
+    tagline: string;
+    stats: MagStat[];
+  };
+  spotlights: MagSpotlight[];
+}
+
+export interface MagAwardSummary {
+  title: string;
+  winners: string[];
+}
+
+export interface MagazineDataResult {
+  asset: Asset;
+  format?: "award" | "flat";
+  featured: string[];
+  matched: string[];
+  unmatched: string[];
+  awards?: MagAwardSummary[];
+  columns: { name: string | null; office: string | null; metrics: string[] };
 }

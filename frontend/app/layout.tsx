@@ -16,8 +16,8 @@ const montserrat = Montserrat({
 });
 
 export const metadata: Metadata = {
-  title: "Talentrupt AI — Marketing Agent",
-  description: "Internal AI marketing department for Talentrupt. RPO Done Right.",
+  title: "Myra — Marketing Agent",
+  description: "Myra — your AI marketing department.",
 };
 
 export default function RootLayout({
@@ -30,10 +30,10 @@ export default function RootLayout({
       className={`${poppins.variable} ${montserrat.variable} h-full`}
     >
       <body className="min-h-full antialiased">
-        {/* Apply the saved theme before paint to avoid a flash. */}
+        {/* Apply the theme before paint to avoid a flash. Saved pref wins; else follow the OS scheme. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var t=localStorage.getItem('tr_theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}`,
+            __html: `try{var t=localStorage.getItem('tr_theme');if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='light';}`,
           }}
         />
         <AuthGate>{children}</AuthGate>

@@ -9,6 +9,10 @@ fallback path can call them.
 """
 from __future__ import annotations
 
+import asyncio
+import os
+import random
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
@@ -18,9 +22,12 @@ from ..business import analyze as bd_analyze
 from ..business import discover as bd_discover
 from ..business import outreach as bd_outreach
 from ..business.store import save_opportunity, serialize_opportunity
-from ..generation import decks, images, pdf, posts, refine as gen_refine, strategy
+from ..generation import chatpost, decks, images, pdf, photopick, posts, refine as gen_refine, strategy, teampost
 from ..knowledge import retrieve
-from ..models import Asset, Brand, CalendarTask, Campaign, CampaignProspect, Opportunity
+from ..models import (
+    Asset, Brand, CalendarTask, Campaign, CampaignProspect, Employee, EmployeePhoto, Opportunity,
+)
+from ..providers import llm
 
 
 # --- Serialization --------------------------------------------------------
@@ -33,14 +40,15 @@ def serialize_asset(a: Asset) -> dict:
         "body": a.body,
         "file_url": a.file_url,
         "meta": a.meta,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
     }
 
 
 def _save_asset(db: Session, campaign_id: int | None, type_: str, title: str,
                 body: dict, file_path: str | None = None, file_url: str | None = None,
-                meta: dict | None = None) -> Asset:
+                meta: dict | None = None, owner: str = "admin") -> Asset:
     a = Asset(
-        campaign_id=campaign_id, type=type_, title=title[:380], body=body,
+        campaign_id=campaign_id, owner=owner, type=type_, title=title[:380], body=body,
         file_path=file_path, file_url=file_url, meta=meta or {},
     )
     db.add(a)
@@ -56,13 +64,15 @@ async def _ensure_campaign(db: Session, state: dict, brand: Brand | None, hint: 
     """Return the active campaign. One-off generations (no planned campaign in this
     turn) go into a single shared 'Quick Content' folder instead of spawning a new
     named folder per request."""
+    owner = state.get("owner", "admin")
     if state.get("campaign_id"):
         c = db.get(Campaign, state["campaign_id"])
         if c:
             return c
-    c = db.query(Campaign).filter(Campaign.name == QUICK_CONTENT).first()
+    # Scope the shared "Quick Content" folder by owner so the two accounts never pool into one.
+    c = db.query(Campaign).filter(Campaign.name == QUICK_CONTENT, Campaign.owner == owner).first()
     if not c:
-        c = Campaign(name=QUICK_CONTENT, goal="One-off generated assets", audience="", pillar="")
+        c = Campaign(name=QUICK_CONTENT, owner=owner, goal="One-off generated assets", audience="", pillar="")
         db.add(c)
         db.commit()
         db.refresh(c)
@@ -79,11 +89,13 @@ async def exec_create_campaign(db, state, brand, args) -> dict:
         "audience": args.get("audience", ""),
         "pillar": args.get("pillar", ""),
     }
+    owner = state.get("owner", "admin")
     strat = await strategy.generate_strategy(brand, brief)
-    # Reuse an existing same-named campaign instead of creating a duplicate folder.
+    # Reuse an existing same-named campaign instead of creating a duplicate folder — but only the
+    # caller's own, so it can't adopt the other account's campaign.
     existing = (
         db.query(Campaign)
-        .filter(func.lower(Campaign.name) == name.strip().lower())
+        .filter(func.lower(Campaign.name) == name.strip().lower(), Campaign.owner == owner)
         .first()
     )
     if existing:
@@ -96,7 +108,7 @@ async def exec_create_campaign(db, state, brand, args) -> dict:
         c = existing
     else:
         c = Campaign(
-            name=name[:280], goal=brief["goal"], audience=brief["audience"],
+            name=name[:280], owner=owner, goal=brief["goal"], audience=brief["audience"],
             pillar=brief["pillar"], channels=args.get("channels", []) or [],
             timeline=args.get("timeline", ""), kpis=strat.get("kpis", []),
             strategy=strat, status="active",
@@ -123,34 +135,87 @@ async def exec_create_campaign(db, state, brand, args) -> dict:
 
 async def exec_generate_posts(db, state, brand, args) -> dict:
     c = await _ensure_campaign(db, state, brand, args.get("angle") or "Quick Content")
+    platform = args.get("platform") or "Social"
     items = await posts.generate_posts(
-        brand, c, count=args.get("count", 3),
-        platform=args.get("platform", "LinkedIn"), angle=args.get("angle", ""),
+        brand, c, count=args.get("count", 3), platform=platform, angle=args.get("angle", ""),
     )
     saved = []
     for p in items:
         a = _save_asset(
             db, c.id, "post", p.get("hook", "Post"),
-            body=p, meta={"platform": p.get("platform", "LinkedIn")},
+            body=p, meta={"platform": p.get("platform") or platform},
+            owner=state.get("owner", "admin"),
         )
         saved.append(serialize_asset(a))
-    return {"summary": f"Wrote {len(saved)} {args.get('platform', 'LinkedIn')} posts.", "assets": saved}
+    label = "social media" if platform.lower().startswith("social") else platform
+    return {"summary": f"Wrote {len(saved)} {label} post" + ("s" if len(saved) != 1 else "") + ".",
+            "assets": saved}
+
+
+def _campaign_theme(state: dict) -> str:
+    """The theme that grounds campaign image generation = campaign NAME + brief. Using the name means a
+    campaign called 'Football Campaign' with no written brief is still themed by its name. '' outside a
+    campaign."""
+    if state.get("campaign_id") is None:
+        return ""
+    name = (state.get("campaign_name", "") or "").strip()
+    brief = (state.get("campaign_brief", "") or "").strip()
+    if name and brief:
+        return f"{name} — {brief}"
+    return name or brief
 
 
 async def exec_generate_image(db, state, brand, args) -> dict:
     concept = args.get("concept", "")
+    # HARD GUARD (defense-in-depth): NEVER AI-generate a real team member's face. If the concept names
+    # someone in the Team library, route to the REAL-photo composer no matter what the model chose —
+    # the prompt also says so, but this guarantees it even when the model ignores the prompt. (A second
+    # identical guard lives inside images.build_images so refine/campaign paths are covered too.)
+    person = teampost.detect_team_person(concept)
+    if person:
+        return await exec_team_image(db, state, brand,
+                                     {"person": person, "message": concept, "count": args.get("count")})
     # Offer variations to pick from. Clamp to 1-3 as a hard cost ceiling regardless of the model's ask.
     try:
         count = max(1, min(int(args.get("count", 1) or 1), 3))
     except (TypeError, ValueError):
         count = 1
-    rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"))
+    # THEME = campaign NAME + brief, so even a campaign with an empty brief (just named "Football Campaign")
+    # still grounds/themes the image. Name alone is a valid theme.
+    theme = _campaign_theme(state)
+    if state.get("campaign_id") is None:
+        # CHAT (no campaign): the Talentrupt-brand post engine — the app draws crisp brand chrome
+        # (wordmark, red-keyword headline, kicker, stat cards, footer, accents) over brand/AI imagery,
+        # reproducing Talentrupt's own post design language. Never invents a face. Chat-only; campaign
+        # keeps its existing generic/themed compositor below. Guard the call so a build hiccup degrades to
+        # the "nothing generated" reply below (line ~211) rather than 500-ing the chat turn.
+        try:
+            rendered = await chatpost.build_chat_post(brand, concept, count=count, style=args.get("style"),
+                                                      owner=state.get("owner", "admin"))
+        except Exception:
+            rendered = []   # degrade to the "nothing generated" reply below, never 500 the chat turn
+    else:
+        # CAMPAIGN mode: hand the builder this account's real employee photos so any people-scene shows a
+        # REAL teammate (rotating), never a random AI face.
+        team_photos: list[bytes] = []
+        owner = state.get("owner", "admin")
+        for e in db.query(Employee).filter(Employee.owner == owner).all():
+            if not e.photo_path:
+                continue
+            try:
+                with open(e.photo_path, "rb") as f:
+                    team_photos.append(f.read())
+            except Exception:
+                continue
+        rendered = await images.build_images(brand, None, concept, count=count, style=args.get("style"),
+                                             brief=theme, team_photos=team_photos, theme=theme)
     saved = []
     for path, fname, meta in rendered:
         a = _save_asset(
-            db, None, "image", concept or "Campaign visual",
+            db, state.get("campaign_id"), "image", concept or "Campaign visual",
             body={"concept": concept, "layout": meta.get("layout")},
             file_path=path, file_url=meta["url"], meta=meta,
+            owner=state.get("owner", "admin"),
         )
         saved.append(serialize_asset(a))
     if not saved:  # generation returned nothing (e.g. provider error) — don't claim success
@@ -169,15 +234,41 @@ def _variation_count(args) -> int:
         return 1
 
 
+# Document styling vocabulary — single source of truth shared by the schemas and the builders.
+DOC_TONE = ["executive", "professional", "conversational", "persuasive", "data-driven"]
+DOC_DEPTH = ["concise", "standard", "in-depth"]
+DOC_THEME = ["minimal", "editorial", "bold", "data-driven"]
+_DEPTH_SLIDES = {"concise": 5, "standard": 8, "in-depth": 12}
+
+
+def _doc_style(args) -> dict:
+    """Extract the optional document-tailoring params, validated against the enums. Returns ONLY the
+    keys the user actually supplied, so old topic-only calls pass nothing extra and builders use defaults."""
+    out: dict = {}
+    if (aud := str(args.get("audience") or "").strip()):
+        out["audience"] = aud[:200]
+    if (tone := str(args.get("tone") or "").strip().lower()) in DOC_TONE:
+        out["tone"] = tone
+    if (depth := str(args.get("depth") or "").strip().lower()) in DOC_DEPTH:
+        out["depth"] = depth
+    if (theme := str(args.get("design_theme") or "").strip().lower()) in DOC_THEME:
+        out["design_theme"] = theme
+    return out
+
+
 async def exec_build_deck(db, state, brand, args) -> dict:
     topic = args.get("topic") or "Talentrupt RPO"
-    slides = args.get("slides", 6)
+    style = _doc_style(args)
+    # Explicit slide count wins; else derive from depth; else default 6.
+    slides = args.get("slides") or _DEPTH_SLIDES.get(style.get("depth", ""), 6)
     count = _variation_count(args)
     saved = []
+    brief = state.get("campaign_brief", "")
     for _ in range(count):  # each build re-plans the outline -> distinct variations
-        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides)
-        a = _save_asset(db, None, "deck", topic, body={"topic": topic},
-                        file_path=path, file_url=meta["url"], meta=meta)
+        path, fname, meta = await decks.build_deck(brand, None, topic, slides=slides, brief=brief, **style)
+        a = _save_asset(db, state.get("campaign_id"), "deck", topic, body={"topic": topic, **style},
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
         saved.append(serialize_asset(a))
     if not saved:
         return {"summary": "Couldn't build the presentation this time — please try again.", "assets": []}
@@ -190,15 +281,18 @@ async def exec_build_deck(db, state, brand, args) -> dict:
 async def exec_build_pdf(db, state, brand, args) -> dict:
     kind = args.get("kind", "report")
     topic = (args.get("topic") or "").strip()
+    style = _doc_style(args)
     count = _variation_count(args)
+    brief = state.get("campaign_brief", "")
     saved = []
     for _ in range(count):
         # Write tailored, brand-grounded content for the topic (None -> template fallback in build_pdf).
-        outline = await pdf.generate_pdf_outline(brand, topic, kind) if topic else None
-        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline)
+        outline = await pdf.generate_pdf_outline(brand, topic, kind, brief=brief, **style) if (topic or brief) else None
+        path, fname, meta = pdf.build_pdf(brand, None, kind=kind, topic=topic, outline=outline, brief=brief, **style)
         title = (topic or f"Talentrupt — {kind}")[:120]
-        a = _save_asset(db, None, "pdf", title, body={"kind": kind, "topic": topic},
-                        file_path=path, file_url=meta["url"], meta=meta)
+        a = _save_asset(db, state.get("campaign_id"), "pdf", title, body={"kind": kind, "topic": topic, **style},
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
         saved.append(serialize_asset(a))
     if not saved:
         return {"summary": "Couldn't build the document this time — please try again.", "assets": []}
@@ -237,7 +331,7 @@ async def exec_discover_prospects(db, state, brand, args) -> dict:
     if not items:
         return {"summary": "No matching companies surfaced right now — try broadening the criteria.",
                 "assets": []}
-    saved = [save_opportunity(db, it) for it in items]
+    saved = [save_opportunity(db, it, owner=state.get("owner", "admin")) for it in items]
     lines = []
     for o in saved:
         w = o.why or {}
@@ -256,6 +350,46 @@ async def exec_discover_prospects(db, state, brand, args) -> dict:
     return {"summary": summary, "assets": []}
 
 
+async def exec_vibe_prospect(db, state, brand, args) -> dict:
+    """VIBE PROSPECTING: interpret a freeform 'ideal client' description into a sharp ICP, then discover
+    REAL matching companies (fit-scored, with signals + contacts), ranked by fit. Saves to Business Dev."""
+    vibe = (args.get("vibe") or args.get("query") or "").strip()
+    if not vibe:
+        return {"summary": "Describe your ideal client in a sentence — the 'vibe' (e.g. 'US healthcare "
+                "groups scaling clinical hiring fast') — and I'll find and rank real matches.", "assets": []}
+    icp = await bd_discover.vibe_to_icp(vibe)
+    filters = {k: icp[k] for k in ("industry", "company_size", "location", "signal", "keywords") if icp.get(k)}
+    for k in ("industry", "company_size", "location", "keywords"):  # explicit args override the parsed ICP
+        if args.get(k):
+            filters[k] = str(args[k])
+    query = icp.get("refined_query") or vibe
+    try:
+        count = max(1, min(int(args.get("count", 8) or 8), 12))
+    except (TypeError, ValueError):
+        count = 8
+    owner = state.get("owner", "admin")
+    known = [c for (c,) in db.query(Opportunity.company).filter(Opportunity.owner == owner).all() if c]
+    items = await bd_discover.discover(None, query, count=count, filters=filters or None, exclude=known)
+    if not items:
+        return {"summary": "No companies matched that vibe right now — try loosening it (broaden the "
+                "sector or drop a constraint).", "assets": []}
+    saved = [save_opportunity(db, it, owner=owner) for it in items]
+    saved.sort(key=lambda o: -(o.fit_score or 0))
+    lines = []
+    for o in saved:
+        w = o.why or {}
+        contacts = w.get("contacts") or []
+        who = _contact_label(contacts[0]) if contacts else "decision-maker TBD"
+        lines.append(f"- {o.company} — fit {int(o.fit_score)} ({o.segment}). Why now: "
+                     f"{(o.signal or '').strip()[:140]}. Contact: {who}.")
+    head = f"Read your vibe as: {icp['summary']}\n\n" if icp.get("summary") else ""
+    summary = (head + f"Found {len(saved)} matching client(s), ranked by fit — saved to Business Dev:\n"
+               + "\n".join(lines)
+               + "\n\nWant it tighter? Say e.g. 'smaller companies', 'drop staffing agencies', or "
+               "'more like the top one'.")
+    return {"summary": summary, "assets": []}
+
+
 async def exec_analyze_company(db, state, brand, args) -> dict:
     """Analyze one named company as a Talentrupt prospect; save it to Business Dev."""
     company = (args.get("company") or "").strip()
@@ -264,7 +398,7 @@ async def exec_analyze_company(db, state, brand, args) -> dict:
     d = await bd_analyze.analyze_company(company, str(args.get("website", "") or ""))
     if not d:
         return {"summary": f"Couldn't analyze {company} right now.", "assets": []}
-    o = save_opportunity(db, d)
+    o = save_opportunity(db, d, owner=state.get("owner", "admin"))
     w = o.why or {}
     contacts = w.get("contacts") or []
     timing = w.get("timing") or {}
@@ -283,7 +417,8 @@ async def exec_analyze_company(db, state, brand, args) -> dict:
 async def exec_list_prospects(db, state, brand, args) -> dict:
     """READ the prospects in Business Dev. Always reports EXACT counts: the TOTAL prospect count and
     the ★ saved/shortlisted subset — so chat never conflates 'all prospects' with 'saved'."""
-    all_rows = db.query(Opportunity).order_by(Opportunity.fit_score.desc()).all()
+    all_rows = (db.query(Opportunity).filter(Opportunity.owner == state.get("owner", "admin"))
+                .order_by(Opportunity.fit_score.desc()).all())
     total_all = len(all_rows)
     saved_all = sum(1 for o in all_rows if (o.why or {}).get("saved"))
     rows = all_rows
@@ -324,40 +459,63 @@ async def exec_list_prospects(db, state, brand, args) -> dict:
 
 
 async def exec_list_campaigns(db, state, brand, args) -> dict:
-    """READ the planned campaigns + their target-client counts (or one campaign's clients)."""
-    camps = (
-        db.query(Campaign).filter(Campaign.status == "planning")
-        .order_by(Campaign.id.desc()).all()
-    )
-    if not camps:
-        return {"summary": "No campaigns have been planned yet.", "assets": []}
+    """READ this account's campaigns, split by TYPE so counts are never conflated:
+    INTERNAL = promote Talentrupt (a content folder, no target clients); EXTERNAL = client-targeting
+    (a sector + scored target clients). Owner-scoped, and archived campaigns are excluded. Pass
+    type='internal'/'external' to answer 'how many internal/external campaigns', or name=... for one
+    campaign's target clients."""
+    owner = state.get("owner", "admin")
+    rows = (db.query(Campaign)
+            .filter(Campaign.owner == owner, Campaign.status != "archived")
+            .order_by(Campaign.id.desc()).all())
+    if not rows:
+        return {"summary": "No campaigns have been created yet.", "assets": []}
+
+    # One campaign's clients, looked up by name.
     term = (args.get("name") or "").strip().lower()
     if term:
-        match = next((c for c in camps if term in (c.name or "").lower()), None)
+        match = next((c for c in rows if term in (c.name or "").lower()), None)
         if match:
+            if (match.type or "external") == "internal":
+                return {"summary": f"'{match.name}' is an INTERNAL (promote-Talentrupt) campaign — a "
+                        "content folder, so it has no target clients.", "assets": []}
             sector = (match.strategy or {}).get("sector") or "auto-detected"
-            clients = (
-                db.query(CampaignProspect)
-                .filter(CampaignProspect.campaign_id == match.id, CampaignProspect.status == "active")
-                .order_by(CampaignProspect.fit_score.desc()).all()
-            )
+            clients = (db.query(CampaignProspect)
+                       .filter(CampaignProspect.campaign_id == match.id, CampaignProspect.status == "active")
+                       .order_by(CampaignProspect.fit_score.desc()).all())
             cl = [f"- {cp.company} — fit {int(cp.fit_score or 0)}" for cp in clients] or ["- (no active clients yet)"]
-            return {"summary": f"Campaign '{match.name}' [sector: {sector}] — {len(clients)} active "
+            return {"summary": f"'{match.name}' (EXTERNAL) [sector: {sector}] — {len(clients)} active "
                     f"target client(s):\n" + "\n".join(cl), "assets": []}
-    lines = []
-    for c in camps:
+
+    internal = [c for c in rows if (c.type or "external") == "internal"]
+    external = [c for c in rows if (c.type or "external") != "internal"]
+
+    def _ext_line(c) -> str:
         sector = (c.strategy or {}).get("sector") or ""
-        n = (
-            db.query(CampaignProspect)
-            .filter(CampaignProspect.campaign_id == c.id, CampaignProspect.status == "active").count()
-        )
-        lines.append(f"- {c.name}" + (f" [{sector}]" if sector else "") + f" — {n} target client(s)")
-    return {"summary": f"{len(camps)} campaign(s):\n" + "\n".join(lines), "assets": []}
+        n = (db.query(CampaignProspect)
+             .filter(CampaignProspect.campaign_id == c.id, CampaignProspect.status == "active").count())
+        return f"- {c.name}" + (f" [{sector}]" if sector else "") + f" — {n} target client(s)"
+
+    want = (args.get("type") or "").strip().lower()
+    if want == "internal":
+        body = "\n".join(f"- {c.name}" for c in internal) or "(none)"
+        return {"summary": f"{len(internal)} INTERNAL (promote-Talentrupt) campaign(s):\n{body}", "assets": []}
+    if want == "external":
+        body = "\n".join(_ext_line(c) for c in external) or "(none)"
+        return {"summary": f"{len(external)} EXTERNAL (client-targeting) campaign(s):\n{body}", "assets": []}
+
+    parts = [f"{len(rows)} campaign(s) total: {len(internal)} INTERNAL (promote Talentrupt) and "
+             f"{len(external)} EXTERNAL (client-targeting)."]
+    if internal:
+        parts.append("INTERNAL:\n" + "\n".join(f"- {c.name}" for c in internal))
+    if external:
+        parts.append("EXTERNAL:\n" + "\n".join(_ext_line(c) for c in external))
+    return {"summary": "\n\n".join(parts), "assets": []}
 
 
 async def exec_list_assets(db, state, brand, args) -> dict:
     """READ the generated assets (images, decks, PDFs, posts) from Create / past generations."""
-    q = db.query(Asset)
+    q = db.query(Asset).filter(Asset.owner == state.get("owner", "admin"))  # this account's assets only
     t = (args.get("type") or "").strip().lower()
     if t in ("image", "deck", "pdf", "post"):
         q = q.filter(Asset.type == t)
@@ -378,7 +536,8 @@ async def exec_list_assets(db, state, brand, args) -> dict:
 
 async def exec_list_tasks(db, state, brand, args) -> dict:
     """READ the follow-up reminders in the Tasks tab — grouped overdue / today / upcoming."""
-    rows = db.query(CalendarTask).order_by(CalendarTask.due_at).all()
+    rows = (db.query(CalendarTask).filter(CalendarTask.owner == state.get("owner", "admin"))
+            .order_by(CalendarTask.due_at).all())
     status = (args.get("status") or "").strip().lower()
     if status in ("pending", "done", "snoozed"):
         rows = [t for t in rows if (t.status or "") == status]
@@ -420,7 +579,8 @@ async def exec_list_tasks(db, state, brand, args) -> dict:
 async def exec_get_analytics(db, state, brand, args) -> dict:
     """READ the Analytics rollup (pipeline / outreach / campaigns / content / tasks). Read-only;
     mirrors the /api/analytics/summary KPI definitions so chat and the dashboard agree."""
-    opps = db.query(Opportunity).all()
+    _owner = state.get("owner", "admin")
+    opps = db.query(Opportunity).filter(Opportunity.owner == _owner).all()
     by_status = {"new": 0, "contacted": 0, "replied": 0, "meeting": 0}
     saved = sent = replied = 0
     for o in opps:
@@ -433,15 +593,17 @@ async def exec_get_analytics(db, state, brand, args) -> dict:
             sent += 1
         if log.get("replied_at") or o.status in ("replied", "meeting"):
             replied += 1
-    campaigns = db.query(Campaign).all()
+    campaigns = db.query(Campaign).filter(Campaign.owner == _owner).all()
     planning = sum(1 for c in campaigns if c.status == "planning")
-    active_clients = db.query(CampaignProspect).filter(CampaignProspect.status == "active").count()
+    active_clients = (db.query(CampaignProspect)
+                      .join(Campaign, CampaignProspect.campaign_id == Campaign.id)
+                      .filter(CampaignProspect.status == "active", Campaign.owner == _owner).count())
     assets_by_type: dict[str, int] = {}
-    for (t,) in db.query(Asset.type).all():
+    for (t,) in db.query(Asset.type).filter(Asset.owner == _owner).all():
         assets_by_type[t] = assets_by_type.get(t, 0) + 1
     now = datetime.now(timezone.utc)
     overdue = due_soon = pending = 0
-    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending").all():
+    for tk in db.query(CalendarTask).filter(CalendarTask.status == "pending", CalendarTask.owner == _owner).all():
         pending += 1
         if tk.due_at:
             due = tk.due_at if tk.due_at.tzinfo else tk.due_at.replace(tzinfo=timezone.utc)
@@ -466,12 +628,12 @@ async def exec_get_analytics(db, state, brand, args) -> dict:
 _PIPELINE_ORDER = ["new", "contacted", "replied", "meeting"]  # mirrors main.py
 
 
-def _find_opp(db, name: str) -> Opportunity | None:
-    """Resolve a saved prospect by company name (exact first, then a contains match)."""
+def _find_opp(db, name: str, owner: str = "admin") -> Opportunity | None:
+    """Resolve a saved prospect by company name (exact first, then a contains match) — own account only."""
     name = (name or "").strip().lower()
     if not name:
         return None
-    rows = db.query(Opportunity).all()
+    rows = db.query(Opportunity).filter(Opportunity.owner == owner).all()
     return (
         next((o for o in rows if (o.company or "").strip().lower() == name), None)
         or next((o for o in rows if name in (o.company or "").lower()), None)
@@ -481,7 +643,7 @@ def _find_opp(db, name: str) -> Opportunity | None:
 async def exec_draft_outreach(db, state, brand, args) -> dict:
     """Generate + save outreach for a saved prospect and schedule follow-ups (mirrors POST .../outreach)."""
     target = args.get("company", "")
-    o = _find_opp(db, target)
+    o = _find_opp(db, target, state.get("owner", "admin"))
     if not o:
         return {"summary": f"No saved prospect matches \"{target}\". Find or analyze it first, then I can draft outreach.", "assets": []}
     outreach = await bd_outreach.generate_outreach(o)
@@ -498,7 +660,8 @@ async def exec_draft_outreach(db, state, brand, args) -> dict:
         except (TypeError, ValueError):
             days = 3
         db.add(CalendarTask(
-            opportunity_id=o.id, title=f"Follow up with {o.company}", kind="followup",
+            opportunity_id=o.id, owner=state.get("owner", "admin"),
+            title=f"Follow up with {o.company}", kind="followup",
             due_at=datetime.now(timezone.utc) + timedelta(days=days),
             payload={"message": fu.get("message", "")},
         ))
@@ -517,7 +680,7 @@ async def exec_draft_outreach(db, state, brand, args) -> dict:
 async def exec_update_pipeline(db, state, brand, args) -> dict:
     """Record outreach activity + advance pipeline forward-only (mirrors POST .../track). Track-only."""
     target = args.get("company", "")
-    o = _find_opp(db, target)
+    o = _find_opp(db, target, state.get("owner", "admin"))
     if not o:
         return {"summary": f"No saved prospect matches \"{target}\".", "assets": []}
     field = {"sent": "sent_at", "contacted": "sent_at", "replied": "replied_at",
@@ -551,7 +714,9 @@ async def exec_manage_task(db, state, brand, args) -> dict:
     hint = (args.get("company") or args.get("task") or "").strip().lower()
     if not hint:
         return {"summary": "Which follow-up? Name the company (or task) it's for.", "assets": []}
-    rows = db.query(CalendarTask).filter(CalendarTask.status != "done").order_by(CalendarTask.due_at).all()
+    rows = (db.query(CalendarTask)
+            .filter(CalendarTask.status != "done", CalendarTask.owner == state.get("owner", "admin"))
+            .order_by(CalendarTask.due_at).all())
     opp_ids = {t.opportunity_id for t in rows if t.opportunity_id}
     companies = (
         {o.id: (o.company or "").lower() for o in db.query(Opportunity).filter(Opportunity.id.in_(opp_ids)).all()}
@@ -580,21 +745,61 @@ async def exec_manage_task(db, state, brand, args) -> dict:
     return {"summary": msg, "assets": []}
 
 
+def _last_conversation_asset(db, conversation_id, owner: str):
+    """The most recent regeneratable Asset referenced in THIS conversation's messages. This is what a
+    'refine this / keep the same person, change the background' edit must target — NOT the account's global
+    most-recent asset, which could be a DIFFERENT person from another chat (that swapped Pooja for Vaishnav)."""
+    if not conversation_id:
+        return None
+    from ..models import Message
+    msgs = (db.query(Message).filter(Message.conversation_id == conversation_id)
+            .order_by(Message.id.desc()).all())
+    for m in msgs:
+        for snap in reversed(list(m.assets or [])):
+            aid = snap.get("id") if isinstance(snap, dict) else snap
+            if not aid:
+                continue
+            try:
+                asset = db.get(Asset, int(aid))
+            except (TypeError, ValueError):
+                asset = None
+            if (asset and getattr(asset, "owner", owner) == owner
+                    and asset.type in ("image", "post", "deck", "pdf")):
+                return asset
+    return None
+
+
 async def exec_regenerate_asset(db, state, brand, args) -> dict:
     """Regenerate/refine a prior asset, saved as a NEW version (mirrors POST /assets/{id}/regenerate)."""
+    owner = state.get("owner", "admin")
     a = None
     if args.get("asset_id"):
         try:
             a = db.get(Asset, int(args["asset_id"]))
         except (TypeError, ValueError):
             a = None
+        if a and getattr(a, "owner", owner) != owner:  # never touch another account's asset
+            a = None
     if not a:
         title = (args.get("title") or "").strip().lower()
         if title:
-            a = next((x for x in db.query(Asset).order_by(Asset.id.desc()).all()
-                      if title in (x.title or "").lower()), None)
+            a = next((x for x in db.query(Asset).filter(Asset.owner == owner)
+                      .order_by(Asset.id.desc()).all() if title in (x.title or "").lower()), None)
     if not a:
-        return {"summary": "Tell me which asset to regenerate (its title or id) — I couldn't match one.", "assets": []}
+        # No id / no title match -> target the last asset IN THIS CONVERSATION (the image the user is
+        # looking at). This keeps 'refine this / same person' on the right person — never a different one
+        # from another chat. Only if there's no conversation asset do we fall back to campaign/owner recent.
+        a = _last_conversation_asset(db, state.get("conversation_id"), owner)
+    if not a:
+        # NEVER loop asking for an internal title/ID they don't know. Scope to the campaign when in one,
+        # else the owner's latest standalone asset.
+        q = db.query(Asset).filter(Asset.owner == owner, Asset.type.in_(("image", "post", "deck", "pdf")))
+        cid = state.get("campaign_id")
+        q = q.filter(Asset.campaign_id == cid) if cid is not None else q.filter(Asset.campaign_id.is_(None))
+        a = q.order_by(Asset.id.desc()).first()
+    if not a:
+        return {"summary": "There's nothing generated yet to adjust — create an image or post first, then I "
+                "can refine it.", "assets": []}
     new = await gen_refine.regenerate_asset(db, a.id, (args.get("instruction") or "").strip(), False)
     if not new:
         return {"summary": f"Couldn't regenerate “{a.title}”.", "assets": []}
@@ -602,14 +807,639 @@ async def exec_regenerate_asset(db, state, brand, args) -> dict:
             "assets": [serialize_asset(new)]}
 
 
+async def exec_animate_asset(db, state, brand, args) -> dict:
+    """Animate a finished image/team post into a short MOTION clip — a cinematic zoom/pan over the REAL
+    rendered image. The face is NEVER changed (it's the actual post, just animated). Saves a new asset."""
+    from ..generation import animate
+    a = None
+    if args.get("asset_id"):
+        try:
+            a = db.get(Asset, int(args["asset_id"]))
+        except (TypeError, ValueError):
+            a = None
+    if not a:
+        title = (args.get("asset") or args.get("title") or "").strip().lower()
+        if title:
+            a = next((x for x in db.query(Asset).order_by(Asset.id.desc()).all()
+                      if x.type == "image" and title in (x.title or "").lower()), None)
+    if not a:  # default to the most recent still image
+        a = db.query(Asset).filter(Asset.type == "image").order_by(Asset.id.desc()).first()
+    if not a or a.type != "image" or not a.file_path:
+        return {"summary": "Tell me which post to animate — I couldn't find a still image to use.",
+                "assets": []}
+    try:
+        path, fname, meta = animate.build_motion(a.file_path)
+    except Exception:
+        return {"summary": "Couldn't animate that image this time — please try again.", "assets": []}
+    new_type = "video" if meta.get("format") == "mp4" else "image"  # gif animates in an <img>
+    body = {**(a.body or {}), "animated_from": a.id, "kind": (a.body or {}).get("kind", "")}
+    na = _save_asset(db, a.campaign_id or state.get("campaign_id"), new_type, f"{a.title} (animated)"[:380],
+                     body=body, file_path=path, file_url=meta["url"], meta={**meta, "parent_id": a.id},
+                     owner=getattr(a, "owner", None) or state.get("owner", "admin"))
+    return {"summary": f"Animated “{a.title}” into a {meta.get('format', 'clip').upper()} motion post — "
+            "a cinematic zoom over the real photo; the face is unchanged.", "assets": [serialize_asset(na)]}
+
+
+_FEATURE_HEADLINES = ["On a Mission!", "Built to Lead.", "Driven to Deliver.", "Making it Happen!",
+                      "In the Spotlight."]
+
+
+async def _build_one(brand, raw, name, role, headline, subline, style, skin="navy", variant=None, theme="",
+                     design="", eyebrow=""):
+    """Render one featured-person post. 'ai' style / 'photo' skin (or a campaign `theme`) -> a VARIED editorial
+    design + real cut-out (async), with the theme steering the surroundings; otherwise a deterministic
+    series/legacy template on the given SKIN. Both keep the REAL face. `variant` (from the style intake)
+    selects the design; None -> random. `design` ('scene'|'graphic'|'') is the chosen image TYPE. `eyebrow` is
+    the intent label (ANNOUNCEMENT / CELEBRATING …) drawn above the headline. Pass name="" to omit the on-image
+    name label."""
+    v = variant if variant is not None else random.randint(0, 5)
+    if style == "ai" or skin == "photo" or (theme or "").strip():
+        return await teampost.build_ai_scene(brand, raw, name=name, role=role, headline=headline,
+                                             question=subline, variant=v, theme=theme, prefer=design,
+                                             eyebrow=eyebrow)
+    return teampost.build_team_image(brand, raw, name=name, role=role, headline=headline,
+                                     question=subline, variant=v, style=style, skin=skin)
+
+
+# Conservative multi-word triggers so the user can request a look ("on white", "cream background",
+# "photographic scene") without a stray colour word (e.g. "red shirt") flipping the skin.
+_SKIN_TRIGGERS = [
+    ("photographic", "photo"), ("realistic scene", "photo"), ("photo background", "photo"),
+    ("photo scene", "photo"), ("real background", "photo"),
+    ("on white", "light"), ("white background", "light"), ("light theme", "light"), ("clean white", "light"),
+    ("cream", "cream"), ("warm background", "cream"),
+    ("navy theme", "navy"), ("dark navy", "navy"), ("navy background", "navy"),
+    ("red theme", "red"), ("bold red", "red"), ("red background", "red"),
+]
+
+
+def _skin_from_text(text: str) -> str:
+    t = (text or "").lower()
+    for kw, sk in _SKIN_TRIGGERS:
+        if kw in t:
+            return sk
+    return ""
+
+
+_INSTRUCTION_RE = re.compile(
+    r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|i\s+(?:want|need|would\s+like)(?:\s+you)?(?:\s+to)?\s+|let'?s\s+|kindly\s+)*"
+    r"(?:create|make|generate|build|design|draft|produce|render|do|give\s+me|show\s+me|prepare|put\s+together)\s+"
+    r"(?:me\s+)?(?:an?\s+|the\s+|some\s+|a\s+few\s+)?"
+    # A deliverable word (post/image/banner…) and any preposition that FOLLOWS it are one unit, so a bare
+    # preposition after "a" is NOT eaten — "create a on mission post" keeps "on mission" (the 'on' survives).
+    r"(?:(?:image|images|post|posts|visual|visuals|graphic|graphics|picture|photo|creative|design|banner|poster)s?"
+    r"(?:\s+(?:of|for|about|featuring|showing|with|on|that\s+says|saying|to))?\s+)?",
+    re.I,
+)
+
+# Deliverable / meta words that describe the ARTEFACT, not the topic — never belong in a headline.
+_META_WORDS_RE = re.compile(
+    r"\b(?:posters?|posts?|banners?|graphics?|images?|visuals?|creatives?|designs?|flyers?|pictures?|"
+    r"photos?|reels?|stories|story)\b", re.I,
+)
+
+# STYLING directives describe HOW to render, not WHAT the post says — a request like "…use a different
+# style / new look / another version / different background" must never leak into the headline or caption.
+_STYLE_DIRECTIVE_RE = re.compile(
+    r"\b(?:(?:in|with|using|use|give\s+it|make\s+it|try|do|want|need)\s+)?"
+    r"(?:a|an|the|some)?\s*"
+    r"(?:different|new|another|fresh|alternate|other|second|3rd|third)\s+"
+    r"(?:styles?|looks?|versions?|vibes?|themes?|designs?|layouts?|colou?rs?|backgrounds?|"
+    r"scenes?|variations?|angles?|takes?)\b",
+    re.I,
+)
+
+
+_FILLER_WORDS = {
+    "and", "the", "a", "an", "same", "for", "also", "too", "this", "that", "these", "those", "them",
+    "it", "do", "to", "as", "well", "one", "more", "again", "of", "with", "on", "please", "can", "you",
+    "make", "create", "generate", "image", "post", "him", "her", "similar", "like", "another",
+}
+
+
+def _clean_headline(message: str, name: str = "") -> str:
+    """Turn a raw user request into a clean post headline: drop the person's name and any leading
+    'create an image of / make a post about …' instruction phrasing, so the literal prompt is never
+    printed as the headline. Returns '' if nothing meaningful remains (caller uses a default headline)."""
+    m = (message or "").strip().replace("@", " ")  # drop @mention markers (the name itself is removed next)
+    if name:
+        m = re.sub(r"\b" + re.escape(name) + r"\b", " ", m, flags=re.I)
+        for tok in name.split():  # also drop a first-name-only mention ("@Ankit" of "Ankit Chaudhary")
+            if len(tok) >= 3:
+                m = re.sub(r"\b" + re.escape(tok) + r"\b", " ", m, flags=re.I)
+    prev = None
+    while prev != m:  # peel repeated leading instruction phrases ("create an image of …")
+        prev = m
+        m = _INSTRUCTION_RE.sub("", m, count=1).strip()
+    m = _META_WORDS_RE.sub(" ", m)  # drop any EMBEDDED artefact word ("… mission post for" -> "… mission for")
+    m = _STYLE_DIRECTIVE_RE.sub(" ", m)  # drop styling directives ("… use a different style" -> "…")
+    m = re.sub(r"\s+", " ", m).strip(" -,:;.")
+    m = re.sub(r"\s+(?:of|for|about|with|to|on|in|and|the|a|an)$", "", m, flags=re.I).strip()  # dangling tail word
+    mm = re.sub(r"^(?:of|for|about|featuring|with|on|the)\s+", "", m, flags=re.I)  # leftover leading preposition…
+    if len(mm.split()) >= 2:  # …only strip it when real content still remains (keeps short "on mission")
+        m = mm
+    m = re.sub(r"\s+", " ", m).strip(" -,:;.")
+    words = re.findall(r"[a-z']+", m.lower())
+    return "" if (words and all(w in _FILLER_WORDS for w in words)) else m  # filler-only => no real headline
+
+
+def _title_headline(s: str) -> str:
+    """Title-case a cleaned instruction phrase for a headline (e.g. 'on mission' -> 'On Mission'), but
+    leave copy the user actually wrote (already has capitals) untouched."""
+    s = (s or "").strip()
+    return s.title() if (s and s == s.lower()) else s
+
+
+async def _polish_headline(message: str, name: str = "", use_name: bool = True) -> str:
+    """Turn a rough phrase into a warm, CREATIVE marketing headline — the user gives the CONTEXT, the model
+    writes the copy. When `use_name` is True the featured person's FIRST NAME may be woven in (e.g. a welcome
+    post). When False (event/advertisement/campaign banners) the person is just a ROLE MODEL for the visual —
+    the copy is about the THEME/EVENT and NEVER names the person. Best-effort: returns the input unchanged on
+    any error or when no AI provider is configured."""
+    msg = (message or "").strip()
+    if not msg or not llm.provider_available():
+        return _title_headline(msg)  # no LLM -> present the cleaned phrase cleanly (Title Case)
+    first = (name or "").strip().split()[0] if (name or "").strip() else ""
+    if use_name and first:
+        who = (f" This post FEATURES {name} (first name: {first}) — weave in their first name where it reads "
+               "naturally.")
+    else:
+        who = (" The person in the visual is just a ROLE MODEL / face for the design — write the headline about "
+               "the THEME / EVENT / topic ONLY. Do NOT mention, weave in or invent ANY person's name.")
+    try:
+        out = await llm.chat_json([
+            {"role": "system", "content":
+             "You are a sharp, creative copywriter for Talentrupt, an RPO (recruitment) firm. The user gives "
+             "the ROUGH CONTEXT of a post; YOU write the headline. Turn it into ONE warm, punchy, genuinely "
+             "CREATIVE marketing headline (about 3-7 words) — Title Case, no quotes, an optional single '!' "
+             "allowed. Be human and natural, NEVER a literal echo of their words."
+             + who + " Reply ONLY as JSON: {\"headline\": \"...\"}."},
+            {"role": "user", "content": msg},
+        ], temperature=0.75)
+        head = ((out or {}).get("headline") or "").strip().strip('"').strip()
+        if head and not use_name and name:  # safety: strip any person-name the model slipped in
+            for tok in name.split():
+                head = re.sub(r"\b" + re.escape(tok) + r"\b", "", head, flags=re.I)
+            head = re.sub(r"\s{2,}", " ", head).strip(" -,:;")
+        return head[:70] if head else _title_headline(msg)
+    except Exception:
+        return _title_headline(msg)
+
+
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august",
+           "september", "october", "november", "december")
+
+
+def _post_eyebrow(message: str, theme: str = "") -> str:
+    """Classify the post INTENT from the user's words (+ campaign theme) and return the small eyebrow label
+    drawn above the headline, so the design reads as WHAT IT IS. An ANNOUNCEMENT / advertisement / event reads
+    'SAVE THE DATE' (when a month is named) or 'ANNOUNCEMENT' — never 'In the Spotlight', which makes an event
+    look like a feature / success story. An achievement reads 'CELEBRATING'; a welcome reads 'WELCOME TO THE
+    TEAM'. Returns '' when nothing matches (the renderer then picks a neutral label)."""
+    t = f"{message} {theme}".lower()
+
+    def has(*ws):
+        return any(w in t for w in ws)
+
+    if has("achievement", "achieved", "congrat", "milestone", "anniversary", "award", "awarded",
+           "winner", "we won", "years with", "year strong", "proud to", "promotion", "promoted",
+           "success story"):
+        return "CELEBRATING"
+    if has("welcome", "welcoming", "new hire", "newest member", "just joined", "joining us", "onboard"):
+        return "WELCOME TO THE TEAM"
+    if has("announce", "announcing", "announcement", "save the date", "coming soon", "launch",
+           "presenting", "join us", "register", "sign up", "competition", "competetion", "competation",
+           "tournament", "championship", "event", "festival", "carnival", "kick off", "kickoff",
+           "happening", "invite", "rsvp", "advertis", "promo"):
+        return "SAVE THE DATE" if any(re.search(r"\b" + m + r"\b", t) for m in _MONTHS) else "ANNOUNCEMENT"
+    return ""
+
+
+def _find_employee(db, owner: str, query: str):
+    """Resolve a Folders employee for `owner` by name — case-insensitive, fuzzy (exact first, then name
+    contained-in-query or query-contained-in-name, longest name wins). Returns the Employee or None. The
+    single matcher so a person in the Folders photo library is found no matter which tool the agent uses."""
+    q = (query or "").strip().lstrip("@").strip().lower()
+    if not q:
+        return None
+    rows = db.query(Employee).filter(Employee.owner == owner).all()
+    return (next((e for e in rows if (e.name or "").lower() == q), None)
+            or next((e for e in sorted(rows, key=lambda x: -len(x.name or ""))
+                     if e.name and ((e.name or "").lower() in q or q in (e.name or "").lower())), None))
+
+
+async def exec_team_image(db, state, brand, args) -> dict:
+    """Feature a REAL Talentrupt person/group: composite their ACTUAL photo into a branded post. Never
+    AI-generates a face. Looks in the Folders photo library FIRST (a named employee there), then the
+    brand library's legacy Team/ folder; if no photo matches, lists the options."""
+    person = (args.get("person") or "").strip()
+    message = (args.get("message") or "").strip()
+    # Folders photo library is the primary source for a NAMED person now: if `person` is an employee
+    # there, feature their stored photo (delegates to feature_employee). Fixes the "no team photos for X
+    # in the library" reply when X was actually uploaded to Folders. Brand-library Team/ is the fallback.
+    if person:
+        _emp = _find_employee(db, state.get("owner", "admin"), person)
+        if _emp:
+            return await exec_feature_employee(db, state, brand,
+                                               {"name": _emp.name, "message": message, "style": (args.get("style") or "")})
+    options = retrieve.list_team_photos()
+    if not options:
+        return {"summary": "There are no team photos on file yet, so I can't feature a real person — and "
+                "I won't invent a face. Add the photos to a 'Team/' folder inside the brand library "
+                "(named descriptively, e.g. Team/nishant-trivedi-coo.jpg), then re-run the knowledge "
+                "import.", "assets": []}
+    # Route the request WITHOUT ever silently defaulting to one individual:
+    #  - a real named person we have -> their photos;
+    #  - a generic 'team'/group request (or a bare message) -> rotate real GROUP shots;
+    #  - a name we DON'T have -> ask who (don't substitute someone else).
+    query = person or message
+    specific = teampost.detect_team_person(query)
+    if specific:
+        photos = retrieve.person_photos(specific)
+    elif person and not teampost.is_group_query(person):
+        photos = []
+    else:
+        photos = teampost.group_photos()
+    if not photos:
+        labels = ", ".join(sorted({o["label"] for o in options}))
+        miss = person or message
+        return {"summary": (f"I couldn't match “{miss}” to a team photo. " if miss else
+                            "I don't have a group photo on file yet to feature the team. ")
+                + f"Available team photos: {labels}. Who should I feature? (I only use the real photos "
+                "on file — I never invent a face.)", "assets": []}
+    # Decide how many posts and in which FORMAT(s). A specific style honors it; otherwise rotate
+    # distinct formats so posts don't all look alike (and count>1 returns options to choose from).
+    n = max(1, min(int(args.get("count") or 1), 4))
+    style_arg = (args.get("style") or "").strip().lower()
+    # A crowd shouldn't be cut out — group posts use the full-photo formats; individuals rotate all.
+    if style_arg in teampost.STYLE_NAMES or style_arg == "ai":
+        styles = [style_arg] * n
+    elif not specific:  # group request -> full real-photo formats (don't cut a crowd onto an AI bg)
+        pool = ["magazine", "split"]
+        styles = random.sample(pool, k=min(n, len(pool)))
+        while len(styles) < n:
+            styles.append(random.choice(pool))
+    else:  # a named individual, no explicit style -> default to the designed AI scene (rich background)
+        styles = ["ai"] * n
+
+    # Strip any "create an image of …" instruction phrasing, then split into headline + supporting subline.
+    clean_msg = _clean_headline(message, person)
+    msg_head, msg_sub = teampost.split_message(clean_msg) if clean_msg else ("", "")
+    assets, used, name, role = [], [], "", ""
+    for i in range(n):
+        photo = random.choice(photos)  # rotate across this person's real shots
+        raw = retrieve.team_reference_bytes(photo["path"])
+        if not raw:
+            continue
+        name, role = teampost.parse_team_label(photo["label"])
+        if clean_msg:
+            headline, subline = msg_head, msg_sub
+        else:
+            headline, subline = random.choice(_FEATURE_HEADLINES), ""
+        try:
+            path, fname, meta = await _build_one(brand, raw, name, role, headline, subline, styles[i])
+        except Exception:
+            continue
+        meta = {**meta, "team_photo": photo["label"]}
+        title = f"{name}" + (f" — {role}" if role else "")
+        a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
+                        body={"person": name, "role": role, "headline": headline, "subline": subline,
+                              "kind": "team", "style": styles[i]},
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
+        assets.append(serialize_asset(a))
+        used.append(styles[i])
+
+    if not assets:
+        return {"summary": "Couldn't build the team post this time — please try again.", "assets": []}
+    fmts = ", ".join(dict.fromkeys(used))
+    note = (f" in {len(assets)} different formats ({fmts}) — pick your favourite"
+            if len(assets) > 1 else f" ({fmts} format)")
+    tip = "" if len(photos) > 1 else \
+        " · add more photos of them (same name, e.g. \"…-2.jpg\") for even more variety"
+    return {"summary": f"Created {len(assets)} post(s) featuring {name}" + (f" ({role})" if role else "")
+            + " — real photos" + note + tip + ".", "assets": assets}
+
+
+async def exec_feature_uploaded_person(db, state, brand, args) -> dict:
+    """Feature a person from a photo the user JUST ATTACHED, using the name/role they gave — composites
+    their REAL uploaded photo into the brand template. NEVER changes or AI-generates the face. The app
+    doesn't need to 'know' the person: the photo + name come from the user this turn."""
+    imgs = (state or {}).get("attachments") or []
+    if not imgs:
+        return {"summary": "Attach the person's photo first (the 📎 button next to the message box), then "
+                "tell me their name (and the message) — I'll build the post from that exact photo and "
+                "never change the face.", "assets": []}
+    raw = None
+    for img in reversed(imgs):  # most-recent usable image
+        try:
+            with open(img["path"], "rb") as f:
+                raw = f.read()
+            break
+        except Exception:
+            continue
+    if not raw:
+        return {"summary": "I couldn't read the attached photo — please re-attach it and try again.",
+                "assets": []}
+    name = (args.get("name") or "").strip()
+    role = (args.get("role") or "").strip()
+    message = (args.get("message") or "").strip()
+    head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
+    n = max(1, min(int(args.get("count") or 1), 4))
+    style_arg = (args.get("style") or "").strip().lower()
+    if style_arg in teampost.STYLE_NAMES or style_arg == "ai":
+        styles = [style_arg] * n
+    else:
+        styles = ["ai"] * n  # default uploaded-person posts to the designed AI scene
+    assets, used = [], []
+    for i in range(n):
+        try:
+            path, fname, meta = await _build_one(brand, raw, name, role, head, sub, styles[i])
+        except Exception:
+            continue
+        meta = {**meta, "uploaded": True}
+        title = (name or "Featured") + (f" — {role}" if role else "")
+        a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
+                        body={"person": name, "role": role, "headline": head, "subline": sub,
+                              "kind": "team", "style": styles[i], "uploaded": True},
+                        file_path=path, file_url=meta["url"], meta=meta,
+                        owner=state.get("owner", "admin"))
+        assets.append(serialize_asset(a))
+        used.append(styles[i])
+    if not assets:
+        return {"summary": "Couldn't build the post from that photo — please try again.", "assets": []}
+    who = name or "the person in your photo"
+    note = (f" in {len(assets)} formats ({', '.join(dict.fromkeys(used))}) to choose from"
+            if len(assets) > 1 else "")
+    return {"summary": f"Created a post featuring {who}" + (f" ({role})" if role else "")
+            + " from your uploaded photo — real face, unchanged" + note + ".", "assets": assets}
+
+
+def _employee_photo_bytes(e) -> bytes | None:
+    """Read ONE of an employee's REAL photos — the cover plus any extra shots — chosen at random. Used as
+    the fallback when smart selection can't decide (no tags / no request)."""
+    paths = [p for p in ([e.photo_path] + [ep.photo_path for ep in (getattr(e, "photos", None) or [])]) if p]
+    random.shuffle(paths)
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                return f.read()
+        except Exception:
+            continue
+    return None
+
+
+def _persist_photo_tags(updates: list[tuple[str, int, dict]]) -> None:
+    """Persist vision tags on a SHORT-LIVED session so the caller's (shared, streaming) session is never
+    committed/expired mid-tool. `updates` = [(kind 'cover'|'extra', row_id, analysis)]. Best-effort."""
+    from ..db import SessionLocal
+    s = SessionLocal()
+    try:
+        for kind, rid, an in updates:
+            row = s.get(Employee, rid) if kind == "cover" else s.get(EmployeePhoto, rid)
+            if row is not None:
+                if kind == "cover":
+                    row.photo_analysis = an
+                else:
+                    row.analysis = an
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
+async def _select_employee_photo(e, request_text: str = "") -> bytes | None:
+    """Choose the employee photo that best FITS the request (attire / mood / setting), vision-tagging any
+    un-tagged photos once (cached). Falls back to a random real photo on any issue. The face is never
+    altered — this only decides WHICH real photo to feature. Never mutates the caller's DB session."""
+    # (kind, row_id, path, analysis) for the cover + each extra, keeping only readable files
+    holders = [("cover", e.id, e.photo_path, e.photo_analysis or {})]
+    for ep in (getattr(e, "photos", None) or []):
+        holders.append(("extra", ep.id, ep.photo_path, ep.analysis or {}))
+    holders = [(k, rid, p, a) for (k, rid, p, a) in holders if p and os.path.exists(p)]
+    if not holders:
+        return _employee_photo_bytes(e)
+
+    async def _tag(i):
+        _k, _rid, p, _a = holders[i]
+        try:
+            with open(p, "rb") as f:
+                data = f.read()
+        except Exception:
+            return None
+        return (i, await photopick.analyze_photo_bytes(data))
+
+    todo = [i for i, (_k, _rid, _p, a) in enumerate(holders) if not a]
+    if todo and (request_text or "").strip():   # only spend vision calls when the choice actually matters
+        updates: list[tuple[str, int, dict]] = []
+        for r in await asyncio.gather(*[_tag(i) for i in todo], return_exceptions=True):
+            if isinstance(r, tuple) and r[1]:
+                i, an = r
+                k, rid, p, _a = holders[i]
+                holders[i] = (k, rid, p, an)     # update in-memory so THIS pick uses the fresh tags
+                updates.append((k, rid, an))
+        if updates:
+            _persist_photo_tags(updates)          # cache for next time, on its own session
+
+    idx = photopick.pick_index([a for (_k, _rid, _p, a) in holders], request_text)
+    for j in [idx] + [x for x in range(len(holders)) if x != idx]:   # chosen first, then any readable
+        try:
+            with open(holders[j][2], "rb") as f:
+                return f.read()
+        except Exception:
+            continue
+    return None
+
+
+def _extract_quote(text: str) -> str | None:
+    """Pull a VERBATIM saying from the user's message so it renders EXACTLY (never rewritten/shortened):
+    text inside quotation marks, or the words after 'saying/quote/says/caption'. None if no clear quote."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    for pat in ('"([^"]{3,})"', "“([^”]{3,})”", "'([^']{8,})'"):
+        m = re.search(pat, t)
+        if m:
+            return m.group(1).strip()
+    m = re.search(r"\b(?:saying|says(?:\s+that)?|quote(?:\s+is)?|caption)\b\s*[:\-]?\s*(.+)$", t, re.IGNORECASE)
+    if m and len(m.group(1).strip()) >= 8:
+        return m.group(1).strip().strip("\"“”")
+    return None
+
+
+async def exec_feature_employee(db, state, brand, args) -> dict:
+    """Feature a Talentrupt EMPLOYEE from the Folders photo library by NAME: looks up the employee for
+    THIS account, composites their REAL stored photo into the brand template. NEVER AI-generates the
+    face. Called when the user @mentions a team member (e.g. '@Nishant ...') or asks to feature one."""
+    owner = state.get("owner", "admin")
+    name_q = (args.get("name") or "").strip().lstrip("@").strip()
+    if not name_q:
+        return {"summary": "Tell me which team member to feature — type @ in the box to pick one from "
+                "your Folders.", "assets": []}
+    rows = db.query(Employee).filter(Employee.owner == owner).all()
+    ql = name_q.lower()
+    match = (next((e for e in rows if e.name.lower() == ql), None)
+             or next((e for e in rows if ql in e.name.lower()), None)
+             or next((e for e in rows if e.name.lower() in ql), None))
+    if not match:
+        avail = ", ".join(e.name for e in rows[:8]) if rows else "no employees yet"
+        return {"summary": f'I couldn\'t find "{name_q}" in your Folders. Add them in the Folders section '
+                f"first (upload their photo). You have: {avail}.", "assets": []}
+    # Pick the photo that best FITS what the user asked (attire/mood/setting), tagging photos once + caching.
+    raw = await _select_employee_photo(match, (args.get("message") or "").strip())
+    if raw is None:
+        return {"summary": f"I couldn't read {match.name}'s photo — please re-upload it in Folders.",
+                "assets": []}
+    raw_msg = (args.get("message") or "").strip()
+    # In a campaign the person is a ROLE MODEL for the banner — the copy is about the EVENT/theme, never their
+    # name. In plain Chat/Create a personal post may weave their first name in (e.g. a welcome).
+    message = await _polish_headline(_clean_headline(raw_msg, match.name), match.name,
+                                     use_name=state.get("campaign_id") is None)
+    head, sub = teampost.split_message(message) if message else (random.choice(_FEATURE_HEADLINES), "")
+    # CAMPAIGN mode: the campaign brief becomes the THEME that drives the employee's scene (football pitch,
+    # festive decor, …), and the on-image NAME label is suppressed (the user asked for no names on campaign
+    # images). In plain Chat/Create the name label stays and there's no forced theme.
+    in_campaign = state.get("campaign_id") is not None
+    theme = _campaign_theme(state)  # campaign NAME + brief -> themed even when the brief is empty
+    render_name = "" if in_campaign else match.name
+    render_role = "" if in_campaign else match.role
+    # INTENT eyebrow: read the user's words (+ theme) so an announcement/event reads 'SAVE THE DATE'/
+    # 'ANNOUNCEMENT' and an achievement reads 'CELEBRATING' — never 'In the Spotlight' on an event banner.
+    eyebrow = _post_eyebrow(raw_msg, theme if in_campaign else "")
+    style_arg = (args.get("style") or "").strip().lower()
+    skin_arg = (args.get("skin") or "").strip().lower()
+    design = (args.get("design") or "").strip().lower()  # 'scene' | 'graphic' | '' — the image TYPE from the intake
+    try:
+        variant = int(args["variant"]) if args.get("variant") is not None else None  # design chosen in the style intake
+    except (TypeError, ValueError):
+        variant = None
+    # QUOTE / TESTIMONIAL: if the user gave the person's SAYING (in quotation marks, or after
+    # "saying/quote/says …"), render their FULL words VERBATIM — no rewrite, no truncation, auto-fit — in
+    # the testimonial layout: real-photo portrait + a big quote + "— Name, Role". Long quotes fit fully.
+    quote_text = _extract_quote(raw_msg)
+    if not in_campaign and (quote_text or style_arg == "quote"):
+        q_saying = (quote_text or raw_msg).strip()
+        q_skin = skin_arg if skin_arg in teampost.SKINS else teampost.pick_skin(owner, include_photo=False)
+        try:
+            qpath, _qfn, qmeta = teampost.build_team_image(
+                brand, raw, match.name, match.role or "", headline=q_saying,
+                style="quote", skin=q_skin, variant=(variant or 0))
+        except Exception:
+            qpath = None
+        if qpath:
+            a = _save_asset(db, state.get("campaign_id"), "image",
+                            (match.name + (f" — {match.role}" if match.role else ""))[:380],
+                            body={"person": match.name, "role": match.role, "quote": q_saying,
+                                  "kind": "team", "style": "quote", "employee_id": match.id},
+                            file_path=qpath, file_url=qmeta["url"], meta={**qmeta, "employee_id": match.id},
+                            owner=owner)
+            return {"summary": f"Created a testimonial featuring {match.name}"
+                    + (f" ({match.role})" if match.role else "")
+                    + " with their exact words — real photo, unchanged.",
+                    "assets": [serialize_asset(a)]}
+    # SKIN: explicit -> requested-in-message -> rotate (so it's not navy every time; rotation includes an
+    # occasional photographic gpt-image-2 scene). STYLE: explicit renderer wins; ai/scene/photo -> photo
+    # scene; otherwise auto-detect the reference series from the message.
+    skin = skin_arg if skin_arg in teampost.SKINS else (_skin_from_text(raw_msg) or teampost.pick_skin(owner))
+    if style_arg in teampost.STYLE_NAMES:
+        style = style_arg
+    elif style_arg in ("ai", "scene", "photo"):
+        style, skin = "ai", "photo"
+    elif theme:
+        # In a campaign, the brief becomes the scene -> force the identity-locked AI scene so the theme drives
+        # the surroundings (a deterministic template ignores the theme).
+        style, skin = "ai", "photo"
+    else:
+        # Default individual feature -> the premium PORTRAIT iPhone-frame banner (build_ai_scene: an
+        # identity-locked pro portrait inside a clean phone mockup, rotating skins). Keep the special
+        # OCCASION series (welcome / anniversary / grid) when the message clearly calls for one.
+        series = teampost.detect_series(raw_msg)  # spotlight_series | welcome | anniversary | grid
+        style = "ai" if series == "spotlight_series" else series
+    # CHAT default individual feature -> the Talentrupt-brand HERO post (app draws crisp chrome over a
+    # brand backdrop; the REAL face is composited AS-IS). Chat-only, and only the DEFAULT look — an
+    # explicit style/skin/scene request or a special occasion series still uses the existing renderers.
+    if not in_campaign and not style_arg and not skin_arg and style == "ai":
+        try:
+            posts = await chatpost.build_chat_post(brand, concept=(message or head), count=1,
+                                                   person_photo=raw, person_name=match.name,
+                                                   headline=(head or message or match.name), subtext=sub,
+                                                   person_role=match.role or "", owner=owner)
+        except Exception:
+            posts = []
+        if posts:
+            path, fname, meta = posts[0]
+            a = _save_asset(db, state.get("campaign_id"), "image",
+                            (match.name + (f" — {match.role}" if match.role else ""))[:380],
+                            body={"person": match.name, "role": match.role, "headline": head, "subline": sub,
+                                  "kind": "team", "style": "chat_hero", "employee_id": match.id,
+                                  "template": meta.get("template")},
+                            file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
+                            owner=owner)
+            return {"summary": f"Created a post featuring {match.name}"
+                    + (f" ({match.role})" if match.role else "")
+                    + " in Talentrupt's post style — their real photo, unchanged.",
+                    "assets": [serialize_asset(a)]}
+        # chatpost unavailable -> fall through to the existing renderer
+    try:
+        if style == "grid":  # 'One Year Strong' grid — needs several employees for this account
+            people = [e for e in db.query(Employee).filter(Employee.owner == owner).all() if e.photo_path]
+            photos, labels = [], []
+            for e in people[:9]:
+                try:
+                    with open(e.photo_path, "rb") as f:
+                        photos.append(f.read())
+                    labels.append(("", "") if in_campaign else (e.name, e.role or ""))  # no names on campaign images
+                except Exception:
+                    continue
+            if len(photos) >= 2:
+                gs = skin if skin != "photo" else random.choice(teampost.DETERMINISTIC_SKINS)
+                path, fname, meta = teampost.build_team_grid(brand, photos, labels, headline=head or "One Year Strong",
+                                                             skin=gs, variant=random.randint(0, 5))
+            else:  # only one person available -> feature them individually
+                style = "spotlight_series"
+                path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style,
+                                                     skin if skin != "photo" else teampost.pick_skin(owner, include_photo=False),
+                                                     variant=variant, theme=theme, design=design, eyebrow=eyebrow)
+        else:
+            path, fname, meta = await _build_one(brand, raw, render_name, render_role, head, sub, style, skin,
+                                                 variant=variant, theme=theme, design=design, eyebrow=eyebrow)
+    except Exception:
+        return {"summary": "Couldn't build the post — please try again.", "assets": []}
+    used_skin = meta.get("skin", skin)
+    title = match.name + (f" — {match.role}" if match.role else "")
+    a = _save_asset(db, state.get("campaign_id"), "image", title[:380],
+                    body={"person": match.name, "role": match.role, "headline": head, "subline": sub,
+                          "kind": "team", "style": style, "skin": used_skin, "employee_id": match.id,
+                          # design inputs so a later conversational edit keeps the SAME look + only changes
+                          # what the user asked (see refine.regenerate_asset).
+                          "variant": meta.get("variant"), "eyebrow": eyebrow},
+                    file_path=path, file_url=meta["url"], meta={**meta, "employee_id": match.id},
+                    owner=owner)
+    if in_campaign:
+        summary = (f"Created a campaign post featuring {match.name}"
+                   + (f" ({match.role})" if match.role else "")
+                   + (f", set in the campaign theme ({theme[:60]}…)" if theme else "")
+                   + " — their real face, no name label on the image.")
+    else:
+        summary = (f"Created a post featuring {match.name}"
+                   + (f" ({match.role})" if match.role else "")
+                   + f" — {used_skin} theme, using their real photo from Folders (face unchanged).")
+    return {"summary": summary, "assets": [serialize_asset(a)]}
+
+
 EXECUTORS = {
     "create_campaign": exec_create_campaign,
     "generate_posts": exec_generate_posts,
     "generate_image": exec_generate_image,
+    "generate_team_image": exec_team_image,
+    "feature_uploaded_person": exec_feature_uploaded_person,
+    "feature_employee": exec_feature_employee,
     "build_deck": exec_build_deck,
     "build_pdf": exec_build_pdf,
     "search_brand_knowledge": exec_search_brand_knowledge,
     "discover_prospects": exec_discover_prospects,
+    "vibe_prospect": exec_vibe_prospect,
     "analyze_company": exec_analyze_company,
     "list_prospects": exec_list_prospects,
     "list_campaigns": exec_list_campaigns,
@@ -620,6 +1450,7 @@ EXECUTORS = {
     "update_pipeline": exec_update_pipeline,
     "manage_task": exec_manage_task,
     "regenerate_asset": exec_regenerate_asset,
+    "animate_asset": exec_animate_asset,
 }
 
 # Mode-specific tool sets:
@@ -629,6 +1460,7 @@ EXECUTORS = {
 CHAT_TOOL_NAMES = [
     "search_brand_knowledge",
     "discover_prospects",
+    "vibe_prospect",
     "analyze_company",
     "list_prospects",
     "list_campaigns",
@@ -639,17 +1471,26 @@ CHAT_TOOL_NAMES = [
     "update_pipeline",
     "manage_task",
     "regenerate_asset",
+    "animate_asset",
     "create_campaign",
     "generate_posts",
     "generate_image",
+    "generate_team_image",
+    "feature_uploaded_person",
+    "feature_employee",
     "build_deck",
     "build_pdf",
 ]
-CREATE_TOOL_NAMES = ["generate_image", "build_deck", "build_pdf", "regenerate_asset"]
+CREATE_TOOL_NAMES = ["generate_image", "generate_team_image", "feature_uploaded_person", "feature_employee",
+                     "build_deck", "build_pdf", "regenerate_asset", "animate_asset"]
+# Internal-campaign content studio: write posts + build every visual/document into the folder.
+CAMPAIGN_TOOL_NAMES = ["generate_posts", "generate_image", "generate_team_image",
+                       "feature_uploaded_person", "feature_employee", "build_deck", "build_pdf",
+                       "regenerate_asset", "animate_asset"]
 
 
 def tools_for(mode: str) -> tuple[dict, list]:
-    names = CREATE_TOOL_NAMES if mode == "create" else CHAT_TOOL_NAMES
+    names = {"create": CREATE_TOOL_NAMES, "campaign": CAMPAIGN_TOOL_NAMES}.get(mode, CHAT_TOOL_NAMES)
     execs = {n: EXECUTORS[n] for n in names}
     schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in names]
     return execs, schemas
@@ -658,11 +1499,15 @@ def tools_for(mode: str) -> tuple[dict, list]:
 STATUS_LABELS = {
     "create_campaign": "Planning the campaign strategy",
     "generate_posts": "Writing on-brand posts",
-    "generate_image": "Designing a campaign visual",
+    "generate_image": "Designing a campaign visual — this can take up to a minute",
+    "generate_team_image": "Featuring the team — this can take up to a minute",
+    "feature_uploaded_person": "Featuring your photo — this can take up to a minute",
+    "feature_employee": "Featuring your team member — this can take up to a minute",
     "build_deck": "Designing presentation slides",
     "build_pdf": "Preparing the document",
     "search_brand_knowledge": "Reviewing past Talentrupt work",
     "discover_prospects": "Searching for matching companies",
+    "vibe_prospect": "Finding clients that match your vibe",
     "analyze_company": "Analyzing the company",
     "list_prospects": "Looking up saved companies",
     "list_campaigns": "Reviewing your campaigns",
@@ -673,6 +1518,7 @@ STATUS_LABELS = {
     "update_pipeline": "Updating the pipeline",
     "manage_task": "Updating your tasks",
     "regenerate_asset": "Regenerating the asset",
+    "animate_asset": "Animating the post",
 }
 
 
@@ -706,11 +1552,13 @@ TOOL_SCHEMAS = [
         },
         ["name"]),
     _fn("generate_posts",
-        "Generate social/marketing posts (LinkedIn, Instagram, email). Attaches to the "
-        "current campaign.",
+        "Write social/marketing post COPY (caption + hashtags + CTA). Attaches to the current "
+        "campaign. This is the text/caption only — for a visual use generate_image.",
         {
             "count": {"type": "integer", "description": "How many posts (1-8)"},
-            "platform": {"type": "string", "enum": ["LinkedIn", "Instagram", "Email", "Blog"]},
+            "platform": {"type": "string", "enum": ["Social", "LinkedIn", "Instagram", "Email", "Blog"],
+                         "description": "Default 'Social' = a platform-agnostic post (works anywhere). "
+                                        "Only set a specific network if the user names one."},
             "angle": {"type": "string", "description": "Theme/angle for the posts"},
         },
         ["count"]),
@@ -726,22 +1574,102 @@ TOOL_SCHEMAS = [
                       "description": "Optional — set ONLY when the user explicitly chose a visual style; otherwise omit and the art director picks the best fit."},
         },
         ["concept"]),
+    _fn("generate_team_image",
+        "Create an on-brand post that features a REAL Talentrupt team member or group using their ACTUAL "
+        "photo (exact faces) composited into the brand template — NOT an AI-generated face. Use this "
+        "whenever the user asks to feature/showcase a specific named person, the founder, the leadership "
+        "team, or 'the team'. The photo must already exist in the brand library's Team/ folder; if none "
+        "matches, the tool returns the available options to relay — NEVER use generate_image for a real "
+        "person and never invent a face.",
+        {
+            "person": {"type": "string",
+                       "description": "Who to feature, as the user said it (e.g. 'the founder', 'Rushikesh', 'the leadership team', 'the whole team')."},
+            "message": {"type": "string",
+                        "description": "The headline/message for the post (e.g. 'Meet our founder'). Used as the post headline."},
+            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed", "ai"],
+                      "description": "Optional post FORMAT. Set ONLY when the user picked one: spotlight = "
+                                     "person cut out on a designed background; magazine = full real photo + "
+                                     "caption band; split = photo beside a text panel; framed = centered "
+                                     "spotlight card; ai = real person cut out onto an AI-GENERATED scene "
+                                     "(gpt-image-1 makes the background, the real face/body is unchanged) — "
+                                     "use when the user asks for an 'AI image / AI background / AI scene'. "
+                                     "Omit to rotate the template formats so posts don't all look alike."},
+            "count": {"type": "integer",
+                      "description": "How many posts to make (1-4). Use 2-4 when the user wants OPTIONS to "
+                                     "choose from — each comes back in a different format. Defaults to 1."},
+        },
+        ["person"]),
+    _fn("feature_uploaded_person",
+        "Build an on-brand post around a photo the user JUST ATTACHED this turn (an employee's photo), "
+        "using the name/role the user gave. Use this whenever the user attaches a PERSON'S photo and "
+        "wants a post featuring them (welcome, anniversary, spotlight, congrats). It composites their "
+        "REAL attached photo into the brand template and NEVER changes or AI-generates the face — the "
+        "app does NOT need to already know the person. Prefer this over generate_image whenever a person "
+        "photo is attached. (If the attachment is a style/content reference, not a person to feature, use "
+        "generate_image instead.)",
+        {
+            "name": {"type": "string", "description": "The person's name — exactly as the user gave it, or "
+                     "inferred from the conversation context (e.g. a person just discussed). Omit only if "
+                     "truly unknown; the post then shows just the photo + message."},
+            "role": {"type": "string", "description": "Their role/title if mentioned (e.g. 'Senior Recruiter')."},
+            "message": {"type": "string", "description": "The post message/headline (e.g. 'Welcome to the team!', "
+                        "'Congrats on 5 years!'). Shown as the headline + subline."},
+            "style": {"type": "string", "enum": ["spotlight", "magazine", "split", "framed", "ai"],
+                      "description": "Optional format; 'ai' = real face/body cut onto an AI-generated "
+                                     "background (use when the user wants an AI image/scene). Omit to rotate."},
+            "count": {"type": "integer", "description": "How many posts (1-4); omit for 1."},
+        },
+        []),
+    _fn("feature_employee",
+        "Feature a Talentrupt EMPLOYEE from the Folders photo library in a branded post, using their REAL "
+        "stored photo (never an AI face). Call this whenever the user @MENTIONS a team member (e.g. "
+        "'@Nishant Trivedi welcoming our new clients') or asks to feature/spotlight a specific employee "
+        "by name. The employee's photo is already saved in the app's Folders, so you do NOT need an "
+        "attachment — pass the name exactly as mentioned and the tool looks them up. Prefer this over "
+        "generate_image/feature_uploaded_person when the user references a person by an @mention or by a "
+        "name that's in their Folders.",
+        {
+            "name": {"type": "string", "description": "The employee's name, exactly as @mentioned (e.g. 'Nishant Trivedi'). The leading @ is optional."},
+            "message": {"type": "string", "description": "What the post should say / be about (e.g. 'welcoming our newest clients', '7 years at Talentrupt'). Used as the headline + subline, AND to auto-pick the series. IMPORTANT: if the user gives the person's SAYING/QUOTE (in quotation marks, or 'saying …'/'quote …'), pass it EXACTLY/VERBATIM here — it will be rendered word-for-word in a testimonial layout (no rewriting), so do NOT shorten or paraphrase it, however long it is."},
+            "style": {"type": "string",
+                      "enum": ["quote", "spotlight_series", "welcome", "anniversary", "grid", "magazine", "split", "framed", "spotlight", "scene"],
+                      "description": "Optional FORMAT. Omit to auto-pick from the message (recommended — a quote/saying auto-routes to the testimonial layout). quote = TESTIMONIAL card rendering the person's exact words verbatim + a real-photo portrait (auto-fits any length, never truncated) — use when the user provides a saying/quote; spotlight_series = flagship 'Man on a Mission' feature; welcome = new-hire; anniversary = 'X years'; grid = a multi-employee team grid; magazine/split/framed/spotlight = legacy navy layouts; 'scene'/'ai' = the person on an AI-generated photographic background."},
+            "skin": {"type": "string", "enum": ["light", "cream", "navy", "red", "photo"],
+                     "description": "Optional COLOUR THEME. Omit to auto-rotate (light/cream/navy/red/photographic) so posts aren't navy every time. Set only when the user asks for a specific look (e.g. 'on white' -> light, 'photographic background' -> photo)."},
+        },
+        ["name"]),
     _fn("build_deck",
-        "Build a ready-to-present PowerPoint (.pptx) in Talentrupt's deck style.",
+        "Build a ready-to-present, designed PowerPoint (.pptx) in Talentrupt's deck style. Pass the "
+        "audience/tone/depth gathered from the user so the deck is tailored, not generic.",
         {
             "topic": {"type": "string"},
-            "slides": {"type": "integer", "description": "Slide count (3-12)"},
+            "slides": {"type": "integer", "description": "Slide count (3-12). Omit to derive from depth."},
+            "audience": {"type": "string", "description": "Optional — who the deck is for (e.g. 'healthcare CHROs'); set only when the user indicated it."},
+            "tone": {"type": "string", "enum": DOC_TONE,
+                     "description": "Optional — the voice/formality the user asked for; omit if unspecified."},
+            "depth": {"type": "string", "enum": DOC_DEPTH,
+                      "description": "Optional — how deep: concise (~5 slides), standard (~8), in-depth (~12)."},
+            "design_theme": {"type": "string", "enum": DOC_THEME,
+                             "description": "Optional visual theme; derive from tone (executive→minimal, persuasive→bold, data-driven→data-driven, else editorial). Never invent statistics to suit a theme."},
             "count": {"type": "integer",
                       "description": "How many distinct deck variations to build (1-3). Defaults to 1; only "
                                      "set higher when the user wants multiple options to choose from."},
         },
         ["topic"]),
     _fn("build_pdf",
-        "Build a PDF document (campaign report, proposal, or one-pager) on a specific topic, "
-        "with tailored content grounded in Talentrupt's brand.",
+        "Build a designed PDF document (report, proposal, or one-pager) on a specific topic, with "
+        "tailored, brand-grounded content. Pass the audience/tone/depth gathered from the user.",
         {
-            "kind": {"type": "string", "enum": ["report", "proposal", "one-pager"]},
+            "kind": {"type": "string", "enum": ["report", "proposal", "one-pager"],
+                     "description": "proposal = client pitch; one-pager = quick leave-behind; report = analysis/briefing."},
             "topic": {"type": "string", "description": "What the document is about — be specific to the request"},
+            "audience": {"type": "string", "description": "Optional — who reads it; set only when the user indicated it."},
+            "tone": {"type": "string", "enum": DOC_TONE,
+                     "description": "Optional — the voice/formality the user asked for; omit if unspecified."},
+            "depth": {"type": "string", "enum": DOC_DEPTH,
+                      "description": "Optional — concise (one-pager feel), standard, or in-depth."},
+            "design_theme": {"type": "string", "enum": DOC_THEME,
+                             "description": "Optional visual theme; derive from tone (executive→minimal, persuasive→bold, data-driven→data-driven, else editorial). Never invent statistics to suit a theme."},
             "count": {"type": "integer",
                       "description": "How many distinct document variations to build (1-3). Defaults to 1; only "
                                      "set higher when the user wants multiple options to choose from."},
@@ -772,6 +1700,23 @@ TOOL_SCHEMAS = [
             "count": {"type": "integer", "description": "How many companies (1-12, default 6)"},
         },
         []),
+    _fn("vibe_prospect",
+        "VIBE PROSPECTING — build a target client list from a natural-language description of the IDEAL "
+        "customer (the 'vibe'). Call this when the user describes WHO to target in their own words / "
+        "qualitatively — e.g. 'healthcare groups scaling clinical hiring fast', 'well-funded US SaaS "
+        "startups hiring engineers', 'agencies drowning in open roles' — or literally says 'vibe'. It "
+        "interprets the vibe into a sharp profile, finds REAL matching companies (fit-scored, with "
+        "signals + contacts), ranks them by fit, and saves them to Business Dev. Prefer this over "
+        "discover_prospects when the target is descriptive rather than explicit filters.",
+        {
+            "vibe": {"type": "string", "description": "The user's freeform description of their ideal client / who to target."},
+            "count": {"type": "integer", "description": "How many companies (1-12, default 8)."},
+            "industry": {"type": "string", "description": "Optional explicit sector override."},
+            "location": {"type": "string", "description": "Optional explicit location override (defaults to the US)."},
+            "company_size": {"type": "string", "description": "Optional explicit size override."},
+            "keywords": {"type": "string", "description": "Optional extra keywords."},
+        },
+        ["vibe"]),
     _fn("analyze_company",
         "Analyze ONE specific named company as a Talentrupt prospect — fit score, hiring signal, "
         "decision-makers, and whether NOW is a good time to reach out. Saved to Business Dev.",
@@ -797,10 +1742,13 @@ TOOL_SCHEMAS = [
         },
         []),
     _fn("list_campaigns",
-        "READ the planned campaigns and their target-client counts. Use when the user asks what "
-        "campaigns exist, or to see/count the target clients of a campaign (pass `name` for one "
-        "campaign's clients).",
+        "READ this account's campaigns, split by TYPE. INTERNAL = promote Talentrupt (content folder, "
+        "no clients); EXTERNAL = client-targeting (sector + target clients). ALWAYS pass `type` when the "
+        "user asks specifically about internal OR external campaigns, so the count isn't conflated. Pass "
+        "`name` for one campaign's target clients. Report the tool's numbers verbatim — never guess.",
         {
+            "type": {"type": "string", "enum": ["internal", "external"],
+                     "description": "Limit to internal (promote-Talentrupt) or external (client-targeting) campaigns"},
             "name": {"type": "string", "description": "A campaign name (substring) to list that campaign's target clients"},
         },
         []),
@@ -857,13 +1805,26 @@ TOOL_SCHEMAS = [
         },
         ["company", "action"]),
     _fn("regenerate_asset",
-        "Regenerate or refine a previously generated image/deck/PDF with an optional instruction (e.g. "
-        "'make the deck punchier', 'new variation'). Saves a NEW version; the original is kept. Use "
-        "when the user asks to redo, refine, tweak, or make another version of something already made.",
+        "Refine / adjust / edit the CURRENT image/deck/PDF/post the user is looking at, with an instruction "
+        "in the user's own words (e.g. 'change the background to a stadium', 'adjust the person's placement', "
+        "'make the deck punchier'). Saves a NEW version; the original is kept. Use this WHENEVER the user gives "
+        "feedback about something already generated — including vague or non-keyword phrasing like 'the "
+        "placement isn't proper', 'it doesn't look right', 'move the person', 'fix it'. CRITICAL: OMIT asset_id "
+        "and title — this automatically targets the MOST RECENT asset. NEVER ask the user for an asset title, "
+        "ID, or 'which asset' — just call this with their feedback as the instruction.",
         {
-            "asset_id": {"type": "integer", "description": "The asset id, if known"},
-            "title": {"type": "string", "description": "Or match by the asset's title/topic"},
-            "instruction": {"type": "string", "description": "Optional change to apply"},
+            "asset_id": {"type": "integer", "description": "Rarely needed — OMIT to target the most recent asset"},
+            "title": {"type": "string", "description": "Rarely needed — OMIT to target the most recent asset"},
+            "instruction": {"type": "string", "description": "The change to apply, in the user's own words"},
+        },
+        []),
+    _fn("animate_asset",
+        "Turn a finished image / team post into a short MOTION clip — a premium cinematic zoom-and-pan "
+        "over the REAL rendered image. The person's face is NEVER changed (it's the actual post, just "
+        "animated). Use when the user asks to animate a post, add motion, or make a video/reel of it.",
+        {
+            "asset": {"type": "string", "description": "Which post to animate — the title/topic you "
+                      "named for it. Omit to animate the most recent image."},
         },
         []),
 ]
