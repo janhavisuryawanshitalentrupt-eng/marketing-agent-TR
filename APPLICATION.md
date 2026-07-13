@@ -15,7 +15,7 @@ internal/external marketing campaigns, and do lead generation ("Business Dev"). 
 **https://myra.htuniverse.com**.
 
 The **app's UI is branded "Myra" / "Marketing Agent"** (header, login, loading screen, page title, favicon
-— see `components/MyraLogo.tsx` for the M mark and `app/icon.svg` for the favicon). This is product chrome
+— see `components/MyraLogo.tsx` for the M mark and `app/icon.png` for the favicon). This is product chrome
 only: the **content** the app produces is still Talentrupt's (brand grounding, "Promote Talentrupt",
 "Why Talentrupt fits") — those references are intentional and stay.
 
@@ -24,8 +24,10 @@ only: the **content** the app produces is still Talentrupt's (brand grounding, "
   `frontend/out`). Client-side SPA; talks to the backend over `/api`.
 - **Theme:** light is the default (`data-theme="light"`; dark still toggleable). Left navigation/history
   rails are a deep-navy panel via the `.rail` class in `app/globals.css` (it re-scopes theme tokens locally
-  so rail utilities read light-on-navy). The Myra mark (`MyraLogo.tsx`) is an app-icon-style navy badge with
-  a coral "M" (self-contained → reads on any surface). Chat replies use a shared reply chrome — `MyraAvatar`
+  so rail utilities read light-on-navy). The Myra mark (`MyraLogo.tsx`) is the official
+  pink→purple "M" (network nodes + sparkle), extracted from the brand sheet to a transparent PNG
+  (`public/myra-mark.png`) so it floats on any surface; `MyraLockup` adds the "Myra" wordmark + tagline on the
+  login screen, and the favicon/app-icon is the navy tile. Chat replies use a shared reply chrome — `MyraAvatar`
   beside each assistant message, `ReplyActions` (copy / 👍👎 / download / regenerate) under it, and
   `RefineChips` (one-tap image tweaks) under an image reply in Chat/Create. A user (input) message renders via
   the shared `UserMessage` component (used in Chat/Create + the campaign chat): attachments + navy bubble +

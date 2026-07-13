@@ -3,6 +3,16 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Real Myra brand logo wired in (header, login lockup, favicon) (2026-07-13)
+- Extracted the official **Myra mark** (pink→purple "M" with network nodes + sparkle) from the brand sheet
+  as a transparent PNG (`public/myra-mark.png`) so it floats cleanly on light AND dark surfaces — replaces the
+  old hand-drawn SVG placeholder.
+- `MyraLogo.tsx`: `MyraMark` now renders the real mark; new **`MyraLockup`** shows the mark + "Myra" wordmark
+  + "Your **AI** Marketing Agent" tagline (AI in brand purple, text theme-aware). Used on the **login** screen.
+- **Header** icon (top nav) + assistant **avatars** use the mark; the **favicon / app icon** is now the navy
+  rounded tile (`app/icon.png`, `public/apple-icon.png`), composited from the extracted mark. Removed the old
+  `app/icon.svg`. Light/dark tile variants saved as `public/myra-icon-{light,dark}.png`.
+
 ## Quote testimonials get 5 unique designs + neater selected-chat row (2026-07-13)
 - **Design variety (not one fixed layout)**: `_layout_quote` now rotates across **5 distinct testimonial
   designs** so no two quote posts look the same — (A) quote + large photo card on the right, (B) mirrored

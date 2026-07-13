@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { login, forgotPassword, resetPassword, setSession } from "@/lib/api";
-import { MyraMark } from "./MyraLogo";
+import { MyraLockup } from "./MyraLogo";
 
 function EyeIcon({ off }: { off?: boolean }) {
   return off ? (
@@ -138,8 +138,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <MyraMark wordmark className="mx-auto mb-3 h-24 w-24" />
-          <p className="mt-1 text-sm text-muted">Your internal marketing department</p>
+          <MyraLockup className="mx-auto" />
         </div>
 
         {error && (
