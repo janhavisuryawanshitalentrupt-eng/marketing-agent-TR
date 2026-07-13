@@ -1252,6 +1252,22 @@ async def _select_employee_photo(e, request_text: str = "") -> bytes | None:
     return None
 
 
+def _extract_quote(text: str) -> str | None:
+    """Pull a VERBATIM saying from the user's message so it renders EXACTLY (never rewritten/shortened):
+    text inside quotation marks, or the words after 'saying/quote/says/caption'. None if no clear quote."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    for pat in ('"([^"]{3,})"', "“([^”]{3,})”", "'([^']{8,})'"):
+        m = re.search(pat, t)
+        if m:
+            return m.group(1).strip()
+    m = re.search(r"\b(?:saying|says(?:\s+that)?|quote(?:\s+is)?|caption)\b\s*[:\-]?\s*(.+)$", t, re.IGNORECASE)
+    if m and len(m.group(1).strip()) >= 8:
+        return m.group(1).strip().strip("\"“”")
+    return None
+
+
 async def exec_feature_employee(db, state, brand, args) -> dict:
     """Feature a Talentrupt EMPLOYEE from the Folders photo library by NAME: looks up the employee for
     THIS account, composites their REAL stored photo into the brand template. NEVER AI-generates the
@@ -1298,6 +1314,30 @@ async def exec_feature_employee(db, state, brand, args) -> dict:
         variant = int(args["variant"]) if args.get("variant") is not None else None  # design chosen in the style intake
     except (TypeError, ValueError):
         variant = None
+    # QUOTE / TESTIMONIAL: if the user gave the person's SAYING (in quotation marks, or after
+    # "saying/quote/says …"), render their FULL words VERBATIM — no rewrite, no truncation, auto-fit — in
+    # the testimonial layout: real-photo portrait + a big quote + "— Name, Role". Long quotes fit fully.
+    quote_text = _extract_quote(raw_msg)
+    if not in_campaign and (quote_text or style_arg == "quote"):
+        q_saying = (quote_text or raw_msg).strip()
+        q_skin = skin_arg if skin_arg in teampost.SKINS else teampost.pick_skin(owner, include_photo=False)
+        try:
+            qpath, _qfn, qmeta = teampost.build_team_image(
+                brand, raw, match.name, match.role or "", headline=q_saying,
+                style="quote", skin=q_skin, variant=(variant or 0))
+        except Exception:
+            qpath = None
+        if qpath:
+            a = _save_asset(db, state.get("campaign_id"), "image",
+                            (match.name + (f" — {match.role}" if match.role else ""))[:380],
+                            body={"person": match.name, "role": match.role, "quote": q_saying,
+                                  "kind": "team", "style": "quote", "employee_id": match.id},
+                            file_path=qpath, file_url=qmeta["url"], meta={**qmeta, "employee_id": match.id},
+                            owner=owner)
+            return {"summary": f"Created a testimonial featuring {match.name}"
+                    + (f" ({match.role})" if match.role else "")
+                    + " with their exact words — real photo, unchanged.",
+                    "assets": [serialize_asset(a)]}
     # SKIN: explicit -> requested-in-message -> rotate (so it's not navy every time; rotation includes an
     # occasional photographic gpt-image-2 scene). STYLE: explicit renderer wins; ai/scene/photo -> photo
     # scene; otherwise auto-detect the reference series from the message.
@@ -1590,10 +1630,10 @@ TOOL_SCHEMAS = [
         "name that's in their Folders.",
         {
             "name": {"type": "string", "description": "The employee's name, exactly as @mentioned (e.g. 'Nishant Trivedi'). The leading @ is optional."},
-            "message": {"type": "string", "description": "What the post should say / be about (e.g. 'welcoming our newest clients', '7 years at Talentrupt', 'feature the whole team'). Used as the headline + subline, AND to auto-pick the series (welcome / anniversary / team-grid)."},
+            "message": {"type": "string", "description": "What the post should say / be about (e.g. 'welcoming our newest clients', '7 years at Talentrupt'). Used as the headline + subline, AND to auto-pick the series. IMPORTANT: if the user gives the person's SAYING/QUOTE (in quotation marks, or 'saying …'/'quote …'), pass it EXACTLY/VERBATIM here — it will be rendered word-for-word in a testimonial layout (no rewriting), so do NOT shorten or paraphrase it, however long it is."},
             "style": {"type": "string",
-                      "enum": ["spotlight_series", "welcome", "anniversary", "grid", "magazine", "split", "framed", "spotlight", "scene"],
-                      "description": "Optional FORMAT. Omit to auto-pick from the message (recommended). spotlight_series = flagship 'Man on a Mission' feature; welcome = new-hire; anniversary = 'X years'; grid = a multi-employee team grid; magazine/split/framed/spotlight = legacy navy layouts; 'scene'/'ai' = the person on an AI-generated photographic background (only when the user asks for an AI scene)."},
+                      "enum": ["quote", "spotlight_series", "welcome", "anniversary", "grid", "magazine", "split", "framed", "spotlight", "scene"],
+                      "description": "Optional FORMAT. Omit to auto-pick from the message (recommended — a quote/saying auto-routes to the testimonial layout). quote = TESTIMONIAL card rendering the person's exact words verbatim + a real-photo portrait (auto-fits any length, never truncated) — use when the user provides a saying/quote; spotlight_series = flagship 'Man on a Mission' feature; welcome = new-hire; anniversary = 'X years'; grid = a multi-employee team grid; magazine/split/framed/spotlight = legacy navy layouts; 'scene'/'ai' = the person on an AI-generated photographic background."},
             "skin": {"type": "string", "enum": ["light", "cream", "navy", "red", "photo"],
                      "description": "Optional COLOUR THEME. Omit to auto-rotate (light/cream/navy/red/photographic) so posts aren't navy every time. Set only when the user asks for a specific look (e.g. 'on white' -> light, 'photographic background' -> photo)."},
         },

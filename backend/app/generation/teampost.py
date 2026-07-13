@@ -79,8 +79,8 @@ def resolve_skin(key: str) -> Skin:
 
 
 STYLE_NAMES = ["spotlight", "magazine", "split", "framed",
-               "spotlight_series", "welcome", "anniversary", "grid"]
-SERIES_STYLES = ["spotlight_series", "welcome", "anniversary"]  # skin-aware renderers (take a Skin)
+               "spotlight_series", "welcome", "anniversary", "grid", "quote"]
+SERIES_STYLES = ["spotlight_series", "welcome", "anniversary", "quote"]  # skin-aware renderers (take a Skin)
 
 
 # --- shared helpers --------------------------------------------------------
@@ -1028,6 +1028,60 @@ def build_team_grid(brand, photos: list[bytes], labels: list[tuple[str, str]],
     }
 
 
+def _layout_quote(photo, name, role, headline, question, variant, skin):
+    """Testimonial card: the person's FULL saying rendered VERBATIM and AUTO-FIT (wraps + shrinks to fit
+    the whole quote — never truncated), with a big quotation mark, a rounded REAL-photo portrait and a
+    '— Name, Role' attribution. Handles a short punchy line or a long multi-sentence quote alike."""
+    sk = skin
+    canvas = Image.new("RGB", (W, H), sk.bg)
+    d = ImageDraw.Draw(canvas)
+    _pro_scene(canvas, d, sk, variant)  # subtle on-brand accents
+    pad = 100
+
+    quote = (headline or question or "").strip().strip('"“”‘’ ').strip() or "In their own words."
+
+    # Big opening quotation mark in the accent colour.
+    d.text((pad - 14, 18), "“", font=heading_font(210), fill=sk.accent)
+
+    # --- Attribution (bottom): rounded real-photo portrait + name + role ---
+    port = 132
+    ax, ay = pad, H - 108 - port
+    try:
+        p = _enhance_photo(_cover_fit(photo, port, port))
+        mask = Image.new("L", (port, port), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, port, port], fill=255)
+        canvas.paste(p, (ax, ay), mask)
+        d.ellipse([ax - 3, ay - 3, ax + port + 3, ay + port + 3], outline=sk.accent, width=4)
+    except Exception:
+        pass
+    nx = ax + port + 26
+    d.text((nx, ay + 34), f"— {name}", font=heading_font(40), fill=sk.name)
+    if role:
+        d.text((nx, ay + 86), role, font=body_font(26), fill=sk.sub)
+
+    # --- Quote text: auto-fit into the area between the quote mark and the attribution (never truncated) ---
+    long = len(quote) > 120
+    font_fn = body_font if long else heading_font
+    text_top, text_bottom = 236, ay - 36
+    max_w, max_h = W - 2 * pad, (ay - 36) - 236
+    size = 52 if long else 78
+    f = font_fn(size)
+    lines = _wrap(d, quote, f, max_w)
+    lh = int(size * 1.3)
+    while (len(lines) * lh > max_h) and size > 20:
+        size -= 3
+        f = font_fn(size)
+        lines = _wrap(d, quote, f, max_w)
+        lh = int(size * 1.3)
+    y = text_top + max(0, (max_h - len(lines) * lh) // 2)  # vertically centre the block
+    for ln in lines:
+        d.text((pad, y), ln, font=f, fill=sk.text)
+        y += lh
+
+    paste_wordmark(canvas, W - 250, H - 58, 200, 40, dark_bg=sk.wm_dark)
+    return canvas
+
+
 _LAYOUTS = {
     "spotlight": _layout_spotlight,
     "magazine": _layout_magazine,
@@ -1038,6 +1092,7 @@ _SERIES = {
     "spotlight_series": _layout_spotlight_series,
     "welcome": _layout_welcome,
     "anniversary": _layout_anniversary,
+    "quote": _layout_quote,
 }
 
 

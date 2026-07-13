@@ -3,6 +3,19 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Employee quote / testimonial posts — verbatim, any length, never truncated (2026-07-11)
+The marketing team can feature an employee's SAYING and the app renders it faithfully.
+
+- New `quote` layout in `teampost.py`: a testimonial card with a big quotation mark, the person's **REAL
+  photo** as a rounded portrait, a **"— Name, Role"** attribution, and the saying rendered as the hero.
+- **Verbatim + auto-fit**: the exact words are rendered (no rewrite/paraphrase) and the font auto-shrinks +
+  wraps so the WHOLE quote fits — a short line renders large, a long multi-sentence quote renders smaller but
+  **complete, never truncated**. Verified with short and long samples.
+- `feature_employee` auto-detects a saying (quotation marks, or "saying/quote/says …") via `_extract_quote`
+  and routes to this layout with the text passed through untouched; the tool schema tells the agent to pass
+  quotes verbatim. Non-quote requests still route to spotlight/welcome/anniversary as before.
+- Note: usable via chat once the LLM is available (OpenAI is currently paused) — the rendering is deterministic.
+
 ## Premium pink→purple design system + light/dark themes (2026-07-11)
 A full visual refresh (UI-only — no flows changed), driven by design tokens so every page restyles at once.
 
