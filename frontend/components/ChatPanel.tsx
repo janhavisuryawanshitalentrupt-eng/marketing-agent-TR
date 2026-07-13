@@ -181,16 +181,16 @@ export function ChatPanel() {
           >
             New chat
           </button>
-          <div className="ml-auto flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+          <div className="ml-auto flex shrink-0 rounded-lg border border-[var(--border)] p-0.5 text-xs font-semibold">
             <button
               onClick={() => setTab("chat")}
-              className={`rounded-md px-3 py-1.5 transition ${tab === "chat" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+              className={`rounded-md px-3 py-1.5 transition ${tab === "chat" ? "bg-[var(--brand-navy)] text-cream" : "text-foreground hover:bg-[var(--surface-2)]"}`}
             >
               Chat
             </button>
             <button
               onClick={() => setTab("generations")}
-              className={`rounded-md px-3 py-1.5 transition ${tab === "generations" ? "bg-[var(--brand-navy)] text-cream" : "text-muted hover:text-foreground"}`}
+              className={`rounded-md px-3 py-1.5 transition ${tab === "generations" ? "bg-[var(--brand-navy)] text-cream" : "text-foreground hover:bg-[var(--surface-2)]"}`}
             >
               Your generations
             </button>

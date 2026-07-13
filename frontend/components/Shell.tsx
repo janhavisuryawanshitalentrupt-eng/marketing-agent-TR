@@ -156,10 +156,10 @@ export function Shell() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                   active
                     ? "text-white"
-                    : "text-muted hover:bg-[var(--surface-2)] hover:text-foreground"
+                    : "text-foreground hover:bg-[var(--surface-2)]"
                 }`}
                 style={active ? { background: "var(--grad-navy)" } : undefined}
               >
