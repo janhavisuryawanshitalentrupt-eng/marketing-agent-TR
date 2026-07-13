@@ -88,9 +88,10 @@ Browser ──HTTPS──▶ Nginx (myra.htuniverse.com) ──▶ uvicorn :8100
   light / cream / navy / red / photo — so it isn't navy every time) and reference **series** renderers
   (`spotlight_series` = Man-on-a-Mission with a red-box keyword + script "Featuring [Name]" + arrow;
   `welcome`; `anniversary` = "X Strong Years"; `grid` = multi-employee "One Year Strong";
-  **`quote`** = a two-column TESTIMONIAL — the employee's saying rendered **verbatim + auto-fit** (any
-  length, never truncated) on the left with a Name/Role attribution, and their **real photo featured large**
-  in a rounded card on the right; auto-routed by `_extract_quote` when a message carries a saying/quote). The series is
+  **`quote`** = an employee TESTIMONIAL that rotates across **5 distinct designs** (split photo-right /
+  photo-left, full-bleed photo hero, centered portrait card, photo-band) so no two look the same — each keeps
+  the saying **verbatim + auto-fit** (any length, never truncated) with a Name/Role attribution and the
+  **real photo featured large**; auto-routed by `_extract_quote` when a message carries a saying/quote). The series is
   auto-detected from the message (`detect_series`) or set explicitly (`style`/`skin` args). The default
   individual post is `build_ai_scene`, which runs in **STRICT FACIAL-CONSISTENCY mode**: it treats the
   reference photo as the single source of truth for the face and adapts **only** the pose, lighting and

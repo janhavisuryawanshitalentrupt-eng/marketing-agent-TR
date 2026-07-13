@@ -148,7 +148,7 @@ export function ChatPanel() {
                 onClick={() => openConversation(c.id)}
                 className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 pr-8 text-left text-sm font-medium transition ${
                   conversationId === c.id
-                    ? "bg-[var(--brand-navy)] text-white"
+                    ? "conv-active"
                     : "text-foreground hover:bg-[var(--surface-2)]"
                 }`}
                 title={c.title}

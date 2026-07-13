@@ -141,6 +141,14 @@ h1, h2, h3, .font-heading {
 .btn-primary:active { transform: scale(0.99); }
 .btn-primary:disabled { opacity: 0.5; box-shadow: none; transform: none; filter: none; cursor: default; }
 
+/* Selected conversation row in the chat rail — premium pink→purple gradient, crisp white text. */
+.conv-active {
+  background: var(--grad-navy);
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.32);
+}
+.conv-active:hover { filter: brightness(1.04); }
+
 /* Secondary button — surface + border, light pink tint on hover. */
 .btn-secondary {
   display: inline-flex;

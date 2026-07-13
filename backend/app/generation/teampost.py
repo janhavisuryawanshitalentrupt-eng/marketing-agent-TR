@@ -1028,63 +1028,162 @@ def build_team_grid(brand, photos: list[bytes], labels: list[tuple[str, str]],
     }
 
 
-def _layout_quote(photo, name, role, headline, question, variant, skin):
-    """Testimonial: the person's FULL saying VERBATIM (auto-fit, wraps + shrinks so the WHOLE quote fits —
-    never truncated) on the LEFT, with their REAL photo featured LARGE on the right, a big quotation mark
-    and a name/role attribution. Handles a short punchy line or a long multi-sentence quote alike."""
-    sk = skin
-    canvas = Image.new("RGB", (W, H), sk.bg)
-    d = ImageDraw.Draw(canvas)
-    _pro_scene(canvas, d, sk, variant)  # subtle on-brand accents
+# ---- Employee testimonial / quote: 5 DISTINCT designs that rotate so no two look the same ----
+_QUOTE_ROT = {"i": -1}
 
-    # --- Right: the employee's REAL photo, featured LARGE as a rounded card (shown AS-IS, never AI) ---
-    ph_w, ph_top = 404, 96
-    ph_bot = H - 96
-    ph_h = ph_bot - ph_top
-    px = W - ph_w - 64
-    try:
-        pimg = _enhance_photo(_cover_fit(photo, ph_w, ph_h))
-        mask = Image.new("L", (ph_w, ph_h), 0)
-        ImageDraw.Draw(mask).rounded_rectangle([0, 0, ph_w, ph_h], radius=30, fill=255)
-        canvas.paste(pimg, (px, ph_top), mask)
-        d.rounded_rectangle([px - 3, ph_top - 3, px + ph_w + 3, ph_bot + 3], radius=33, outline=sk.accent, width=4)
-    except Exception:
-        pass
 
-    # --- Left: quote column ---
-    pad = 88
-    col_w = px - pad - 44  # width available for the quote text
-    quote = (headline or question or "").strip().strip('"“”‘’ ').strip() or "In their own words."
+def _quote_design(variant: int) -> int:
+    """Pick one of the 5 quote designs. An explicit variant selects deterministically; otherwise we
+    rotate a module counter so consecutive testimonials get DIFFERENT, unique layouts (not a fixed one)."""
+    if variant and variant > 0:
+        return variant % 5
+    _QUOTE_ROT["i"] = (_QUOTE_ROT["i"] + 1) % 5
+    return _QUOTE_ROT["i"]
 
-    d.text((pad - 12, 40), "“", font=heading_font(178), fill=sk.accent)
 
-    # Attribution (name + role) at the bottom of the left column.
-    ny = H - 158
-    d.text((pad, ny), name, font=heading_font(40), fill=sk.name)
-    if role:
-        d.text((pad, ny + 50), role, font=body_font(25), fill=sk.sub)
-
-    # Quote text: auto-fit between the mark and the attribution — never truncated, any length.
+def _draw_quote_text(d, quote, x, top, bottom, max_w, fill, align="left", center_x=0,
+                     base_short=66, base_long=46, floor=18):
+    """Render the FULL saying VERBATIM, auto-fit (wrap + shrink) so the WHOLE quote fits — never truncated."""
     long = len(quote) > 110
     font_fn = body_font if long else heading_font
-    text_top, text_bottom = 214, ny - 26
-    max_w, max_h = col_w, (ny - 26) - 214
-    size = 46 if long else 66
+    max_h = bottom - top
+    size = base_long if long else base_short
     f = font_fn(size)
     lines = _wrap(d, quote, f, max_w)
     lh = int(size * 1.3)
-    while (len(lines) * lh > max_h) and size > 18:
+    while (len(lines) * lh > max_h) and size > floor:
         size -= 2
         f = font_fn(size)
         lines = _wrap(d, quote, f, max_w)
         lh = int(size * 1.3)
-    y = text_top + max(0, (max_h - len(lines) * lh) // 2)  # vertically centre the block
+    y = top + max(0, (max_h - len(lines) * lh) // 2)
     for ln in lines:
-        d.text((pad, y), ln, font=f, fill=sk.text)
+        if align == "center":
+            w = d.textlength(ln, font=f)
+            d.text((center_x - w / 2, y), ln, font=f, fill=fill)
+        else:
+            d.text((x, y), ln, font=f, fill=fill)
         y += lh
 
-    paste_wordmark(canvas, pad, H - 56, 190, 38, dark_bg=sk.wm_dark)
+
+def _quote_photo_card(canvas, d, photo, px, py, w, h, accent, radius=30):
+    """Paste the person's REAL photo (as-is) into a rounded card with an accent frame."""
+    try:
+        pimg = _enhance_photo(_cover_fit(photo, w, h))
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, w, h], radius=radius, fill=255)
+        canvas.paste(pimg, (px, py), mask)
+        d.rounded_rectangle([px - 3, py - 3, px + w + 3, py + h + 3], radius=radius + 3, outline=accent, width=4)
+    except Exception:
+        pass
+
+
+def _quote_split(photo, name, role, quote, variant, sk, mirror=False):
+    """Design A/B: quote on one side, a LARGE real-photo card on the other (mirror flips the sides)."""
+    canvas = Image.new("RGB", (W, H), sk.bg)
+    d = ImageDraw.Draw(canvas)
+    _pro_scene(canvas, d, sk, variant)
+    ph_w, ph_top, ph_bot = 404, 96, H - 96
+    ph_h = ph_bot - ph_top
+    px = 64 if mirror else W - ph_w - 64
+    _quote_photo_card(canvas, d, photo, px, ph_top, ph_w, ph_h, sk.accent)
+    if mirror:
+        tx = px + ph_w + 44
+        col_w = W - tx - 64
+    else:
+        tx = 88
+        col_w = px - tx - 44
+    d.text((tx - 12, 40), "“", font=heading_font(178), fill=sk.accent)
+    ny = H - 158
+    d.text((tx, ny), name, font=heading_font(40), fill=sk.name)
+    if role:
+        d.text((tx, ny + 50), role, font=body_font(25), fill=sk.sub)
+    _draw_quote_text(d, quote, tx, 214, ny - 26, col_w, sk.text)
+    paste_wordmark(canvas, tx, H - 56, 190, 38, dark_bg=sk.wm_dark)
     return canvas
+
+
+def _quote_hero(photo, name, role, quote, variant, sk):
+    """Design C: full-bleed REAL photo with a dark gradient scrim and the quote overlaid — bold + editorial."""
+    canvas = _enhance_photo(_cover_fit(photo, W, H))
+    canvas = _scrim(canvas, 0.30, 238)  # darken the lower area for legible white text
+    d = ImageDraw.Draw(canvas)
+    pad = 84
+    d.text((pad - 12, int(H * 0.34)), "“", font=heading_font(196), fill=WHITE)
+    ny = H - 150
+    d.text((pad, ny), name, font=heading_font(42), fill=WHITE)
+    if role:
+        d.text((pad, ny + 52), role, font=body_font(26), fill=CREAM)
+    _draw_quote_text(d, quote, pad, int(H * 0.47), ny - 24, W - 2 * pad, WHITE, base_short=70)
+    paste_wordmark(canvas, W - 226, 58, 176, 36, dark_bg=True)
+    return canvas
+
+
+def _quote_center(photo, name, role, quote, variant, sk):
+    """Design D: centered testimonial — round portrait on top, quote centered, name/role centered."""
+    canvas = Image.new("RGB", (W, H), sk.bg)
+    d = ImageDraw.Draw(canvas)
+    _pro_scene(canvas, d, sk, variant)
+    cx = W // 2
+    port, ay = 224, 116
+    ax = cx - port // 2
+    try:
+        p = _enhance_photo(_cover_fit(photo, port, port))
+        mask = Image.new("L", (port, port), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, port, port], fill=255)
+        canvas.paste(p, (ax, ay), mask)
+        d.ellipse([ax - 4, ay - 4, ax + port + 4, ay + port + 4], outline=sk.accent, width=5)
+    except Exception:
+        pass
+    qm_f = heading_font(120)
+    d.text((cx - d.textlength("“", font=qm_f) / 2, ay + port - 2), "“", font=qm_f, fill=sk.accent)
+    ny = H - 178
+    nf = heading_font(42)
+    d.text((cx - d.textlength(name, font=nf) / 2, ny), name, font=nf, fill=sk.name)
+    if role:
+        rf = body_font(26)
+        d.text((cx - d.textlength(role, font=rf) / 2, ny + 54), role, font=rf, fill=sk.sub)
+    _draw_quote_text(d, quote, 0, ay + port + 116, ny - 28, W - 300, sk.text, align="center", center_x=cx, base_short=60)
+    paste_wordmark(canvas, 0, H - 54, W, 34, dark_bg=sk.wm_dark, align="center")
+    return canvas
+
+
+def _quote_band(photo, name, role, quote, variant, sk):
+    """Design E: a REAL-photo band across the top, an accent divider, and the quote block below."""
+    canvas = Image.new("RGB", (W, H), sk.bg)
+    d = ImageDraw.Draw(canvas)
+    band_h = int(H * 0.42)
+    try:
+        canvas.paste(_enhance_photo(_cover_fit(photo, W, band_h)), (0, 0))
+        d.rectangle([0, band_h - 6, W, band_h], fill=sk.accent)
+    except Exception:
+        _pro_scene(canvas, d, sk, variant)
+    pad = 90
+    d.text((pad - 12, band_h + 8), "“", font=heading_font(128), fill=sk.accent)
+    ny = H - 150
+    d.text((pad, ny), name, font=heading_font(40), fill=sk.name)
+    if role:
+        d.text((pad, ny + 50), role, font=body_font(25), fill=sk.sub)
+    _draw_quote_text(d, quote, pad, band_h + 116, ny - 22, W - 2 * pad, sk.text, base_short=58)
+    paste_wordmark(canvas, W - 226, H - 52, 186, 36, dark_bg=sk.wm_dark)
+    return canvas
+
+
+def _layout_quote(photo, name, role, headline, question, variant, skin):
+    """Employee testimonial. Renders the person's FULL saying VERBATIM (auto-fit, never truncated) alongside
+    their REAL photo (shown as-is, never AI). Rotates across 5 DISTINCT designs so testimonials look unique:
+    quote+photo split (right / left), full-bleed photo hero, centered portrait card, and photo-band."""
+    quote = (headline or question or "").strip().strip('"“”‘’ ').strip() or "In their own words."
+    d = _quote_design(variant)
+    if d == 1:
+        return _quote_split(photo, name, role, quote, variant, skin, mirror=True)
+    if d == 2:
+        return _quote_hero(photo, name, role, quote, variant, skin)
+    if d == 3:
+        return _quote_center(photo, name, role, quote, variant, skin)
+    if d == 4:
+        return _quote_band(photo, name, role, quote, variant, skin)
+    return _quote_split(photo, name, role, quote, variant, skin, mirror=False)
 
 
 _LAYOUTS = {

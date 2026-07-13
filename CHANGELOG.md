@@ -3,12 +3,22 @@
 All notable changes to the app, most recent first. Dates are when the work landed on
 `feat/create-chip-brief-intake`.
 
+## Quote testimonials get 5 unique designs + neater selected-chat row (2026-07-13)
+- **Design variety (not one fixed layout)**: `_layout_quote` now rotates across **5 distinct testimonial
+  designs** so no two quote posts look the same — (A) quote + large photo card on the right, (B) mirrored
+  (photo left / quote right), (C) full-bleed **photo hero** with a dark scrim + white overlay, (D) centered
+  round-portrait card with the quote centered, and (E) a **photo band** across the top with the quote below.
+  A module counter rotates the design each time (an explicit `variant` still selects one deterministically).
+  Every design keeps the saying **verbatim + auto-fit (never truncated)** and shows the **REAL photo** as-is.
+- **Chat rail**: the selected conversation row now uses the premium pink→purple gradient with crisp white text
+  and a soft glow (was a flat, harsh solid-pink block that read poorly against the design system).
+
 ## Employee quote / testimonial posts — verbatim, any length, never truncated (2026-07-11)
 The marketing team can feature an employee's SAYING and the app renders it faithfully.
 
-- New `quote` layout in `teampost.py`: a two-column testimonial — the saying rendered large on the **left**
-  (big quotation mark + **Name / Role** attribution) and the employee's **REAL photo featured LARGE** on the
-  **right** as a rounded photo card with the accent frame (shown AS-IS, never AI-generated).
+- New `quote` layout in `teampost.py`: a testimonial where the saying is rendered large (big quotation mark +
+  **Name / Role** attribution) alongside the employee's **REAL photo featured LARGE** (shown AS-IS, never
+  AI-generated). *(Superseded 2026-07-13 by the 5-design variety above.)*
 - **Verbatim + auto-fit**: the exact words are rendered (no rewrite/paraphrase) and the font auto-shrinks +
   wraps so the WHOLE quote fits — a short line renders large, a long multi-sentence quote renders smaller but
   **complete, never truncated**. Verified with short and long samples.
