@@ -6,8 +6,9 @@ All notable changes to the app, most recent first. Dates are when the work lande
 ## Employee quote / testimonial posts — verbatim, any length, never truncated (2026-07-11)
 The marketing team can feature an employee's SAYING and the app renders it faithfully.
 
-- New `quote` layout in `teampost.py`: a testimonial card with a big quotation mark, the person's **REAL
-  photo** as a rounded portrait, a **"— Name, Role"** attribution, and the saying rendered as the hero.
+- New `quote` layout in `teampost.py`: a two-column testimonial — the saying rendered large on the **left**
+  (big quotation mark + **Name / Role** attribution) and the employee's **REAL photo featured LARGE** on the
+  **right** as a rounded photo card with the accent frame (shown AS-IS, never AI-generated).
 - **Verbatim + auto-fit**: the exact words are rendered (no rewrite/paraphrase) and the font auto-shrinks +
   wraps so the WHOLE quote fits — a short line renders large, a long multi-sentence quote renders smaller but
   **complete, never truncated**. Verified with short and long samples.
